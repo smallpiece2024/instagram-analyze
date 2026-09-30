@@ -267,6 +267,7 @@ const ACCOUNT_METRICS: MetricSpec[] = [
   { metric: "reach", breakdown: "media_product_type" },
   { metric: "views" },
   { metric: "views", breakdown: "follower_type" },
+  { metric: "views", breakdown: "follow_type" },
   { metric: "views", breakdown: "media_product_type" },
   { metric: "accounts_engaged" },
   { metric: "total_interactions" },
@@ -330,14 +331,21 @@ async function checkAccountInsights(
     const res = await graph.get<InsightsResponse>(path, params);
     rec.track(res);
     const values = res.data?.data?.[0]?.values ?? [];
+    // online_followers は値が「時間帯 → 人数」のオブジェクト。空オブジェクトなら実質取得できていない
+    const emptyObjects = values.filter(
+      (v) => v.value !== null && typeof v.value === "object" && Object.keys(v.value).length === 0,
+    ).length;
+    const usable = values.length > 0 && emptyObjects < values.length;
     rec.add({
       section,
       name: metric,
-      status: res.ok && values.length > 0 ? "ok" : "ng",
+      status: res.ok && usable ? "ok" : "ng",
       note: res.ok
-        ? values.length > 0
+        ? usable
           ? `取得できた（値の件数 ${values.length}）`
-          : "エラーはないが値が空"
+          : values.length > 0
+            ? "エラーはないが値の中身が空"
+            : "エラーはないが値が空"
         : formatGraphError(res.error),
       request: graph.describe(path, params),
       response: res.data,
@@ -376,23 +384,69 @@ async function checkDateRange(graph: GraphClient, igUserId: string, rec: Recorde
     });
   }
 
-  // 保持期間: 91〜120 日前のデータが返るか
-  {
+  // 保持期間: 過去のどこまで遡れるか（30 日幅の窓を過去へずらして確かめる）
+  for (const [metric, endDaysAgo] of [
+    ["reach", 91],
+    ["reach", 180],
+    ["reach", 365],
+    ["reach", 540],
+    ["reach", 700],
+    ["reach", 760],
+    ["follower_count", 31],
+    ["follower_count", 90],
+  ] as const) {
     const params: GraphParams = {
-      metric: "reach",
+      metric,
       period: "day",
-      metric_type: "time_series",
-      since: nowSec() - 120 * DAY,
-      until: nowSec() - 91 * DAY,
+      metric_type: metric === "reach" ? "time_series" : undefined,
+      since: nowSec() - (endDaysAgo + 29) * DAY,
+      until: nowSec() - endDaysAgo * DAY,
     };
     const res = await graph.get<InsightsResponse>(path, params);
     rec.track(res);
     const values = res.data?.data?.[0]?.values ?? [];
+    const nonZero = values.filter((v) => typeof v.value === "number" && v.value !== 0).length;
     rec.add({
       section,
-      name: "91〜120 日前の reach",
+      name: `${metric} の ${endDaysAgo}〜${endDaysAgo + 29} 日前`,
       status: "info",
-      note: res.ok ? `返った日数 ${values.length}（0 なら 90 日より前は取れない）` : formatGraphError(res.error),
+      note: res.ok
+        ? `返った日数 ${values.length}、うち値が 0 でない日数 ${nonZero}`
+        : formatGraphError(res.error),
+      request: graph.describe(path, params),
+      response: res.data,
+    });
+  }
+
+  // total_value の指標を過去の 1 日分だけ取れるか（初回接続時のバックフィルの可否）
+  for (const spec of [
+    { metric: "views" },
+    { metric: "reach", breakdown: "follow_type" },
+    { metric: "accounts_engaged" },
+    { metric: "total_interactions" },
+    { metric: "follows_and_unfollows", breakdown: "follow_type" },
+    { metric: "profile_links_taps", breakdown: "contact_button_type" },
+  ] as MetricSpec[]) {
+    const params: GraphParams = {
+      metric: spec.metric,
+      period: "day",
+      metric_type: "total_value",
+      breakdown: spec.breakdown,
+      since: nowSec() - 181 * DAY,
+      until: nowSec() - 180 * DAY,
+    };
+    const res = await graph.get<InsightsResponse>(path, params);
+    rec.track(res);
+    const total = res.data?.data?.[0]?.total_value;
+    rec.add({
+      section,
+      name: `${specLabel(spec)} の 180 日前の 1 日分`,
+      status: "info",
+      note: res.ok
+        ? total
+          ? `取得できた（値が 0 でない: ${total.value ? "はい" : "いいえ"}）`
+          : "エラーはないが total_value が空"
+        : formatGraphError(res.error),
       request: graph.describe(path, params),
       response: res.data,
     });
