@@ -1,0 +1,16 @@
+# ローカル開発用。Supabase は `npm run db:start`（Supabase CLI）で別に起動する。
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WORKER_OUTPUT_DIR: /app/.local
+    volumes:
+      - ./.local:/app/.local
+    extra_hosts:
+      # コンテナからホストのローカル Supabase（127.0.0.1:54321）へ接続するため
+      - "host.docker.internal:host-gateway"

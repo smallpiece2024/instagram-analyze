@@ -1,0 +1,21 @@
+# 依存関係・ビルド成果物
+node_modules/
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# 秘密情報（公開リポジトリのため、実値は絶対にコミットしない）
+.env
+.env.*
+!.env.example
+
+# ワーカーの出力（取得データを含むため Git 管理外。NF-SEC-07）
+.local/
+
+# ログ・OS・エディタ
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
