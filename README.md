@@ -81,6 +81,9 @@ npm run worker:check-env
    - `pages_show_list`
    - `pages_read_engagement`
 2. ルートの `.env.example` を `.env` にコピーし、`META_ACCESS_TOKEN` にトークンを入れる。`META_APP_ID` と `META_APP_SECRET` も入れると、トークンの種類と有効期限も調べられる。
+   - ページアクセストークンも使える。その場合は `IG_USER_ID` に Instagram アカウントの数値の ID を入れる（ユーザー名ではない）。ページトークンは、Instagram アカウントを接続した Facebook ページのものを使う。
+   - 期限のないページトークンは、長期ユーザートークン（約 60 日）で `me/accounts?fields=name,access_token,instagram_business_account{id,username}` を実行して得る。短期ユーザートークンから作ったページトークンは約 1 時間で切れる。
+   - 期限のないトークンでも「データアクセス期限」（約 90 日）があり、過ぎるとアプリの再承認が必要になる。
 3. 検証を実行する。
 
 ```bash
