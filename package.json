@@ -1,0 +1,23 @@
+{
+  "name": "instagram-analyze",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "db:reset": "supabase db reset",
+    "dev:web": "npm run dev -w web",
+    "build:web": "npm run build -w web",
+    "lint:web": "npm run lint -w web",
+    "build:worker": "npm run build -w worker",
+    "worker:image": "docker compose build worker",
+    "worker:check-env": "docker compose run --rm worker check-env",
+    "worker:verify-api": "docker compose run --rm worker verify-api"
+  },
+  "devDependencies": {
+    "supabase": "2.118.0"
+  }
+}
