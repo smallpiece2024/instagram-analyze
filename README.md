@@ -71,6 +71,29 @@ npm run worker:check-env
 
 `結果: OK` と出れば、動画解析に必要な環境が揃っている。
 
+ワーカーは Docker 内で `node` ユーザー（非 root）として動く。ローカル出力先 `.local/` 自体は書けるが、以前の root 時代のイメージが作った配下のディレクトリは書けないことがある。`permission denied` が出たら、一度だけ次で権限を直す。
+
+```bash
+docker compose run --rm --user root --entrypoint sh worker -c "chmod 777 /app/.local/api-verification"
+```
+
+### トークンの登録（R1）
+
+収集ジョブは `.env` のトークンを直接使わず、ローカル DB（Supabase Vault）に登録したトークンを使う。`.env` に次を設定してから登録する。
+
+| 変数 | 内容 |
+|---|---|
+| `META_ACCESS_TOKEN` | 期限のないページアクセストークン（下の「Meta API の検証」を参照） |
+| `IG_USER_ID` | Instagram アカウントの数値 ID |
+| `META_APP_ID`、`META_APP_SECRET` | Meta アプリの ID とシークレット（`debug_token` で期限と権限を調べるのに必須） |
+| `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` | ローカルの Supabase への接続先（`.env.example` の値。キーは `npm run db:status` の `service_role` の値） |
+
+```bash
+npm run worker:register-token
+```
+
+種類、有効期限、データアクセス期限の残り日数、権限が表示される。同じトークンで何度実行しても結果は同じで、新しいトークンに差し替えるときも同じコマンドを使う。登録が済めば `.env` の `META_ACCESS_TOKEN` は消してよい（`verify-api` を使うときだけ要る）。
+
 ## Meta API の検証
 
 要件定義の F-COL-00 に従い、Meta API で実際に何が取れるかを自分のアカウントで確かめる。
@@ -78,9 +101,9 @@ npm run worker:check-env
 1. アクセストークンを用意する。[Graph API エクスプローラ](https://developers.facebook.com/tools/explorer/) で自分の Meta アプリを選び、次の権限を付けてユーザーアクセストークンを発行する。
    - `instagram_basic`
    - `instagram_manage_insights`
-   - `pages_show_list`
    - `pages_read_engagement`
-2. ルートの `.env.example` を `.env` にコピーし、`META_ACCESS_TOKEN` にトークンを入れる。`META_APP_ID` と `META_APP_SECRET` も入れると、トークンの種類と有効期限も調べられる。
+   - `pages_show_list`（ページトークンを `me/accounts` で得るときだけ要る。収集では使わない）
+2. ルートの `.env.example` を `.env` にコピーし、`META_ACCESS_TOKEN` にトークンを入れる。`META_APP_ID` と `META_APP_SECRET` も入れると、トークンの種類と有効期限も調べられる。`DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` も入れると、DB と Storage の接続も検証する。
    - ページアクセストークンも使える。その場合は `IG_USER_ID` に Instagram アカウントの数値の ID を入れる（ユーザー名ではない）。ページトークンは、Instagram アカウントを接続した Facebook ページのものを使う。
    - 期限のないページトークンは、長期ユーザートークン（約 60 日）で `me/accounts?fields=name,access_token,instagram_business_account{id,username}` を実行して得る。短期ユーザートークンから作ったページトークンは約 1 時間で切れる。
    - 期限のないトークンでも「データアクセス期限」（約 90 日）があり、過ぎるとアプリの再承認が必要になる。
@@ -94,8 +117,8 @@ npm run worker:verify-api
 
 | ファイル | 内容 | 扱い |
 |---|---|---|
-| `verify-api-*.json` | API のレスポンスを含む詳細 | 自分のデータを含む。Git 管理外 |
-| `verify-api-*.md` | 取得できた項目、できなかった項目の要約。ID や指標の値は含まない | `doc/` に転記してよい |
+| `verify-api-*.json` | API のレスポンスを含む詳細（署名付き URL とページングの URL は `<omitted>` に置き換える） | 自分のデータを含む。Git 管理外 |
+| `verify-api-*.md` | 取得できた項目、できなかった項目の要約。ID、指標の値、URL は含まない（10 桁以上の数字と URL は伏せる） | `doc/` に転記してよい |
 
 ストーリーズの検証は、公開中（投稿から 24 時間以内）のストーリーズがあるときだけ行われる。
 
@@ -105,8 +128,9 @@ npm run worker:verify-api
 |---|---|
 | `npm run lint:web` | Web アプリの lint |
 | `npm run build:web` | Web アプリのビルド |
-| `npm run test -w worker` | ワーカーの単体テスト |
+| `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す） |
 | `npm run typecheck -w worker` | ワーカーの型チェック |
+| `npm run worker:job -- <command>` | ワーカーのコマンドを 1 回実行する（例: `npm run worker:job -- register-token`） |
 | `npm run db:reset` | ローカル DB を作り直し、マイグレーションを適用し直す |
 
 ## DB

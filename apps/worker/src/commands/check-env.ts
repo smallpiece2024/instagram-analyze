@@ -7,6 +7,7 @@ import {
   probeVideo,
   toolVersion,
 } from "../lib/ffmpeg.js";
+import { TMP_DIR_PREFIX } from "../jobs/framework.js";
 
 /** カットのタイミングの許容誤差（ミリ秒）。30fps の 1 フレーム強 */
 const TOLERANCE_MS = 40;
@@ -31,7 +32,7 @@ export async function checkEnv(): Promise<boolean> {
     .slice(0, -1)
     .reduce<number[]>((acc, s) => [...acc, (acc.at(-1) ?? 0) + s.durationMs], []);
 
-  const dir = await mkdtemp(join(tmpdir(), "worker-check-"));
+  const dir = await mkdtemp(join(tmpdir(), `${TMP_DIR_PREFIX}check-`));
   try {
     const video = join(dir, "test.mp4");
     await generateColorTestVideo(video, segments);

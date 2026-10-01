@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 |---|---|
 | 最終更新 | 2026-10-01 |
-| 現在地 | **R0 完了。次は R1（収集基盤）** |
+| 現在地 | **R1 の段階 1（ワーカーの土台と実機検証）が完了。次は段階 2（収集ジョブ A〜E の並列実装）** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -15,7 +15,7 @@
 | リリース | 内容 | 状況 |
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
-| R1 | 収集基盤（ローカル） | 未着手。次に着手する |
+| R1 | 収集基盤（ローカル） | 進行中。DB 設計とマイグレーション、ワーカーの土台（段階 1）まで完了（2026-10-01）。次は収集ジョブ（段階 2） |
 | R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 未着手 |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | 未着手。R1 の収集が動き始めたら着手してよい。R2 と並行可。R3 の前に終える |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | 未着手 |
@@ -61,8 +61,10 @@
 
 - `.env`（Git 管理外）に、期限のない **ページアクセストークン**、Instagram アカウントの数値 ID（`IG_USER_ID`）、Meta アプリの ID とシークレットを設定済み。
 - トークンの **データアクセス期限は 2026-12-29 ごろ**（2026-09-30 時点で残り約 90 日）。過ぎるとアプリの再承認が必要。R1 で期限の表示と通知を作る。
+- `.env` に `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（ローカルの Supabase CLI の既定値）も追加済み（2026-10-01）。
+- ローカル DB に `register-token` でページトークンを登録済み（`accounts`、`private.credentials`、Vault に 1 件ずつ。`status = valid`）。収集ジョブはこれを使い、`.env` のトークンは `register-token` と `verify-api` だけが読む。
 - `apps/web/.env.local`（Git 管理外）に、ローカル Supabase の URL と publishable key を設定済み。
-- ワーカーの実行結果は `.local/`（Git 管理外）に出る。自分のデータを含むので、コミットしないこと。
+- ワーカーの実行結果は `.local/`（Git 管理外）に出る。自分のデータを含むので、コミットしないこと。ワーカーは非 root（`node`）で動くので、root 時代に作られた `.local` 配下のディレクトリは README の手順で権限を直す。
 
 ### 再開の手順
 
@@ -73,6 +75,9 @@ npm run dev:web             # http://localhost:3000
 npm run worker:image        # ワーカーのイメージを作り直す（ワーカーのコードを変えたとき）
 npm run worker:check-env    # ffmpeg の動作確認
 npm run worker:verify-api   # Meta API の検証（トークンの有効性の確認にも使える）
+npm run worker:register-token   # .env のトークンを DB（Vault）に登録（冪等）
+npm run worker:job -- <command> # ワーカーのコマンドを 1 回実行
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test -w worker   # 結合テスト込み
 ```
 
 ## 4. 次にやること（R1: 収集基盤）
@@ -87,11 +92,12 @@ npm run worker:verify-api   # Meta API の検証（トークンの有効性の�
    - アカウント、認証情報、プロフィールの日次記録、アカウント日次指標、投稿、投稿指標のスナップショット、ストーリーズ、API の生レスポンス、ジョブの実行記録、指標の定義
    - 指標は JSON 型の列か縦持ちかを決める（要件 5.1 章の末尾）
    - 日次指標の日付は API の日付（太平洋時間）で持つ
-2. **ワーカーの収集ジョブ**（要件 5.2 章のスケジュール）。**次はここから**
-   - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.2）を作成。backend-architect が起草し、security-engineer と quality-engineer のレビュー（高 9 件、中 20 件、低 29 件）を反映済み。11.2 章の Q1〜Q9 は回答済み（Q3 ストーリーズのサムネイルは保存する。他は設計書の案のとおり）
-   - 決めたこと: Postgres 直結（postgres.js、`max: 2`）、Vault からトークンを読む、コンテナ常駐のスケジューラ（毎時 5 分と JST 05:30）、生レスポンスからトークンと署名付き URL を除く、ログは秘密情報をマスクしたメッセージだけ
-   - 回答後の進め方: 段階 1（土台 + `verify-api` の P1〜P12 の実機確認）→ 段階 2（A〜E を同じ作業ツリーでファイルを分担して並列）→ 段階 3（統合と 3 日間の実機確認）。設計書 10.3 章と 10.4 章
-   - P2（動画ストーリーズのダウンロード）は、ユーザーに動画ストーリーズを 1 本投稿してもらってから確かめる
+2. **ワーカーの収集ジョブ**（要件 5.2 章のスケジュール）。**段階 1 が完了。次は段階 2 から**
+   - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.3）。backend-architect が起草し、security-engineer と quality-engineer のレビューを反映。11.2 章の Q1〜Q9 は回答済み（Q3 ストーリーズのサムネイルは保存する。他は設計書の案のとおり）。段階 1 で確定・変更した事項は 13 章
+   - 決めたこと: Postgres 直結（postgres.js、`max: 2`）、Vault からトークンを読む、コンテナ常駐のスケジューラ（毎時 5 分と JST 05:30）、生レスポンスからトークンと署名付き URL を除く、ログは秘密情報をマスクしたメッセージだけ、トークンは Bearer ヘッダで送る
+   - 進め方: 段階 1（土台 + `verify-api` の P1〜P12 の実機確認）→ 段階 2（A〜E を同じ作業ツリーでファイルを分担して並列）→ 段階 3（統合と 3 日間の実機確認）。設計書 10.3 章と 10.4 章
+   - **段階 1 完了（2026-10-01）**: `config.ts`、`lib/{graph,log,time,download}.ts`、`jobs/{rate,graph-client,framework}.ts`、`db/{types,client,accounts,job-runs,raw}.ts`、`commands/register-token.ts`、`index.ts`、Dockerfile（`deps` 段階、非 root）、`.env.example`。テスト 278 件（結合 60 件程度を含む）。セキュリティと品質のレビュー（前半・後半の 4 本）を反映済み。`verify-api` の P1〜P12 を実機で実行し、結果は `doc/verification/r0-meta-api-verification.md` の 4 章（P2 の動画ストーリーズは `media_url` が返らず、P9 のカルーセルは未検証）
+   - 段階 2 の担当 A〜E は設計書 10.3 章の表のとおり。`JobContext` の `recordFailure` と `mask`、`begin` の中で API を呼ばない、`TMP_DIR_PREFIX` を使う、などの申し送りは設計書 13.3 章と `jobs/framework.ts` の doc コメント
    - プロフィール日次、アカウント日次指標（直近 3 日を上書き、1 日 1 リクエスト）、follower_count
    - 投稿一覧の同期、投稿指標のスナップショット（1 時間ごと → 1 日 1 回 → 週 1 回 → 月 1 回）
    - ストーリーズの 1 時間ごとの取得と、動画ストーリーズの長さとカットの解析（F-COL-23）
@@ -147,3 +153,4 @@ npm run worker:verify-api   # Meta API の検証（トークンの有効性の�
 - 公開リポジトリなので、秘密情報、取得データ、アカウントの ID やユーザー名をコミットしない（要件 NF-SEC-06、NF-SEC-07）。
 - Next.js 16 は従来と API が違うので、コードを書く前に `node_modules/next/dist/docs/` を読む（`apps/web/AGENTS.md`）。
 - AI や有料 OCR を使う前に、`doc/ai-decisions/` に検討メモを書いてユーザーの了承を得る（要件 8.7 章）。
+
