@@ -92,7 +92,49 @@ docker compose run --rm --user root --entrypoint sh worker -c "chmod 777 /app/.l
 npm run worker:register-token
 ```
 
-種類、有効期限、データアクセス期限の残り日数、権限が表示される。同じトークンで何度実行しても結果は同じで、新しいトークンに差し替えるときも同じコマンドを使う。登録が済めば `.env` の `META_ACCESS_TOKEN` は消してよい（`verify-api` を使うときだけ要る）。
+種類、有効期限、データアクセス期限の残り日数、権限が表示される。同じトークンで何度実行しても結果は同じで、新しいトークンに差し替えるときも同じコマンドを使う。**登録が済んだら `.env` から `META_ACCESS_TOKEN` と `IG_USER_ID` を消す**（常駐コンテナの環境変数に不要なトークンを渡さない。ジョブは DB のトークンだけを使う。`verify-api` を使うときだけ一時的に戻す）。
+
+### 収集の常駐（R1）
+
+ワーカーのコンテナを常駐させると、毎時 `WORKER_HOURLY_MINUTE` 分（既定 5 分）に hourly グループ、毎日 JST `WORKER_DAILY_TIME_JST`（既定 05:30）に daily グループを同じプロセス内で順に実行する。設定は `.env`（`.env.example` を参照）。コンテナの再起動や PC の復帰で予定の時刻を過ぎていても、その時間帯（その日）の分を 1 回だけ実行する。PC のスリープ中は止まる。
+
+```bash
+npm run worker:up      # 常駐を開始（docker compose up -d worker）
+npm run worker:logs    # ログを追う（Ctrl-C で抜ける。常駐は止まらない）
+npm run worker:down    # 常駐を止める（実行中のジョブを終えてから止まる。最大 10 分待つ）
+```
+
+コンテナはルートファイルシステムが読み取り専用（`read_only`）で、書けるのは `/tmp`（tmpfs、512MB。動画の一時ファイル。強制終了してもホストに残らない）と `.local`（bind）だけ。権限昇格の禁止、capability の全削除、プロセス数とメモリ（1GB）の上限も `docker-compose.yml` で掛けている。
+
+| グループ | 順番 | 内容 |
+|---|---|---|
+| hourly | `stories` → `media-sync` → `media-snapshot` → `account-backfill` | ストーリーズ（24 時間で消えるので最優先）→ 投稿一覧の差分 → 投稿指標のスナップショット → 日次指標の 2 年分のバックフィル（レート制限に余裕があるときだけ進む） |
+| daily | `token-check` → `profile-daily` → `account-daily` → `media-sync --full` | トークンの期限と権限の確認 → プロフィールの日次記録 → アカウント日次指標の直近 4 日と follower_count → 投稿一覧の全件同期（消えた投稿の検出） |
+
+ジョブを 1 回だけ動かすには `npm run worker:job -- <command>` を使う（常駐と同時に動かしても、同じジョブは二重に走らない）。
+
+```bash
+npm run worker:job -- media-sync --full      # 投稿一覧を全ページ読み、消えた投稿を検出する
+npm run worker:job -- account-daily --days 7 # 日次指標を直近 7 日分取り直す
+npm run worker:job -- run-hourly             # hourly グループを 1 回
+npm run worker:job                           # 引数なしでコマンドの一覧
+```
+
+**ログの見方**: 1 ジョブにつき 1 行（`job=`、`status=`、`items=`、`calls=`、`failures=`、`duration_ms=`、`rate=`）。`status` は `success`、`partial`（一部の項目が失敗。次の実行で埋まる）、`failed`、`skipped`（レート制限で見送り、または同じジョブが実行中）。`worker:job` の終了コードは `failed` があれば 1、それ以外は 0。失敗の行には `error_code=`（Graph API のコードか SQLSTATE）と `class=` が付く。エラーメッセージの全文（秘密情報はマスク済み）は `WORKER_LOG_LEVEL=debug` のときだけ出る。**GitHub Actions など公開されるログでは `debug` にしない。** 実行記録は `job_runs` テーブルにも残る（Supabase Studio の `job_latest_runs` ビューで最新を確認できる）。
+
+**バックフィルのやり直し**: 完了した `account-backfill` は `job_state` を見て動かない。最初からやり直すには、次を実行すると次の実行で前日から始まる（すべて upsert なので既存の行は上書きされるだけ）。
+
+```sql
+delete from public.job_state where job_name = 'account_backfill' and account_id = '<accounts.id>';
+```
+
+**接続解除時のサムネイルの削除**: `accounts` の行を消しても Storage のサムネイルは残るので、次で消す（`<accounts.id>` は内部の uuid）。接続画面からの解除は後のリリースで作る。
+
+```sql
+delete from storage.objects where bucket_id = 'thumbnails' and name like '<accounts.id>/%';
+```
+
+**注意**: ローカルの Supabase のポート（54321〜54324）を LAN に公開しない。サービスロールキーと DB パスワードの既定値が公知のため、同じネットワークから DB と Storage を読み書きできてしまう。
 
 ## Meta API の検証
 
@@ -128,9 +170,11 @@ npm run worker:verify-api
 |---|---|
 | `npm run lint:web` | Web アプリの lint |
 | `npm run build:web` | Web アプリのビルド |
-| `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す） |
+| `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す）。Storage の結合テストが使うサービスロールキーの既定値は Supabase CLI の公知のローカル用の値で、秘密ではない |
 | `npm run typecheck -w worker` | ワーカーの型チェック |
+| `npm run build:worker` | ワーカーのビルド（`apps/worker/dist/`。Docker を使わずに `node apps/worker/dist/index.js` で動かすときに使う） |
 | `npm run worker:job -- <command>` | ワーカーのコマンドを 1 回実行する（例: `npm run worker:job -- register-token`） |
+| `npm run worker:up` / `worker:down` / `worker:logs` | 収集の常駐の開始、停止、ログ |
 | `npm run db:reset` | ローカル DB を作り直し、マイグレーションを適用し直す |
 
 ## DB

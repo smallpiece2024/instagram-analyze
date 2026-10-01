@@ -657,6 +657,40 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/framework（結合）", () => {
     expect(logText()).not.toContain("127.0.0.1");
   });
 
+  it("runJobsForActiveAccounts は partial と skipped を失敗に数えず true（failed だけ false。設計 1.1 章）", async () => {
+    // partial: 1 件書けて 1 件失敗
+    replies.push(ok({ id: "1" }));
+    const partial = await runJobsForActiveAccounts(
+      job("media_sync", async (ctx) => {
+        await ctx.graph.get("x/media", { fields: "id" });
+        ctx.progress.items += 1;
+        ctx.recordFailure({ errorClass: "fatal", code: 100, message: "1 件失敗" });
+      }),
+      { ...deps, listAccounts: async () => [account] },
+    );
+    expect(partial).toBe(true);
+    expect((await runsFor("media_sync")).at(-1)?.status).toBe("partial");
+    expect(logText()).toMatch(/WARN {2}job=media_sync account=1\/1 status=partial .* error_code=100 class=fatal$/m);
+
+    // skipped: shouldRun が false
+    expect(
+      await runJobsForActiveAccounts(job("media_sync", async () => {}, { shouldRun: async () => false }), {
+        ...deps,
+        listAccounts: async () => [account],
+      }),
+    ).toBe(true);
+
+    // failed: 予期しない例外
+    expect(
+      await runJobsForActiveAccounts(
+        job("media_sync", async () => {
+          throw new Error("予期しない例外");
+        }),
+        { ...deps, listAccounts: async () => [account] },
+      ),
+    ).toBe(false);
+  });
+
   it("ジョブが Error でない値を投げても failed で記録される", async () => {
     const outcome = await runJob(
       job("profile_daily", async () => {

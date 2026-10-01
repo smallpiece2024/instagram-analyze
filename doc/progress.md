@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 |---|---|
 | 最終更新 | 2026-10-01 |
-| 現在地 | **R1 の段階 1（ワーカーの土台と実機検証）が完了。次は段階 2（収集ジョブ A〜E の並列実装）** |
+| 現在地 | **R1 の収集ワーカーが完成し、ローカルで常駐を開始（2026-10-01 深夜）。3 日間の実機確認中。次は Facebook Login の接続画面と最小限の画面** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -15,7 +15,7 @@
 | リリース | 内容 | 状況 |
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
-| R1 | 収集基盤（ローカル） | 進行中。DB 設計とマイグレーション、ワーカーの土台（段階 1）まで完了（2026-10-01）。次は収集ジョブ（段階 2） |
+| R1 | 収集基盤（ローカル） | 進行中。DB、ワーカー（7 ジョブとスケジューラ）まで完了し、2026-10-01 深夜から 3 日間の実機確認中。残りは Facebook Login の接続画面（F-COL-01）と最小限の画面（F-UI-01〜03） |
 | R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 未着手 |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | 未着手。R1 の収集が動き始めたら着手してよい。R2 と並行可。R3 の前に終える |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | 未着手 |
@@ -62,7 +62,8 @@
 - `.env`（Git 管理外）に、期限のない **ページアクセストークン**、Instagram アカウントの数値 ID（`IG_USER_ID`）、Meta アプリの ID とシークレットを設定済み。
 - トークンの **データアクセス期限は 2026-12-29 ごろ**（2026-09-30 時点で残り約 90 日）。過ぎるとアプリの再承認が必要。R1 で期限の表示と通知を作る。
 - `.env` に `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（ローカルの Supabase CLI の既定値）も追加済み（2026-10-01）。
-- ローカル DB に `register-token` でページトークンを登録済み（`accounts`、`private.credentials`、Vault に 1 件ずつ。`status = valid`）。収集ジョブはこれを使い、`.env` のトークンは `register-token` と `verify-api` だけが読む。
+- ローカル DB に `register-token` でページトークンを登録済み（`accounts`、`private.credentials`、Vault に 1 件ずつ。`status = valid`）。収集ジョブはこれを使い、`.env` のトークンは `register-token` と `verify-api` だけが読む。README の手順どおり `.env` の `META_ACCESS_TOKEN` と `IG_USER_ID` は消してよい（`verify-api` を使うときだけ戻す）。
+- 常駐のワーカーは `npm run worker:up` で起動中（2026-10-01 深夜）。止めるときは `npm run worker:down`、ログは `npm run worker:logs`。PC のスリープ中は止まるので、3 日間の確認中はスリープを切る（要件 Q7）。
 - `apps/web/.env.local`（Git 管理外）に、ローカル Supabase の URL と publishable key を設定済み。
 - ワーカーの実行結果は `.local/`（Git 管理外）に出る。自分のデータを含むので、コミットしないこと。ワーカーは非 root（`node`）で動くので、root 時代に作られた `.local` 配下のディレクトリは README の手順で権限を直す。
 
@@ -92,7 +93,11 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
    - アカウント、認証情報、プロフィールの日次記録、アカウント日次指標、投稿、投稿指標のスナップショット、ストーリーズ、API の生レスポンス、ジョブの実行記録、指標の定義
    - 指標は JSON 型の列か縦持ちかを決める（要件 5.1 章の末尾）
    - 日次指標の日付は API の日付（太平洋時間）で持つ
-2. **ワーカーの収集ジョブ**（要件 5.2 章のスケジュール）。**段階 1 が完了。次は段階 2 から**
+2. **ワーカーの収集ジョブ**（要件 5.2 章のスケジュール）。**段階 1〜3 が完了（2026-10-01）。3 日間の実機確認中**
+   - **段階 2・3 完了（2026-10-01 深夜）**: 7 ジョブ（`token_check`、`profile_daily`、`account_daily`、`account_backfill`、`media_sync`、`media_snapshot`、`stories`）、グループ（`run-hourly`、`run-daily`）、常駐の `schedule`、compose の常駐設定と硬化（`read_only`、`tmpfs`、非 root）。テスト 579 件。セキュリティと品質のレビュー（段階 2〜3 で各 1 本）を反映済み。設計から変えた点は設計書 13 章
+   - 実機: `run-daily` と `run-hourly` を手で流し、投稿 24 件（サムネイル 24 枚）、スナップショット 24 件、日次指標は 8 月 1 日まで（バックフィル継続中）、`online_followers` は取れる日だけ、生レスポンスとエラー文に秘密や URL の混入なし
+   - `online_followers` はユーザー指示（2026-10-01）で収集対象に入れた（空の日は何も書かない）
+   - 3 日間の確認で見ること: 設計書 9.3 章。終わったら `job_runs` の `skipped`/`failed`/`partial` の理由、`warn` の `unsupported=`/`unexpected=`、`no_video_url` の割合（F-COL-23 の見直し）、`raw_api_responses` の増え方（保存期間の判断）を記録する
    - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.3）。backend-architect が起草し、security-engineer と quality-engineer のレビューを反映。11.2 章の Q1〜Q9 は回答済み（Q3 ストーリーズのサムネイルは保存する。他は設計書の案のとおり）。段階 1 で確定・変更した事項は 13 章
    - 決めたこと: Postgres 直結（postgres.js、`max: 2`）、Vault からトークンを読む、コンテナ常駐のスケジューラ（毎時 5 分と JST 05:30）、生レスポンスからトークンと署名付き URL を除く、ログは秘密情報をマスクしたメッセージだけ、トークンは Bearer ヘッダで送る
    - 進め方: 段階 1（土台 + `verify-api` の P1〜P12 の実機確認）→ 段階 2（A〜E を同じ作業ツリーでファイルを分担して並列）→ 段階 3（統合と 3 日間の実機確認）。設計書 10.3 章と 10.4 章

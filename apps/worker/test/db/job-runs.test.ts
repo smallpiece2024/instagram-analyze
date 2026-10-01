@@ -8,6 +8,7 @@ import {
   finishJobRun,
   getJobState,
   latestRateUsage,
+  latestStartedAt,
   setJobState,
   startJobRun,
   tryLock,
@@ -226,6 +227,57 @@ describe.skipIf(!TEST_DATABASE_URL)("db/job-runs（結合）", () => {
     expect(latest?.call_count).not.toBe(888);
     // since をこの行だけが満たす時刻にすると、何も返らない
     expect(await latestRateUsage(db, new Date(base + 9 * 3_600_000))).toBeUndefined();
+  });
+
+  it("latestRateUsage は until より未来に終わった行を返さず（until は含む）、until を省略すれば従来どおり最新を返す", async () => {
+    const base = Date.now();
+    const past: RateUsage = { call_count: 31, total_cputime: 3, total_time: 3 };
+    const future: RateUsage = { call_count: 77, total_cputime: 7, total_time: 7 };
+    const pastId = await startJobRun(db, "profile_daily", accountId);
+    await finishJobRun(db, pastId, { status: "success", items_fetched: 1, api_calls: 2, rate_usage: past });
+    const futureId = await startJobRun(db, "profile_daily", accountId);
+    await finishJobRun(db, futureId, { status: "success", items_fetched: 1, api_calls: 2, rate_usage: future });
+    // 他のテスト（最大で base + 10 時間）より新しくし、順序を決める
+    const pastAt = new Date(base + 20 * 3_600_000);
+    const futureAt = new Date(base + 21 * 3_600_000);
+    await db`update public.job_runs set finished_at = ${pastAt} where id = ${pastId}`;
+    await db`update public.job_runs set finished_at = ${futureAt} where id = ${futureId}`;
+    const since = new Date(base + 19 * 3_600_000);
+
+    // until（ジョブの開始時刻）より未来の行は使わない
+    expect(await latestRateUsage(db, since, new Date(base + 20.5 * 3_600_000))).toEqual(past);
+    // until ちょうどは含む
+    expect(await latestRateUsage(db, since, pastAt)).toEqual(past);
+    // since〜until に行がなければ undefined
+    expect(await latestRateUsage(db, since, new Date(base + 19.5 * 3_600_000))).toBeUndefined();
+    // 省略すれば従来どおり最新
+    expect(await latestRateUsage(db, since)).toEqual(future);
+  });
+
+  it("latestStartedAt は行がなければ undefined、複数行なら最新の started_at（アカウントで絞らない）", async () => {
+    // 行なし: トランザクションの中でそのジョブ名の行を消して確かめ、ロールバックする（他のテストや実データに影響しない）
+    await expect(
+      db.begin(async (tx) => {
+        await tx`delete from public.job_runs where job_name = 'account_backfill'`;
+        // latestStartedAt はタグ付きテンプレートのクエリを 1 回行うだけなので、トランザクションの接続でも動く
+        expect(await latestStartedAt(tx as unknown as Db, "account_backfill")).toBeUndefined();
+        throw new Error("rollback");
+      }),
+    ).rejects.toThrow("rollback");
+
+    // 複数行: 他のテストの行（started_at は現在時刻）より未来にずらして、最新がどれかを決める
+    const base = Date.now();
+    const olderAt = new Date(base + 30 * 3_600_000);
+    const newerAt = new Date(base + 31 * 3_600_000);
+    const olderId = await startJobRun(db, "stories", accountId);
+    const newerId = await startJobRun(db, "stories", accountId);
+    await finishJobRun(db, olderId, { status: "success", items_fetched: 0, api_calls: 0 });
+    await finishJobRun(db, newerId, { status: "skipped", items_fetched: 0, api_calls: 0, error: "同じジョブが実行中" });
+    await db`update public.job_runs set started_at = ${olderAt} where id = ${olderId}`;
+    await db`update public.job_runs set started_at = ${newerAt} where id = ${newerId}`;
+    expect(await latestStartedAt(db, "stories")).toEqual(newerAt);
+    // 別のジョブ名の行は見ない
+    expect((await latestStartedAt(db, "media_sync"))?.getTime() ?? 0).toBeLessThan(olderAt.getTime());
   });
 
   it("同じセッションでは tryLock が再入でき（2 回とも true）、unlock も同じ回数要る", async () => {
