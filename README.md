@@ -113,6 +113,18 @@ npm run worker:verify-api
 
 テーブル設計は `doc/design/r1-db-design.md`、マイグレーションは `supabase/migrations/` にある。ローカルの DB にはユーザーの実データが入るので、ダンプやエクスポートをコミットしない。
 
+## Claude Code のサブエージェントとスキル
+
+このリポジトリの `.claude/agents/` に、外部由来のエージェント定義（MIT。出所と改変はファイル先頭、許諾文は `.claude/agents/LICENSES/`）を置いている。
+
+Supabase 公式のスキル 2 本は、ファイルはコピーせず、公式プラグインとして `.claude/settings.json` に登録している（`extraKnownMarketplaces` と `enabledPlugins`）。このリポジトリで Claude Code を初めて開くと、マーケットプレイスの追加とプラグインの導入を求められるので承認する。手で入れる場合は次のとおり。
+
+```bash
+claude plugin marketplace add supabase/agent-skills
+claude plugin install supabase@supabase-agent-skills --scope project
+claude plugin install postgres-best-practices@supabase-agent-skills --scope project
+```
+
 ## 注意（公開リポジトリ）
 
 このリポジトリは公開している。次のものは絶対にコミットしない。
