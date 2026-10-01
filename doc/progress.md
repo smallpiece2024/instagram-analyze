@@ -4,8 +4,8 @@
 
 | 項目 | 内容 |
 |---|---|
-| 最終更新 | 2026-10-01 |
-| 現在地 | **R1 の収集ワーカーが完成し、ローカルで常駐を開始（2026-10-01 深夜）。3 日間の実機確認中。次は Facebook Login の接続画面と最小限の画面** |
+| 最終更新 | 2026-10-02 |
+| 現在地 | **R1 の収集ワーカーは常駐中（3 日間の実機確認中）。Web の最小限の画面 3 つと Facebook Login の接続画面を実装・レビュー済み。次は接続の実機確認（`/connect` から Meta に接続して登録される）と、3 日間の確認の結果の記録** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -15,7 +15,7 @@
 | リリース | 内容 | 状況 |
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
-| R1 | 収集基盤（ローカル） | 進行中。DB、ワーカー（7 ジョブとスケジューラ）まで完了し、2026-10-01 深夜から 3 日間の実機確認中。残りは Facebook Login の接続画面（F-COL-01）と最小限の画面（F-UI-01〜03） |
+| R1 | 収集基盤（ローカル） | 仕上げ中。DB、ワーカー（7 ジョブとスケジューラ）、最小限の画面、Facebook Login の接続画面まで実装済み（2026-10-02）。残りは接続の実機確認と、3 日間の収集確認（2026-10-01 深夜開始）の結果の記録 |
 | R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 未着手 |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | 未着手。R1 の収集が動き始めたら着手してよい。R2 と並行可。R3 の前に終える |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | 未着手 |
@@ -110,10 +110,14 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
    - 初回のバックフィル（日次指標 2 年分を数日に分けて、中断しても再開できるように）
    - 生レスポンスの保存、ジョブの実行記録、再試行、レート制限の監視、NULL と 0 の区別
    - ローカルでの定期実行の方法（ワーカーコンテナ内のスケジューラなど）
-3. **Meta との接続**
-   - まずは `.env` のページトークンで収集を動かしてよい。Facebook Login による接続画面（F-COL-01）とトークンの DB 保存は R1 の中で作る
-   - トークンの有効期限とデータアクセス期限の記録と表示（F-COL-02、F-COL-03）
-4. **最小限の画面**（接続状態、収集ログ、投稿の簡易一覧）。見た目は簡素でよい。R2.5 で決めたデザインで R3 に作り直す
+3. **Meta との接続**（F-COL-01〜03）。**実装済み（2026-10-02）。実機確認は未了**
+   - 設計は `doc/design/r1-web-screens.md`（版 0.2。セキュリティ・品質・Next.js 16 照合のレビューを反映）。`/connect` → `POST /api/meta/login`（303）→ Meta の認可 → `GET /api/meta/callback` → トークン交換（POST 本文）→ `me/accounts` → ページトークンを `debug_token` で確認 → Vault に登録
+   - Meta アプリ側: Facebook ログインの製品を追加し、OAuth ログインを有効にするだけ。**戻り先 `http://localhost:3000/api/meta/callback` は登録不要**（開発モードでは `http://localhost` が自動許可。`127.0.0.1` は HTTPS 必須。要件 C2 は解決）
+   - 次回: `npm run dev:web` → ブラウザで `http://localhost:3000/connect`（`localhost` で開く。`127.0.0.1` だと Origin 不一致で 403）→「Meta と接続する」→ 結果の文言を確認。確認項目は設計書 4.4 章（トークン交換が POST で通るか、`result=ok`、`private.credentials` の更新、`token-check` が `valid`）。POST が通らなければ設計 2.1 章の GET への戻しを判断
+4. **最小限の画面**（F-UI-01〜03）。**実装済み（2026-10-02）**
+   - `/`（接続状態と再接続の帯）、`/jobs`（収集ログ。`?job=` で絞り込み）、`/media`（投稿一覧。署名付き URL のサムネイル、50 件ずつ）。Server Components のみ、Postgres 直結（`apps/web/.env.local` の `DATABASE_URL` など。`.env.example` を参照）。`next dev` は `127.0.0.1` だけで待ち受け、`proxy.ts` で Host を検査
+   - テスト: Web 単体と結合（`TEST_DATABASE_URL` 付き）、`npm run typecheck -w web`、`npm run build:web`（全ルート `ƒ`）。実データで 3 画面の表示を確認済み
+   - R3 で R2.5 のデザインに作り直す。R2 でログイン必須にし、Web 用の DB ロールを作る（設計書 12 章）
 
 ### サブエージェントの導入（2026-10-01）
 
