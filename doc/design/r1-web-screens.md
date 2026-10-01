@@ -207,11 +207,11 @@ Meta アプリ側の設定（ユーザーが行う。README に書く）: 「Fac
 |---|---|
 | 秘密の置き場 | `DATABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`META_APP_SECRET` は `NEXT_PUBLIC_` を付けず、`server-only` のモジュールからだけ読む。Client Component は `error.tsx` だけ（`error.message` を描画しない） |
 | 待ち受け | `next dev` と `next start` は既定で `0.0.0.0` にバインドするので、`package.json` の `dev`／`start` を `-H 127.0.0.1` にしてループバックだけにする（本体）。加えて `src/proxy.ts` で `Host` が `APP_URL` のホスト（と `127.0.0.1:3000`、`[::1]:3000`）以外なら 403（DNS リバインディング対策。LAN の攻撃者には効かないので `-H` の代わりにはならない） |
-| CSRF | OAuth の `state` は乱数で、httpOnly の Cookie と照合し、使い捨て。`/api/meta/login` は POST だけで、`Sec-Fetch-Site`／`Origin` を確認する（Route Handler には Next.js の Origin 検査がないため） |
+| CSRF | OAuth の `state` は乱数で、httpOnly の Cookie と照合し、使い捨て。`/api/meta/login` は POST だけで、`Sec-Fetch-Site`／`Origin` を確認する（Route Handler には Next.js の Origin 検査がないため）。`Origin` 検査が働くには文書の `Referrer-Policy` が `no-referrer` でないことが条件（`no-referrer` だと同一オリジンのフォーム送信でも `Origin: null` になる。2026-10-02 の実機で 403 になり、`same-origin` に変更） |
 | 認証 | R1 のローカルではログインなし（上の 2 行が前提）。R2 でログイン必須（F-SYS-13）にし、画面と Route Handler の両方で確認する。コールバックは Meta からのトップレベル GET で戻るので、R2 ではそこでもセッションを確認する |
 | 入力 | `?result=`、`?job=`、`?page=` は許可リストか整数化で固定し、値を反射しない。Meta からの `code`、`state`、`error*` は 2.1 章の検査 |
 | 画面に出す情報 | ユーザー名、表示名、指標、投稿日時、`permalink`（`https://www.instagram.com/` 始まりのみ）、サムネイル。キャプションは出さない。トークンと接続文字列は出さない。エラーは固定文言 |
-| 署名付き URL | 1 時間で切れる。`Referrer-Policy: no-referrer` でアプリの URL を外に出さない |
+| 署名付き URL | 1 時間で切れる。`Referrer-Policy: same-origin` で、Referer はアプリ自身にしか送らない（Storage や Meta にアプリの URL を出さない。`no-referrer` は上の CSRF の行の理由で使えない） |
 | 依存 | 実行時依存は `postgres`（`^3.4.9`。`package-lock.json` で固定）。開発依存に `vitest`（ワーカーと同じ 5 系）。`server-only` パッケージは入れない。それ以外は入れない |
 | DB のロール | ローカルは `postgres` ロール（Vault の復号ができる広い権限）。単一ユーザーのローカルでは許容。R2 で Web 用のロールを作る（12 章） |
 
@@ -249,6 +249,7 @@ Meta アプリ側の設定（ユーザーが行う。README に書く）: 「Fac
 - R3 への申し送り: `/media` の `offset` ページングと `order by posted_at desc` は全アカウント横断で索引（`account_id` 先頭）を使えない。R1 の件数では問題ないが、R3 で `account_id` の絞り込みかキーセットページングにする。
 - `npm run dev:web` で 3 画面を表示（実データ）。署名付き URL の応答形式の確認。
 - Meta アプリの設定（2.2 章）のあと `/connect` から接続して登録される（C2 の確認。POST での交換が通ることの確認を兼ねる）。確認項目: トークンがブラウザの URL、端末のログ、`accounts`、`job_runs.error` に出ていない。`data_access_expires_at` が約 90 日先。`npm run worker:job -- token-check` が `valid`。次の hourly が `success`。
+  - 2026-10-02 に実機で確認済み。POST での交換は通った。初回は `Referrer-Policy: no-referrer` のため `POST /api/meta/login` が 403 になり、`same-origin` に変更して成功（3 章）。
 
 ---
 

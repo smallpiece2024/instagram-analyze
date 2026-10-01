@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 |---|---|
 | 最終更新 | 2026-10-02 |
-| 現在地 | **R1 の収集ワーカーは常駐中（3 日間の実機確認中）。Web の最小限の画面 3 つと Facebook Login の接続画面を実装・レビュー済み。次は接続の実機確認（`/connect` から Meta に接続して登録される）と、3 日間の確認の結果の記録** |
+| 現在地 | **R1 の収集ワーカーは常駐中（3 日間の実機確認の 1 日目。中間結果は 4.2 章）。Facebook Login の接続は実機で成功し、登録と `token-check` まで確認済み（2026-10-02。4.3 章）。残りは 3 日間の確認の続き（投稿とストーリーズを 1 件ずつ出して初速のスナップショットと動画解析を見る、アーカイブの往復、`job_runs` の集計の記録）。終われば R1 完了** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -15,7 +15,7 @@
 | リリース | 内容 | 状況 |
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
-| R1 | 収集基盤（ローカル） | 仕上げ中。DB、ワーカー（7 ジョブとスケジューラ）、最小限の画面、Facebook Login の接続画面まで実装済み（2026-10-02）。残りは接続の実機確認と、3 日間の収集確認（2026-10-01 深夜開始）の結果の記録 |
+| R1 | 収集基盤（ローカル） | 仕上げ中。DB、ワーカー（7 ジョブとスケジューラ）、最小限の画面、Facebook Login の接続まで実装し実機確認済み（2026-10-02）。残りは 3 日間の収集確認（2026-10-01 深夜開始）の結果の記録 |
 | R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 未着手 |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | 未着手。R1 の収集が動き始めたら着手してよい。R2 と並行可。R3 の前に終える |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | 未着手 |
@@ -55,7 +55,7 @@
 - views の内訳は `follow_type` を使う（`follower_type` はエラー）。
 - 投稿の指標は 1 投稿 1 リクエストでまとめて取れる。約 110 回の呼び出しでレート制限の使用率は 1%。
 - リールの動画は media_url からダウンロードして解析できた。URL の期限は約 32〜35 時間。
-- 未検証: カルーセル、フィード動画（該当投稿がなかった）、冬時間の日付の区切り、Facebook Login の戻り先に localhost を使えるか。
+- 未検証: カルーセル、フィード動画（該当投稿がなかった）、冬時間の日付の区切り。Facebook Login の戻り先に `http://localhost:3000` を使えるかは 2026-10-02 に確認済み（開発モードでは登録なしで使えた。4.3 章）。
 
 ## 3. 手元の環境の状態
 
@@ -64,6 +64,7 @@
 - `.env` に `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（ローカルの Supabase CLI の既定値）も追加済み（2026-10-01）。
 - ローカル DB に `register-token` でページトークンを登録済み（`accounts`、`private.credentials`、Vault に 1 件ずつ。`status = valid`）。収集ジョブはこれを使い、`.env` のトークンは `register-token` と `verify-api` だけが読む。README の手順どおり `.env` の `META_ACCESS_TOKEN` と `IG_USER_ID` は消してよい（`verify-api` を使うときだけ戻す）。
 - 常駐のワーカーは `npm run worker:up` で起動中（2026-10-01 深夜）。止めるときは `npm run worker:down`、ログは `npm run worker:logs`。開発 PC は常時起動でないので、Docker Desktop をサインイン時に起動する設定にしておけば PC 起動で収集が再開する（README「常時起動でない PC での運用」）。止まっていた間のストーリーズと投稿後 24 時間以内のスナップショットは補えない。3 日間の確認は PC が起きている時間で行う。
+  - 2026-10-02 朝に確認: PC を 02:07〜07:52 JST の約 5 時間 45 分止めたあと、Docker Desktop の起動でワーカーが自動で再開し、DB が上がるまでの `ECONNREFUSED`／`57P03` を再試行してから、起動直後に daily（05:30 JST を過ぎていたため）と hourly を続けて実行した（設計書 9.3 章の「止めてから起動」の項目は確認済み）。
 - `.env` に `WORKER_BACKFILL_HISTORY_DAYS=400` を設定済み（アカウントは開設 1 年未満。ユーザー指示 2026-10-02）。
 - `apps/web/.env.local`（Git 管理外）に、ローカル Supabase の URL と publishable key を設定済み。
 - ワーカーの実行結果は `.local/`（Git 管理外）に出る。自分のデータを含むので、コミットしないこと。ワーカーは非 root（`node`）で動くので、root 時代に作られた `.local` 配下のディレクトリは README の手順で権限を直す。
@@ -98,6 +99,15 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
    - **段階 2・3 完了（2026-10-01 深夜）**: 7 ジョブ（`token_check`、`profile_daily`、`account_daily`、`account_backfill`、`media_sync`、`media_snapshot`、`stories`）、グループ（`run-hourly`、`run-daily`）、常駐の `schedule`、compose の常駐設定と硬化（`read_only`、`tmpfs`、非 root）。テスト 579 件。セキュリティと品質のレビュー（段階 2〜3 で各 1 本）を反映済み。設計から変えた点は設計書 13 章
    - 実機: `run-daily` と `run-hourly` を手で流し、投稿 24 件（サムネイル 24 枚）、スナップショット 24 件、日次指標は 8 月 1 日まで（バックフィル継続中）、`online_followers` は取れる日だけ、生レスポンスとエラー文に秘密や URL の混入なし
    - `online_followers` はユーザー指示（2026-10-01）で収集対象に入れた（空の日は何も書かない）
+   - **3 日間の確認の中間結果（1 日目、2026-10-02 07:55 JST 時点）**。実機の開始は 2026-10-01 23:24 JST
+     - `job_runs` 32 件はすべて `success`（`skipped`/`failed`/`partial` なし、`running` の残りなし）。hourly は 23:26、23:47（手動）、00:05、01:05、02:05、07:52（再開直後）の 6 回、daily は 23:24（手動）と 07:52 の 2 回
+     - `account_backfill` は 1 時間に 30 日分（120 呼び出し、約 2〜3 分）進み、`days_done=180`、`next_date=2026-04-03`、`oldest_date=2025-08-27`（400 日）、`failed_dates` は空。`account_daily_metrics` は 2026-04-04〜2026-10-01 の 181 日が途切れなし
+     - `account_daily` は D−4〜D−1（09-27〜09-30）に内訳なしの 13 指標（`online_followers` の null 1 件を含む）と、`contact_button_type`／`follow_type`／`media_product_type` の印の行がそろう。`hour`（`online_followers`）は 09-27〜09-29 のみで 09-30 は空（取れる日だけ、の想定どおり）
+     - `profile_daily` は 10-01 と 10-02 の 2 日分
+     - `stories` は毎回 0 件、`media_snapshot` は初回に 24 件を書いたあと `due=0`（最新の投稿が 2026-09-18 で、24 時間以内の投稿がないため）。**初速のスナップショット（1h、3h、6h、24h）とストーリーズの動画解析は、確認期間中に投稿とストーリーズを 1 件ずつ出さないと確かめられない**
+     - 秘密情報の混入なし: `raw_api_responses` 808 件（1.6 MB）に `access_token=` と `cdninstagram.com` が 0 件、`job_runs.error` に 10 桁以上の数字列と `://` が 0 件、ワーカーのログに `DEBUG` 行、`://`、10 桁以上の数字列が 0 件
+     - `raw_api_responses` の増え方は 1 時間あたり約 125 件（バックフィル 120 件 + hourly 5 件前後）。バックフィルが終われば 1 日 30 件程度に落ちる見込み
+     - 未確認: 投稿とストーリーズの初速、アーカイブ → `media-sync --full` → 復帰の往復、2 年より前の投稿の `fatal` の扱い（アカウントが開設 1 年未満のため該当なし）
    - 3 日間の確認で見ること: 設計書 9.3 章。終わったら `job_runs` の `skipped`/`failed`/`partial` の理由、`warn` の `unsupported=`/`unexpected=`、`no_video_url` の割合（F-COL-23 の見直し）、`raw_api_responses` の増え方（保存期間の判断）を記録する
    - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.3）。backend-architect が起草し、security-engineer と quality-engineer のレビューを反映。11.2 章の Q1〜Q9 は回答済み（Q3 ストーリーズのサムネイルは保存する。他は設計書の案のとおり）。段階 1 で確定・変更した事項は 13 章
    - 決めたこと: Postgres 直結（postgres.js、`max: 2`）、Vault からトークンを読む、コンテナ常駐のスケジューラ（毎時 5 分と JST 05:30）、生レスポンスからトークンと署名付き URL を除く、ログは秘密情報をマスクしたメッセージだけ、トークンは Bearer ヘッダで送る
@@ -110,10 +120,13 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
    - 初回のバックフィル（日次指標 2 年分を数日に分けて、中断しても再開できるように）
    - 生レスポンスの保存、ジョブの実行記録、再試行、レート制限の監視、NULL と 0 の区別
    - ローカルでの定期実行の方法（ワーカーコンテナ内のスケジューラなど）
-3. **Meta との接続**（F-COL-01〜03）。**実装済み（2026-10-02）。実機確認は未了**
+3. **Meta との接続**（F-COL-01〜03）。**実装と実機確認が完了（2026-10-02）**
+   - 実機の結果（2026-10-02 08:20 JST）: `/connect` →「Meta と接続する」→ Meta の許可 → `/connect?result=ok` で「接続しました」と現在の状態の表が出た。トークン交換は POST 本文で通った（GET への戻しは不要）。`private.credentials`、`accounts`、Vault の 1 件が同じ時刻に更新され（件数は増えない）、データアクセス期限は 2026-12-31（約 90 日先）、権限の不足なし。`npm run worker:job -- token-check` は `valid`（残り 89 日）。開発サーバーのログにトークン、認可コード、`state` は出ず、コールバックの行は `logging.incomingRequests.ignore` で除かれている。`job_runs.error` に秘密なし。次の hourly（09:05 JST）が新しいトークンで `success` になることは、この後の 3 日間の確認で見る
    - 設計は `doc/design/r1-web-screens.md`（版 0.2。セキュリティ・品質・Next.js 16 照合のレビューを反映）。`/connect` → `POST /api/meta/login`（303）→ Meta の認可 → `GET /api/meta/callback` → トークン交換（POST 本文）→ `me/accounts` → ページトークンを `debug_token` で確認 → Vault に登録
    - Meta アプリ側: Facebook ログインの製品を追加し、OAuth ログインを有効にするだけ。**戻り先 `http://localhost:3000/api/meta/callback` は登録不要**（開発モードでは `http://localhost` が自動許可。`127.0.0.1` は HTTPS 必須。要件 C2 は解決）
    - 次回: `npm run dev:web` → ブラウザで `http://localhost:3000/connect`（`localhost` で開く。`127.0.0.1` だと Origin 不一致で 403）→「Meta と接続する」→ 結果の文言を確認。確認項目は設計書 4.4 章（トークン交換が POST で通るか、`result=ok`、`private.credentials` の更新、`token-check` が `valid`）。POST が通らなければ設計 2.1 章の GET への戻しを判断
+   - 2026-10-02 朝にブラウザを使わない範囲を確認済み: `apps/web/.env.local` に `META_APP_ID`、`META_APP_SECRET`、`META_GRAPH_API_VERSION`、`APP_URL` を設定済み。`GET /connect` は 200 でフォーム（`POST /api/meta/login`）とボタンが出る。`POST /api/meta/login` は 303 で `https://www.facebook.com/v25.0/dialog/oauth`（`redirect_uri=http://localhost:3000/api/meta/callback`、4 スコープ）へ飛び、`meta_oauth_state` Cookie（HttpOnly、SameSite=Lax、Path=/api/meta、10 分）が付く。Origin が `127.0.0.1` だと 403。接続前の `private.credentials` は `PAGE`／`valid`／データアクセス期限 2026-12-29（`updated_at` 2026-10-01 22:52 UTC）で、接続後にこれが更新されるかで判定する
+   - 2026-10-02 のブラウザからの初回は `POST /api/meta/login` が 403 になった。原因は全ルートの `Referrer-Policy: no-referrer`。この値だとブラウザは同一オリジンのフォーム送信でも `Origin: null` を送り（Fetch Standard）、Origin 検査に落ちる。curl では Origin を手で付けていたため気づかなかった。`same-origin` に変更し（Referer は他オリジンに出ないので目的は変わらない）、`test/next-config.test.ts` で固定。設計書 3 章を更新
 4. **最小限の画面**（F-UI-01〜03）。**実装済み（2026-10-02）**
    - `/`（接続状態と再接続の帯）、`/jobs`（収集ログ。`?job=` で絞り込み）、`/media`（投稿一覧。署名付き URL のサムネイル、50 件ずつ）。Server Components のみ、Postgres 直結（`apps/web/.env.local` の `DATABASE_URL` など。`.env.example` を参照）。`next dev` は `127.0.0.1` だけで待ち受け、`proxy.ts` で Host を検査
    - テスト: Web 単体と結合（`TEST_DATABASE_URL` 付き）、`npm run typecheck -w web`、`npm run build:web`（全ルート `ƒ`）。実データで 3 画面の表示を確認済み
