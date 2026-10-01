@@ -26,6 +26,8 @@ export interface WorkerConfig {
   dailyTimeJst: { hour: number; minute: number };
   /** account_backfill が 1 回の実行で進める日数 */
   backfillMaxDays: number;
+  /** account_backfill が遡る日数（1〜730）。既定は API の上限の 2 年。開設して間もないアカウントでは短くする */
+  backfillHistoryDays: number;
   /** レート制限の使用率（%）がこれ以上ならすべてのジョブを止める */
   rateHardLimit: number;
   /** レート制限の使用率（%）がこれ以上なら account_backfill を進めない */
@@ -157,6 +159,7 @@ export function loadWorkerConfig(env: Env = process.env): WorkerConfig {
     hourlyMinute: integerInRange(env, "WORKER_HOURLY_MINUTE", 5, 0, 59),
     dailyTimeJst: dailyTime(env, "WORKER_DAILY_TIME_JST", { hour: 5, minute: 30 }),
     backfillMaxDays: integerInRange(env, "WORKER_BACKFILL_MAX_DAYS", 30, 1, 730),
+    backfillHistoryDays: integerInRange(env, "WORKER_BACKFILL_HISTORY_DAYS", 730, 1, 730),
     rateHardLimit,
     rateSoftLimit,
     logLevel: logLevel(env, "WORKER_LOG_LEVEL"),

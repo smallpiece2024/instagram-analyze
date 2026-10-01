@@ -108,8 +108,18 @@ npm run worker:down    # 常駐を止める（実行中のジョブを終えて�
 
 | グループ | 順番 | 内容 |
 |---|---|---|
-| hourly | `stories` → `media-sync` → `media-snapshot` → `account-backfill` | ストーリーズ（24 時間で消えるので最優先）→ 投稿一覧の差分 → 投稿指標のスナップショット → 日次指標の 2 年分のバックフィル（レート制限に余裕があるときだけ進む） |
+| hourly | `stories` → `media-sync` → `media-snapshot` → `account-backfill` | ストーリーズ（24 時間で消えるので最優先）→ 投稿一覧の差分 → 投稿指標のスナップショット → 日次指標の過去分のバックフィル（レート制限に余裕があるときだけ進む） |
 | daily | `token-check` → `profile-daily` → `account-daily` → `media-sync --full` | トークンの期限と権限の確認 → プロフィールの日次記録 → アカウント日次指標の直近 4 日と follower_count → 投稿一覧の全件同期（消えた投稿の検出） |
+
+バックフィルが遡る日数は `WORKER_BACKFILL_HISTORY_DAYS`（既定 730 = API の上限の 2 年）で変えられる。開設して間もないアカウントでは、開設からの日数より少し多めにしておくと空振りを避けられる。途中で小さくすれば残りが縮んで終わる。大きくし直すときは `delete from public.job_state where job_name = 'account_backfill'` で最初からやり直す。
+
+**常時起動でない PC での運用**: Supabase とワーカーのコンテナはどちらも `restart: unless-stopped` なので、Docker Desktop が起動すれば自動で戻る。Docker Desktop の設定で「サインイン時に起動（Start Docker Desktop when you sign in）」を有効にしておけば、PC を起動するだけで収集が再開し、起動直後にその時間帯の hourly と当日未実行の daily が 1 回ずつ走る。シャットダウンに特別な手順はない（実行中のジョブが中断されても、次回の起動時に `running` の記録は `failed` に整理され、ロックは接続の切断で外れ、一時ファイルは tmpfs ごと消える）。止まっていた間の影響は次のとおり。
+
+| 止めた長さ | 影響 | 補う方法 |
+|---|---|---|
+| 数時間 | ストーリーズのその時間帯の指標と、投稿後 24 時間以内の投稿の 1 時間ごとのスナップショットが欠ける | 補えない（API に過去の値がない）。日次指標とプロフィールは影響なし |
+| 1〜3 日 | 上に加えて、プロフィール日次がその日数分欠ける。日次指標は 4 日の窓で自動的に埋まる | 自動 |
+| 4 日以上 | 日次指標にも欠けが出る | 起動後に `npm run worker:job -- account-daily --days N`（N = 止めた日数 + 1。最大 30 日。それより前はバックフィルの `job_state` を消してやり直す） |
 
 ジョブを 1 回だけ動かすには `npm run worker:job -- <command>` を使う（常駐と同時に動かしても、同じジョブは二重に走らない）。
 

@@ -156,6 +156,7 @@ describe.skipIf(!TEST_DATABASE_URL)("db/account-daily、account_daily、account_
     hourlyMinute: 5,
     dailyTimeJst: { hour: 5, minute: 30 },
     backfillMaxDays: 3,
+    backfillHistoryDays: 730,
     rateHardLimit: 90,
     rateSoftLimit: 50,
     logLevel: "debug",
@@ -638,6 +639,27 @@ describe.skipIf(!TEST_DATABASE_URL)("db/account-daily、account_daily、account_
     expect(Number((calls[1] as URL).searchParams.get("since"))).toBe(pacificDayRange(D(3)).since);
     expect(await backfillState()).toEqual({ next_date: D(20), oldest_date: D(19), done: true, days_done: 730, failed_dates: [] });
     expect(logText()).toMatch(new RegExp(`INFO  job=account_backfill days=1 retry=true next_date=${D(20)} days_done=730 failed_dates=0 done=true reason="2 年より前"$`, "m"));
+    await db`delete from public.account_daily_metrics where account_id = ${account.id}`;
+  });
+
+  it("account_backfill: 730 日で作った job_state があっても、設定の遡る日数を小さくすれば残りの日が縮んで done になる", async () => {
+    // D−90 まで進んだ状態（oldest_date は 730 日前で保存済み）で、遡る日数を 92 にする → D−90、D−91、D−92 で終わり
+    await setJobState<BackfillState>(db, account.id, "account_backfill", { next_date: D(90), oldest_date: D(730), done: false, days_done: 89, failed_dates: [] });
+    const shortHistory: JobDeps = { ...deps, config: { ...config, backfillHistoryDays: 92 } };
+    for (let i = 0; i < 3; i += 1) replies.push(...groupReplies());
+    expect(await runJob(backfillJob, shortHistory, account)).toBe("success");
+    expect(calls).toHaveLength(12);
+    expect([0, 4, 8].map((i) => Number((calls[i] as URL).searchParams.get("since")))).toEqual([D(90), D(91), D(92)].map((d) => pacificDayRange(d).since));
+    expect(await backfillState()).toEqual({ next_date: D(93), oldest_date: D(92), done: true, days_done: 92, failed_dates: [] });
+    expect(await listMetricDates(db, account.id, "reach")).toEqual([D(92), D(91), D(90)]);
+    expect(await runJob(backfillJob, shortHistory, account)).toBe("skipped");
+
+    // next_date が新しい下限より古い状態で小さくすると、API を呼ばずに done
+    await setJobState<BackfillState>(db, account.id, "account_backfill", { next_date: D(500), oldest_date: D(730), done: false, days_done: 499, failed_dates: [] });
+    calls.length = 0;
+    expect(await runJob(backfillJob, { ...deps, config: { ...config, backfillHistoryDays: 400 } }, account)).toBe("success");
+    expect(calls).toHaveLength(0);
+    expect(await backfillState()).toEqual({ next_date: D(500), oldest_date: D(400), done: true, days_done: 499, failed_dates: [] });
     await db`delete from public.account_daily_metrics where account_id = ${account.id}`;
   });
 

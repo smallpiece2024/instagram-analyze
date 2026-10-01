@@ -207,6 +207,7 @@ function config(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     hourlyMinute: 5,
     dailyTimeJst: { hour: 5, minute: 30 },
     backfillMaxDays: 30,
+    backfillHistoryDays: 730,
     rateHardLimit: 90,
     rateSoftLimit: 50,
     logLevel: "info",

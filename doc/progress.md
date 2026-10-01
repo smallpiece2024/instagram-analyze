@@ -63,7 +63,8 @@
 - トークンの **データアクセス期限は 2026-12-29 ごろ**（2026-09-30 時点で残り約 90 日）。過ぎるとアプリの再承認が必要。R1 で期限の表示と通知を作る。
 - `.env` に `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（ローカルの Supabase CLI の既定値）も追加済み（2026-10-01）。
 - ローカル DB に `register-token` でページトークンを登録済み（`accounts`、`private.credentials`、Vault に 1 件ずつ。`status = valid`）。収集ジョブはこれを使い、`.env` のトークンは `register-token` と `verify-api` だけが読む。README の手順どおり `.env` の `META_ACCESS_TOKEN` と `IG_USER_ID` は消してよい（`verify-api` を使うときだけ戻す）。
-- 常駐のワーカーは `npm run worker:up` で起動中（2026-10-01 深夜）。止めるときは `npm run worker:down`、ログは `npm run worker:logs`。PC のスリープ中は止まるので、3 日間の確認中はスリープを切る（要件 Q7）。
+- 常駐のワーカーは `npm run worker:up` で起動中（2026-10-01 深夜）。止めるときは `npm run worker:down`、ログは `npm run worker:logs`。開発 PC は常時起動でないので、Docker Desktop をサインイン時に起動する設定にしておけば PC 起動で収集が再開する（README「常時起動でない PC での運用」）。止まっていた間のストーリーズと投稿後 24 時間以内のスナップショットは補えない。3 日間の確認は PC が起きている時間で行う。
+- `.env` に `WORKER_BACKFILL_HISTORY_DAYS=400` を設定済み（アカウントは開設 1 年未満。ユーザー指示 2026-10-02）。
 - `apps/web/.env.local`（Git 管理外）に、ローカル Supabase の URL と publishable key を設定済み。
 - ワーカーの実行結果は `.local/`（Git 管理外）に出る。自分のデータを含むので、コミットしないこと。ワーカーは非 root（`node`）で動くので、root 時代に作られた `.local` 配下のディレクトリは README の手順で権限を直す。
 

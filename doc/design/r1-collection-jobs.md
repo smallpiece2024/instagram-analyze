@@ -1023,6 +1023,8 @@ R1 の設計で決めず、R2（クラウド稼働）の設計で扱う事項。
 | 4.2 | `token_check` は `insufficient_scope` のとき `last_error` に `権限が足りない（<権限名>）` を入れる。`register-token` は `last_error = null` のまま標準出力に警告を出す | 翌日の確認で理由が画面に残る方が有用。登録直後は標準出力で分かる |
 | 5.4 | `media_sync` は `listMediaWithoutThumbnail` を使わない（`upsertMedia` の `missingThumbnail` が今回の一覧にあった未保存の行をすべて返すため） | 冗長な問い合わせの削除 |
 | 7.1 | `follower_count` の time_series は PT の当日（進行中）の値も返す。当日の行は翌日の `account_daily` で上書きされる | 実機で確認（2026-10-01） |
+| 5.3 | バックフィルで遡る日数を `WORKER_BACKFILL_HISTORY_DAYS`（1〜730、既定 730）で指定できる。既に `job_state` があっても、`oldest_date` は「保存済みの値」と「今日 − 設定日数」の遅い方に縮む | ユーザー指示（2026-10-02）: アカウントは開設 1 年未満なので 2 年分は不要。ローカルは 400 日 |
+| 2.1 | 常時起動でない PC での運用: Docker Desktop をログイン時に自動起動する設定にすれば、Supabase とワーカーのコンテナ（いずれも `restart: unless-stopped`）が自動で戻り、スケジューラは起動直後にその時間帯の hourly と当日未実行の daily を 1 回ずつ実行する。停止中の hourly は取り戻せない（ストーリーズと投稿後 24 時間以内のスナップショットに欠け）。日次指標は 4 日の窓で埋まるが、それより長く止めたら `account-daily --days N` で埋める | 開発環境は常時起動でないため（R2 で解消） |
 | 5.4 | `media_sync --full` は、全ページ成功でも一覧が空（`seenIds` が空）で DB に `gone_at` が null の投稿があるときは消失判定を見送り、`warn` を出して失敗に数える（行を書けていないので `failed` になる）。カルーセルの子は `fields=media_type,media_url,thumbnail_url` で引き、元 URL のある最初の子（動画なら `thumbnail_url`）を使う。`listMediaWithoutThumbnail` は `gone_at is null` に絞る。サムネイルの元画像の上限は 20MB。ジョブは `createMediaSyncJob(deps?)` で作り、テストで `fetch`、`resize` を差し替える（`index.ts` に登録するのは既定の `job`） | API の一時的な異常で全投稿を消失扱いにしないため |
 
 ### 13.3 段階 2 への申し送り

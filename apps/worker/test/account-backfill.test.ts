@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceBackfillState,
+  applyHistoryDays,
   BACKFILL_HISTORY_DAYS,
   BACKFILL_MAX_ATTEMPTS,
   BACKFILL_WARN_AFTER_DAYS,
@@ -35,10 +36,30 @@ describe("account_backfill の定数", () => {
   });
 });
 
+/** 2026-10-01 − 400 日 */
+const OLDEST_400 = "2025-08-27";
+
 describe("initialBackfillState", () => {
-  it("next_date は D−1、oldest_date は D−730", () => {
+  it("next_date は D−1、oldest_date は D−730（historyDays を渡せばその日数）", () => {
     expect(initialBackfillState(TODAY)).toEqual({ next_date: "2026-09-30", oldest_date: OLDEST, done: false, days_done: 0, failed_dates: [] });
     expect(addDays(TODAY, -BACKFILL_HISTORY_DAYS)).toBe(OLDEST);
+    expect(initialBackfillState(TODAY, 400).oldest_date).toBe(OLDEST_400);
+    expect(addDays(TODAY, -400)).toBe(OLDEST_400);
+  });
+});
+
+describe("applyHistoryDays", () => {
+  it("保存済みの oldest_date と「今日 − historyDays」の遅い方。変わらなければ同じオブジェクト", () => {
+    const stored = state({ next_date: "2025-09-15", days_done: 380 });
+    const shrunk = applyHistoryDays(stored, TODAY, 400);
+    expect(shrunk).toEqual(state({ next_date: "2025-09-15", days_done: 380, oldest_date: OLDEST_400 }));
+    expect(stored.oldest_date).toBe(OLDEST);
+    // 730 に戻しても過去には広がらない
+    expect(applyHistoryDays(shrunk, TODAY, 730)).toBe(shrunk);
+    expect(applyHistoryDays(stored, TODAY, 730)).toBe(stored);
+    // 2 年のエラーで確定した下限（新しい日）はそのまま
+    const fixed = state({ oldest_date: "2026-01-01" });
+    expect(applyHistoryDays(fixed, TODAY, 400)).toBe(fixed);
   });
 });
 
@@ -87,6 +108,33 @@ describe("nextBackfillWindow", () => {
     ).toEqual([]);
     expect(nextBackfillWindow(state({ done: true }), TODAY, 30).dates).toEqual([]);
     expect(nextBackfillWindow(state({ done: true, failed_dates: [{ date: "2026-01-01", attempts: 1 }] }), TODAY, 30).dates).toEqual([]);
+  });
+
+  it("historyDays を渡すと保存済みの oldest_date（730 日前）が縮む。next_date がそれより古ければ dates: []（done 判定へ）", () => {
+    // 進行中: 2025-09-15 から 30 日取りたいが、400 日前（2025-08-27）で止まる
+    const s = state({ next_date: "2025-09-15", days_done: 380 });
+    const w = nextBackfillWindow(s, TODAY, 30, 400);
+    expect(w.state).toEqual(state({ next_date: "2025-09-15", days_done: 380, oldest_date: OLDEST_400 }));
+    expect(w.dates).toHaveLength(20);
+    expect(w.dates[0]).toBe("2025-09-15");
+    expect(w.dates.at(-1)).toBe(OLDEST_400);
+    expect(w.retry).toBe(false);
+
+    // next_date が新しい下限より古い → 通常の日は終わった扱い。取り直す日がなければ空（run が done にする）
+    const past = state({ next_date: "2025-01-01", days_done: 600 });
+    expect(nextBackfillWindow(past, TODAY, 30, 400)).toEqual({ dates: [], retry: false, state: { ...past, oldest_date: OLDEST_400 } });
+    // 取り直す日があれば retry の回
+    const withFailed = state({ next_date: "2025-01-01", days_done: 600, failed_dates: [{ date: "2026-09-10", attempts: 1 }] });
+    expect(nextBackfillWindow(withFailed, TODAY, 30, 400)).toEqual({ dates: ["2026-09-10"], retry: true, state: { ...withFailed, oldest_date: OLDEST_400 } });
+
+    // 初回も historyDays が効く
+    const first = nextBackfillWindow(undefined, TODAY, 30, 400);
+    expect(first.state.oldest_date).toBe(OLDEST_400);
+    expect(first.dates).toHaveLength(30);
+
+    // 730 のまま（省略）なら従来どおり
+    expect(nextBackfillWindow(s, TODAY, 30).state).toBe(s);
+    expect(nextBackfillWindow(s, TODAY, 30).dates).toHaveLength(30);
   });
 
   it("maxDays が 0 以下なら dates: []", () => {
