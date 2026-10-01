@@ -109,6 +109,10 @@ npm run worker:verify-api
 | `npm run typecheck -w worker` | ワーカーの型チェック |
 | `npm run db:reset` | ローカル DB を作り直し、マイグレーションを適用し直す |
 
+## DB
+
+テーブル設計は `doc/design/r1-db-design.md`、マイグレーションは `supabase/migrations/` にある。ローカルの DB にはユーザーの実データが入るので、ダンプやエクスポートをコミットしない。
+
 ## 注意（公開リポジトリ）
 
 このリポジトリは公開している。次のものは絶対にコミットしない。
