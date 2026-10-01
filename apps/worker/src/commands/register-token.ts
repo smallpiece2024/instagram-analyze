@@ -13,8 +13,11 @@ import { parseArgs } from "node:util";
 import { loadRegisterTokenConfig } from "../config.js";
 import { upsertAccount, upsertCredential, type CredentialInfo } from "../db/accounts.js";
 import type { TokenType } from "../db/types.js";
-import { GraphClient } from "../lib/graph.js";
+import { GraphClient, type DebugTokenData } from "../lib/graph.js";
 import { closeJobDeps, createJobDeps, describeError } from "../jobs/framework.js";
+
+/** `debug_token` の `data`（`lib/graph.ts` の型をそのまま使う） */
+export type { DebugTokenData } from "../lib/graph.js";
 
 /** 収集に必要な権限（設計 4.1 章。`pages_show_list` は `me/accounts` にだけ要るので含めない） */
 export const REQUIRED_SCOPES: readonly string[] = [
@@ -22,19 +25,6 @@ export const REQUIRED_SCOPES: readonly string[] = [
   "instagram_manage_insights",
   "pages_read_engagement",
 ];
-
-/** `debug_token` の `data` */
-export interface DebugTokenData {
-  type?: string;
-  is_valid?: boolean;
-  /** UNIX 秒。0 は期限なし */
-  expires_at?: number;
-  /** UNIX 秒 */
-  data_access_expires_at?: number;
-  scopes?: string[];
-  /** ページトークンのときは Facebook ページの ID */
-  profile_id?: string;
-}
 
 /** `toCredentialInfo` の結果 */
 export interface ParsedCredential {
@@ -112,11 +102,7 @@ export async function registerToken(args: string[], deps: RegisterTokenDeps = {}
     const graph = new GraphClient(config.accessToken, config.graphApiVersion, 200, deps.fetchImpl);
 
     // 1. debug_token（アプリトークンで。生レスポンスは保存しない）
-    const debug = await graph.get<{ data?: DebugTokenData }>(
-      "debug_token",
-      { input_token: config.accessToken },
-      `${config.metaAppId}|${config.metaAppSecret}`,
-    );
+    const debug = await graph.debugToken(`${config.metaAppId}|${config.metaAppSecret}`);
     const info = debug.data?.data;
     if (!debug.ok || !info) {
       log.warn({ command: COMMAND, status: "failed", error: "debug_token に失敗", error_code: debug.error?.code ?? "none" });

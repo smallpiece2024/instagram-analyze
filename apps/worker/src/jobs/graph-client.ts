@@ -9,18 +9,23 @@
  * - 分類ごとの振る舞い: `rate` と `auth` は投げる、`transient`（使い切り）と `fatal` は返す
  *
  * トークンは `GraphClient` の中にだけあり、このモジュールの引数、戻り値、例外には現れない。
+ * `debugToken()` は `debug_token` をアプリトークンで呼ぶ（`token_check` 用）。生レスポンスは保存しない。
  */
 import {
   backoffDelay,
   classifyGraphError,
   MAX_ATTEMPTS,
   sleep as defaultSleep,
+  type DebugTokenResponse,
   type GraphClient,
   type GraphError,
   type GraphParams,
+  type GraphResponse,
 } from "../lib/graph.js";
 import { sanitizeForLog, SecretRegistry } from "../lib/log.js";
 import { RateLimitExceeded, type RateMonitor } from "./rate.js";
+
+export type { DebugTokenData, DebugTokenResponse } from "../lib/graph.js";
 
 /** Graph API がトークン無効（190）または権限不足（10、200〜299）を返したときに投げる。`message` は固定文言 */
 export class AuthError extends Error {
@@ -78,6 +83,14 @@ export interface JobGraphClient {
    * `paging.next` がない、`cursors.after` がない、`data` が空、のいずれかでも止まる（設計 11.1 章 P8）
    */
   pages<T>(path: string, params?: GraphParams): AsyncIterable<Tracked<Page<T>>>;
+  /**
+   * `debug_token` でこのアカウントのトークンを調べる（設計 4.2 章）。`get` と同じ流れ（レート判定、再試行、
+   * 呼び出しの計数、分類）だが、生レスポンスは保存しない（`rawResponseId` は常に undefined）。
+   * `auth` の分類（190 など）は `debug_token` 自体の認証失敗（アプリトークンの誤り）なので、`onAuthError` を
+   * 呼ばず `fatal` として返す。`is_valid: false` は HTTP 200 で返るので `ok: true` の `data.data` で判断する。
+   * `rate` は投げる
+   */
+  debugToken(): Promise<Tracked<DebugTokenResponse>>;
 }
 
 /** `persistRaw` に渡す行。`account_id`、`job_run_id`、`api_version` は枠組みが補う */
@@ -94,6 +107,8 @@ export interface JobGraphClientDeps {
   rate: RateMonitor;
   /** 使用率（%）がこれ以上なら呼び出しの前に `RateLimitExceeded` を投げる */
   rateThreshold: number;
+  /** `debug_token` に使うアプリトークン（`appId|appSecret`）。値はこの中にだけ置く */
+  appToken: string;
   /** 生レスポンスを保存して id を返す。`params` と `body` は加工済み */
   persistRaw: (row: PersistRawInput) => Promise<string>;
   /** 呼び出しごと（再試行も 1 回と数える） */
@@ -193,6 +208,19 @@ function sanitizeGraphError(
   return out;
 }
 
+/** `request` の 1 回分の指定 */
+interface RequestSpec<T> {
+  /** 保存する `endpoint` */
+  path: string;
+  /** 保存する `params`（加工前） */
+  params: GraphParams;
+  /** 1 回の呼び出し */
+  call: () => Promise<GraphResponse<T>>;
+  persist: boolean;
+  /** `auth` の分類を `onAuthError` なしで `fatal` として返す（`debug_token` 用） */
+  authAsFatal: boolean;
+}
+
 export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
   const sleep = deps.sleep ?? defaultSleep;
   const random = deps.random ?? Math.random;
@@ -203,26 +231,27 @@ export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
     return deps.rate.usage()?.estimated_time_to_regain_access;
   }
 
-  async function get<T>(path: string, params: GraphParams = {}, opts: { persist?: boolean } = {}): Promise<Tracked<T>> {
-    const persist = opts.persist !== false;
-    const safeParams = stripSecretParams(params);
+  function usageExceeded(): RateLimitExceeded {
+    return RateLimitExceeded.forUsage(deps.rate.percent(), deps.rateThreshold, estimatedMinutes());
+  }
+
+  async function request<T>(spec: RequestSpec<T>): Promise<Tracked<T>> {
+    const safeParams = stripSecretParams(spec.params);
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-      if (deps.rate.exceeds(deps.rateThreshold)) {
-        throw RateLimitExceeded.forUsage(deps.rate.percent(), deps.rateThreshold, estimatedMinutes());
-      }
+      if (deps.rate.exceeds(deps.rateThreshold)) throw usageExceeded();
 
       const fetchedAt = now();
-      const res = await deps.graph.get<T>(path, params);
+      const res = await spec.call();
       deps.onApiCall();
       deps.rate.update(res.rateLimit);
       // 保存にも戻り値にも、許可リストのキーだけでマスク済みのエラーを使う（出所でマスクする）
       const safeError = sanitizeGraphError(res.error, maskText);
 
       let rawResponseId: string | undefined;
-      if (persist && res.status !== 0) {
+      if (spec.persist && res.status !== 0) {
         rawResponseId = await deps.persistRaw({
-          endpoint: path,
+          endpoint: spec.path,
           params: safeParams,
           fetchedAt,
           httpStatus: res.status,
@@ -238,7 +267,7 @@ export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
       if (errorClass === "rate") {
         throw RateLimitExceeded.forError(res.error?.code, estimatedMinutes());
       }
-      if (errorClass === "auth") {
+      if (errorClass === "auth" && !spec.authAsFatal) {
         // 分類が auth になるのはコードがあるときだけ
         const code = res.error?.code ?? 0;
         try {
@@ -248,15 +277,13 @@ export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
         }
         throw new AuthError(code, authErrorMessage(code));
       }
-      if (errorClass === "fatal") {
-        return { ok: false, status: res.status, data: undefined, error: safeError, errorClass, rawResponseId, fetchedAt };
+      if (errorClass === "fatal" || errorClass === "auth") {
+        return { ok: false, status: res.status, data: undefined, error: safeError, errorClass: "fatal", rawResponseId, fetchedAt };
       }
       // transient
       if (attempt < MAX_ATTEMPTS) {
         // 直前の応答のヘッダでしきい値を超えていれば、待たずに止める
-        if (deps.rate.exceeds(deps.rateThreshold)) {
-          throw RateLimitExceeded.forUsage(deps.rate.percent(), deps.rateThreshold, estimatedMinutes());
-        }
+        if (deps.rate.exceeds(deps.rateThreshold)) throw usageExceeded();
         await sleep(backoffDelay(attempt, random));
         continue;
       }
@@ -264,6 +291,26 @@ export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
     }
     // ループは必ず return か throw で抜ける
     throw new Error("再試行の制御が不正");
+  }
+
+  function get<T>(path: string, params: GraphParams = {}, opts: { persist?: boolean } = {}): Promise<Tracked<T>> {
+    return request<T>({
+      path,
+      params,
+      call: () => deps.graph.get<T>(path, params),
+      persist: opts.persist !== false,
+      authAsFatal: false,
+    });
+  }
+
+  function debugToken(): Promise<Tracked<DebugTokenResponse>> {
+    return request<DebugTokenResponse>({
+      path: "debug_token",
+      params: {},
+      call: () => deps.graph.debugToken(deps.appToken),
+      persist: false,
+      authAsFatal: true,
+    });
   }
 
   async function* pages<T>(path: string, params: GraphParams = {}): AsyncGenerator<Tracked<Page<T>>, void, undefined> {
@@ -284,5 +331,5 @@ export function createJobGraphClient(deps: JobGraphClientDeps): JobGraphClient {
     }
   }
 
-  return { get, pages };
+  return { get, pages, debugToken };
 }

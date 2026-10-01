@@ -358,13 +358,17 @@ export async function runJob(
       // 読んだ直後に登録する（この先で例外が出ても登録済みであるように）
       secrets.add(credential.token);
       const graphClient = new GraphClient(credential.token, config.graphApiVersion, 200, deps.fetchImpl);
-      const rate = new RateMonitor(await latestRateUsage(db, new Date(startedAt.getTime() - ONE_HOUR_MS)));
+      const rate = new RateMonitor(
+        await latestRateUsage(db, new Date(startedAt.getTime() - ONE_HOUR_MS), startedAt),
+      );
       state.rate = rate;
       const runId = jobRunId;
       const graph = createJobGraphClient({
         graph: graphClient,
         rate,
         rateThreshold: def.rateThreshold ?? config.rateHardLimit,
+        // debug_token 用。metaAppSecret は processSecrets に登録済みなので、ログに出ても `123|***` になる
+        appToken: `${config.metaAppId}|${config.metaAppSecret}`,
         persistRaw: (row) =>
           insertRawResponse(db, {
             account_id: account.id,
@@ -506,7 +510,8 @@ function logFailure(
 
 /**
  * `accounts.status = 'active'` のすべてのアカウントでジョブを順に実行する（ログの `account=` は `1/2` のような連番）。
- * すべてのアカウントで `success` か `skipped` なら true（アカウントがなければ `warn` を出して true）
+ * `failed` のアカウントがなければ true（`partial` と `skipped` は true。設計 1.1 章「1 つでも `failed` があれば終了コード 1」。
+ * アカウントがなければ `warn` を出して true）
  */
 export async function runJobsForActiveAccounts(
   def: JobDefinition,
@@ -529,7 +534,7 @@ export async function runJobsForActiveAccounts(
   let allOk = true;
   for (const [index, account] of accounts.entries()) {
     const outcome = await runJob(def, deps, account, options, `${index + 1}/${accounts.length}`);
-    if (outcome !== "success" && outcome !== "skipped") allOk = false;
+    if (outcome === "failed") allOk = false;
   }
   return allOk;
 }

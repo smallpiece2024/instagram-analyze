@@ -4,6 +4,24 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
+    # `docker compose up -d worker`（npm run worker:up）で常駐し、hourly と daily のグループを決まった時刻に動かす。
+    # `docker compose run --rm worker <command>`（npm run worker:job -- <command>）はこのコマンドを上書きして 1 回実行する。
+    command: ["schedule"]
+    # コンテナが落ちても戻る（`docker compose stop` で止めたものは戻らない）
+    restart: unless-stopped
+    # 実行中のジョブ（初回の取り込みは数分）を終えてから止まる。schedule は SIGTERM で実行中のグループを終えてから抜ける
+    stop_grace_period: 10m
+    # 硬化: ルートファイルシステムは読み取り専用。書けるのは /tmp（tmpfs。動画やサムネイルの一時ファイル。
+    # 強制終了してもホストの書き込み層に残らない）と /app/.local（bind。検証結果の出力先）だけ
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 1g
     env_file:
       - path: .env
         required: false

@@ -136,6 +136,25 @@ describe("GraphClient.get", () => {
     expect(call?.url.href).not.toContain("APP_SECRET");
   });
 
+  it("debugToken は input_token に自分のトークンをクエリで、Authorization にアプリトークンを付け、URL に自分のトークンを含まない", async () => {
+    const body = { data: { type: "PAGE", is_valid: true, expires_at: 0, data_access_expires_at: 1_798_761_600, scopes: ["instagram_basic"] } };
+    const { calls, fetchImpl } = capturing(() => jsonResponse(body));
+    const client = new GraphClient("SECRET_TOKEN", "v25.0", 0, fetchImpl);
+    const res = await client.debugToken("APP_ID|APP_SECRET");
+    expect(res.ok).toBe(true);
+    expect(res.data?.data?.is_valid).toBe(true);
+    expect(res.data?.data?.type).toBe("PAGE");
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    expect(call?.url.pathname).toBe("/v25.0/debug_token");
+    expect(call?.url.searchParams.get("input_token")).toBe("SECRET_TOKEN");
+    expect(call?.url.searchParams.has("access_token")).toBe(false);
+    expect(call?.authorization).toBe("Bearer APP_ID|APP_SECRET");
+    expect(call?.url.href).not.toContain("APP_SECRET");
+    // URL のクエリ以外（パス）に自分のトークンは出ない
+    expect(call?.url.pathname).not.toContain("SECRET_TOKEN");
+  });
+
   it("fetch が例外を投げたら status 0 の NetworkError を返し、例外の内容（URL）を含めない", async () => {
     const fetchImpl: typeof fetch = async () => {
       throw new TypeError("fetch failed: https://graph.facebook.com/v25.0/me?access_token=SECRET_TOKEN");

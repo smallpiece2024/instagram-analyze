@@ -45,12 +45,16 @@ function usageHeader(callCount: number): Record<string, string> {
 interface Harness {
   client: JobGraphClient;
   calls: URL[];
+  /** `calls` と同じ順の Authorization ヘッダ */
+  auths: (string | null)[];
   persisted: PersistRawInput[];
   sleeps: number[];
   authCodes: number[];
   apiCalls: () => number;
   rate: RateMonitor;
 }
+
+const APP_TOKEN = "APP_ID|APP_SECRET";
 
 const FIXED_NOW = new Date("2026-10-01T12:00:00.000Z");
 
@@ -67,8 +71,10 @@ interface HarnessOptions {
 function harness(replies: Reply[], opts: HarnessOptions = {}): Harness {
   const queue = [...replies];
   const calls: URL[] = [];
-  const fetchImpl: typeof fetch = async (input) => {
+  const auths: (string | null)[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
     calls.push(input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url));
+    auths.push(new Headers(init?.headers).get("authorization"));
     const reply = queue.shift();
     // 用意した応答を使い切ったら fatal のエラーにして、テストが気づけるようにする
     if (!reply) return jsonResponse({ error: { message: "応答の用意がない", code: 999_999 } }, { status: 400 });
@@ -85,6 +91,7 @@ function harness(replies: Reply[], opts: HarnessOptions = {}): Harness {
     graph,
     rate,
     rateThreshold: opts.threshold ?? 90,
+    appToken: APP_TOKEN,
     persistRaw:
       opts.persistRaw ??
       (async (row) => {
@@ -105,7 +112,7 @@ function harness(replies: Reply[], opts: HarnessOptions = {}): Harness {
     now: () => FIXED_NOW,
     maskText: opts.maskText,
   });
-  return { client, calls, persisted, sleeps, authCodes, apiCalls: () => apiCalls, rate };
+  return { client, calls, auths, persisted, sleeps, authCodes, apiCalls: () => apiCalls, rate };
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +421,122 @@ describe("JobGraphClient.get", () => {
     expect(text).not.toContain("is_transient");
     expect(text).not.toContain("://");
     expect(text).not.toContain("SECRET_TOKEN");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JobGraphClient.debugToken（設計 4.2 章: token_check 用。生レスポンスは保存しない）
+// ---------------------------------------------------------------------------
+
+describe("JobGraphClient.debugToken", () => {
+  const validBody = {
+    data: { type: "PAGE", is_valid: true, expires_at: 0, data_access_expires_at: 1_798_761_600, scopes: ["instagram_basic"] },
+  };
+
+  it("input_token に自分のトークン、Authorization にアプリトークンを使い、persistRaw を呼ばず、呼び出しは数える", async () => {
+    const h = harness([ok(validBody, usageHeader(7))]);
+    const res = await h.client.debugToken();
+    expect(res.ok).toBe(true);
+    expect(res.data?.data?.is_valid).toBe(true);
+    expect(res.data?.data?.type).toBe("PAGE");
+    expect(res.rawResponseId).toBeUndefined();
+    expect(res.status).toBe(200);
+    expect(res.fetchedAt).toEqual(FIXED_NOW);
+    expect(h.persisted).toEqual([]);
+    expect(h.apiCalls()).toBe(1);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]?.pathname).toBe("/v25.0/debug_token");
+    expect(h.calls[0]?.searchParams.get("input_token")).toBe("SECRET_TOKEN");
+    expect(h.calls[0]?.searchParams.has("access_token")).toBe(false);
+    expect(h.auths[0]).toBe(`Bearer ${APP_TOKEN}`);
+    // ヘッダで使用率を更新する
+    expect(h.rate.percent()).toBe(7);
+  });
+
+  it("is_valid: false は HTTP 200 で返るので ok: true の data で判断する", async () => {
+    const h = harness([ok({ data: { is_valid: false, scopes: [], error: { code: 190, message: "Error validating access token" } } })]);
+    const res = await h.client.debugToken();
+    expect(res.ok).toBe(true);
+    expect(res.data?.data?.is_valid).toBe(false);
+    expect(h.authCodes).toEqual([]);
+    expect(h.persisted).toEqual([]);
+  });
+
+  it("190（アプリトークンの誤り）は onAuthError を呼ばず、fatal として返す。保存しない", async () => {
+    const h = harness([graphError({ message: "Invalid OAuth access token", type: "OAuthException", code: 190, error_subcode: 463 })]);
+    const res = await h.client.debugToken();
+    expect(res.ok).toBe(false);
+    expect(res.errorClass).toBe("fatal");
+    expect(res.error).toEqual({ message: "Invalid OAuth access token", type: "OAuthException", code: 190, error_subcode: 463 });
+    expect(res.rawResponseId).toBeUndefined();
+    expect(h.authCodes).toEqual([]);
+    expect(h.persisted).toEqual([]);
+    expect(h.calls).toHaveLength(1);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it("権限不足（10、200）も fatal として返し、onAuthError を呼ばない", async () => {
+    for (const code of [10, 200]) {
+      const h = harness([graphError({ message: "permission", code }, 403)]);
+      const res = await h.client.debugToken();
+      expect(res.ok).toBe(false);
+      expect(res.errorClass).toBe("fatal");
+      expect(res.error?.code).toBe(code);
+      expect(h.authCodes).toEqual([]);
+    }
+  });
+
+  it("HTTP 500 は再試行し、成功すれば ok。使い切れば transient", async () => {
+    const h = harness([() => new Response(null, { status: 500 }), ok(validBody)]);
+    const res = await h.client.debugToken();
+    expect(res.ok).toBe(true);
+    expect(h.calls).toHaveLength(2);
+    expect(h.sleeps).toEqual([2000]);
+    expect(h.apiCalls()).toBe(2);
+    expect(h.persisted).toEqual([]);
+
+    const exhausted = harness([
+      () => new Response(null, { status: 500 }),
+      () => new Response(null, { status: 502 }),
+      () => new Response(null, { status: 503 }),
+    ]);
+    const res2 = await exhausted.client.debugToken();
+    expect(res2.ok).toBe(false);
+    expect(res2.errorClass).toBe("transient");
+    expect(res2.status).toBe(503);
+    expect(res2.rawResponseId).toBeUndefined();
+    expect(exhausted.calls).toHaveLength(3);
+    expect(exhausted.sleeps).toEqual([2000, 8000]);
+    expect(exhausted.persisted).toEqual([]);
+  });
+
+  it("fatal（コード 100 など）はそのまま fatal", async () => {
+    const h = harness([graphError({ message: "Invalid appsecret", code: 100 })]);
+    const res = await h.client.debugToken();
+    expect(res.ok).toBe(false);
+    expect(res.errorClass).toBe("fatal");
+    expect(res.error?.code).toBe(100);
+  });
+
+  it("rate は投げる。しきい値を超えていれば呼ばずに投げる", async () => {
+    const h = harness([graphError({ message: "limit", code: 4 })]);
+    await expect(h.client.debugToken()).rejects.toThrow(RateLimitExceeded);
+    expect(h.calls).toHaveLength(1);
+
+    const over = harness([ok(validBody)], { initial: { call_count: 95, total_cputime: 1, total_time: 1 } });
+    await expect(over.client.debugToken()).rejects.toThrow(RateLimitExceeded);
+    expect(over.calls).toHaveLength(0);
+    expect(over.apiCalls()).toBe(0);
+  });
+
+  it("戻り値にアプリトークンも自分のトークンも含まない", async () => {
+    const h = harness([graphError({ message: `bad token SECRET_TOKEN ${APP_TOKEN}`, code: 190 })], {
+      maskText: (text) => text.replaceAll("SECRET_TOKEN", "***").replaceAll(APP_TOKEN, "***"),
+    });
+    const res = await h.client.debugToken();
+    const text = JSON.stringify(res);
+    expect(text).not.toContain("SECRET_TOKEN");
+    expect(text).not.toContain("APP_SECRET");
   });
 });
 

@@ -6,27 +6,78 @@ export interface CommandResult {
   stderr: string;
 }
 
-export function runCommand(command: string, args: string[]): Promise<CommandResult> {
+export interface RunCommandOptions {
+  /** 制限時間（ミリ秒）。超えたら `SIGKILL` で止めて `CommandError`（`code` は null）で reject する。省略時は制限なし */
+  timeoutMs?: number;
+}
+
+/**
+ * 子プロセスの失敗（終了コードが 0 でない、または制限時間を超えた）。
+ * `command` は起動したコマンド名（`ffmpeg`、`ffprobe`）、`code` は終了コード（制限時間の超過やシグナルによる終了は null）。
+ * `message` は stderr の末尾（一時ファイルのパスを含みうる）を含むので、`check-env` の表示には使ってよいが、
+ * DB やログに入れるときは呼び出し側が `command` と `code` から固定文言を組み立てること（`lib/video-analysis.ts`、
+ * `storage/thumbnails.ts`）
+ */
+export class CommandError extends Error {
+  override readonly name = "CommandError";
+
+  constructor(
+    readonly command: string,
+    readonly code: number | null,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** `probeVideo`、`detectSceneChanges`、`resizeImage` の制限時間。ストーリーズの動画（最長 60 秒）には十分な余裕 */
+export const TOOL_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * 子プロセスを起動して終了を待つ。終了コードが 0 でなくても resolve する（判断は呼び出し側）。
+ * 起動の失敗（コマンドがない、など）は `spawn` の `error` で reject する。
+ * `options.timeoutMs` を超えたら `SIGKILL` で止め、`CommandError`（`code` null、固定文言）で reject する
+ */
+export function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+          }, options.timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new CommandError(command, null, `${command} が制限時間を超えた`));
+        return;
+      }
+      resolve({ code, stdout, stderr });
+    });
   });
 }
 
-async function runOrThrow(command: string, args: string[]): Promise<CommandResult> {
-  const result = await runCommand(command, args);
+/** 終了コードが 0 でなければ `CommandError`（`message` は stderr の末尾 5 行を含む）。`timeoutMs` は `runCommand` と同じ */
+async function runOrThrow(command: string, args: string[], timeoutMs?: number): Promise<CommandResult> {
+  const result = await runCommand(command, args, { timeoutMs });
   if (result.code !== 0) {
     const tail = result.stderr.split("\n").slice(-5).join("\n");
-    throw new Error(`${command} が終了コード ${result.code} で失敗しました:\n${tail}`);
+    throw new CommandError(command, result.code, `${command} が終了コード ${result.code} で失敗しました:\n${tail}`);
   }
   return result;
 }
@@ -94,16 +145,13 @@ export function parseProbeOutput(json: string): VideoProbe {
   };
 }
 
+/** ffprobe で長さ、解像度、フレームレートなどを読む。失敗は `CommandError`。制限時間は `TOOL_TIMEOUT_MS` */
 export async function probeVideo(filePath: string): Promise<VideoProbe> {
-  const { stdout } = await runOrThrow("ffprobe", [
-    "-v",
-    "error",
-    "-print_format",
-    "json",
-    "-show_format",
-    "-show_streams",
-    filePath,
-  ]);
+  const { stdout } = await runOrThrow(
+    "ffprobe",
+    ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", filePath],
+    TOOL_TIMEOUT_MS,
+  );
   return parseProbeOutput(stdout);
 }
 
@@ -125,23 +173,16 @@ export function parseSceneChangeTimes(stderr: string): number[] {
   return times;
 }
 
-/** ffmpeg のシーン検出で、画面が大きく変わった時刻（開始からのミリ秒）を返す */
+/** ffmpeg のシーン検出で、画面が大きく変わった時刻（開始からのミリ秒）を返す。失敗は `CommandError`。制限時間は `TOOL_TIMEOUT_MS` */
 export async function detectSceneChanges(
   filePath: string,
   threshold = DEFAULT_SCENE_THRESHOLD,
 ): Promise<number[]> {
-  const { stderr } = await runOrThrow("ffmpeg", [
-    "-hide_banner",
-    "-nostats",
-    "-i",
-    filePath,
-    "-filter:v",
-    `select='gt(scene,${threshold})',showinfo`,
-    "-an",
-    "-f",
-    "null",
-    "-",
-  ]);
+  const { stderr } = await runOrThrow(
+    "ffmpeg",
+    ["-hide_banner", "-nostats", "-i", filePath, "-filter:v", `select='gt(scene,${threshold})',showinfo`, "-an", "-f", "null", "-"],
+    TOOL_TIMEOUT_MS,
+  );
   return parseSceneChangeTimes(stderr);
 }
 
@@ -171,4 +212,25 @@ export async function generateColorTestVideo(
     "yuv420p",
     outputPath,
   ]);
+}
+
+/** サムネイルの幅（ピクセル）。一覧表示用（設計 3.6 章、NF-CAP-03） */
+export const THUMBNAIL_WIDTH = 320;
+
+/**
+ * 画像（動画なら先頭のフレーム）を幅 `width` に縮小して JPEG に書く ffmpeg の引数（設計 3.6 章）。純粋関数。
+ * `scale=<width>:-2` は縦横比を保ち、高さを偶数に丸める。`-frames:v 1` で 1 枚だけ出し、`-q:v 4` は JPEG の品質
+ */
+export function resizeImageArgs(input: string, output: string, width = THUMBNAIL_WIDTH): string[] {
+  return ["-hide_banner", "-y", "-i", input, "-vf", `scale=${width}:-2`, "-frames:v", "1", "-q:v", "4", output];
+}
+
+/**
+ * `input` を幅 `width` に縮小して `output`（拡張子で形式が決まる。`.jpg`）に書く。
+ * 失敗時の例外メッセージには stderr の末尾（入力のパスを含みうる）が入るので、呼び出し側
+ * （`storage/thumbnails.ts` の `saveThumbnail`）で固定文言に置き換えること。ホストに ffmpeg はないので、
+ * 引数の組み立て（`resizeImageArgs`）だけを単体テストし、実行はコンテナで確かめる
+ */
+export async function resizeImage(input: string, output: string, width = THUMBNAIL_WIDTH): Promise<void> {
+  await runOrThrow("ffmpeg", resizeImageArgs(input, output, width), TOOL_TIMEOUT_MS);
 }

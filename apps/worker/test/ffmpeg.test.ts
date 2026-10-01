@@ -1,5 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { parseFrameRate, parseProbeOutput, parseSceneChangeTimes } from "../src/lib/ffmpeg.js";
+import {
+  CommandError,
+  parseFrameRate,
+  parseProbeOutput,
+  parseSceneChangeTimes,
+  runCommand,
+  TOOL_TIMEOUT_MS,
+} from "../src/lib/ffmpeg.js";
+
+describe("runCommand", () => {
+  it("終了コード、stdout、stderr を返す（0 でなくても resolve）", async () => {
+    const result = await runCommand(process.execPath, [
+      "-e",
+      "process.stdout.write('out'); process.stderr.write('err'); process.exit(3)",
+    ]);
+    expect(result).toEqual({ code: 3, stdout: "out", stderr: "err" });
+    expect((await runCommand(process.execPath, ["-e", "process.exit(0)"])).code).toBe(0);
+  });
+
+  it("存在しないコマンドは spawn の error で reject する", async () => {
+    await expect(runCommand("instagram-analyze-no-such-command", ["-x"])).rejects.toThrow();
+  });
+
+  it("制限時間を超えたら子プロセスを止めて CommandError（code null、固定文言）で reject する", async () => {
+    const started = Date.now();
+    let caught: unknown;
+    try {
+      await runCommand(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { timeoutMs: 300 });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CommandError);
+    const error = caught as CommandError;
+    expect(error.name).toBe("CommandError");
+    expect(error.command).toBe(process.execPath);
+    expect(error.code).toBeNull();
+    expect(error.message).toBe(`${process.execPath} が制限時間を超えた`);
+    // 10 秒の子プロセスを待っていない
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("制限時間内に終われば通常どおり resolve する", async () => {
+    const result = await runCommand(process.execPath, ["-e", "process.exit(0)"], { timeoutMs: TOOL_TIMEOUT_MS });
+    expect(result.code).toBe(0);
+    expect(TOOL_TIMEOUT_MS).toBe(5 * 60 * 1000);
+  });
+
+  it("CommandError は command と code を持つ", () => {
+    const error = new CommandError("ffprobe", 1, "ffprobe が終了コード 1 で失敗しました:\n/tmp/x/video.mp4: Invalid data");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.command).toBe("ffprobe");
+    expect(error.code).toBe(1);
+    expect(error.message).toContain("Invalid data");
+  });
+});
 
 describe("parseSceneChangeTimes", () => {
   it("showinfo の行から pts_time をミリ秒で取り出す", () => {

@@ -84,16 +84,30 @@ export async function failRunningRuns(db: Db, jobName: JobName, accountId: strin
  * `finished_at >= since` で `rate_usage` が入っていて、API を 1 回以上呼んだ（`api_calls > 0`）最新の 1 行。
  * アカウントやジョブで絞らない。
  * API を呼ばずに見送った実行（前回の値を書き戻しただけの行）を拾い続けると、しきい値を超えたまま収集が
- * 自己回復しないため、`api_calls > 0` で除く（枠組み側の「`api_calls = 0` なら `rate_usage` を書き戻さない」との二重の防御）
+ * 自己回復しないため、`api_calls > 0` で除く（枠組み側の「`api_calls = 0` なら `rate_usage` を書き戻さない」との二重の防御）。
+ * `until` を渡すと `finished_at <= until` に絞る（枠組みはジョブの開始時刻を渡す。開始時刻より未来に終わった行は
+ * 時計のずれやテストの仕込みなので使わない）
  */
-export async function latestRateUsage(db: Db, since: Date): Promise<RateUsage | undefined> {
+export async function latestRateUsage(db: Db, since: Date, until?: Date): Promise<RateUsage | undefined> {
   const rows = await db<{ rate_usage: RateUsage }[]>`
     select rate_usage from public.job_runs
     where finished_at is not null and finished_at >= ${since} and rate_usage is not null and api_calls > 0
+      ${until === undefined ? db`` : db`and finished_at <= ${until}`}
     order by finished_at desc
     limit 1
   `;
   return rows[0]?.rate_usage;
+}
+
+/**
+ * そのジョブ（全アカウント）の最新の `started_at`。行がなければ undefined。
+ * スケジューラの起動時の初期値（hourly は `stories`、daily は `profile_daily`）に使う（設計 2.3 章）
+ */
+export async function latestStartedAt(db: Db, jobName: JobName): Promise<Date | undefined> {
+  const rows = await db<{ started_at: Date | null }[]>`
+    select max(started_at) as started_at from public.job_runs where job_name = ${jobName}
+  `;
+  return rows[0]?.started_at ?? undefined;
 }
 
 /** `job_state.state`。行がなければ undefined。型は呼び出し側が指定する（検証はしない） */

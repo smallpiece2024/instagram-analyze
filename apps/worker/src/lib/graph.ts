@@ -36,6 +36,27 @@ export interface GraphResponse<T = unknown> {
 
 export type GraphParams = Record<string, string | number | undefined>;
 
+/** `debug_token` の `data`。Meta の仕様どおり、各項目は省略されうる */
+export interface DebugTokenData {
+  /** `PAGE`、`USER`、`APP` など */
+  type?: string;
+  is_valid?: boolean;
+  /** UNIX 秒。0 は期限なし */
+  expires_at?: number;
+  /** UNIX 秒 */
+  data_access_expires_at?: number;
+  scopes?: string[];
+  /** ページトークンのときは Facebook ページの ID */
+  profile_id?: string;
+  app_id?: string;
+  user_id?: string;
+}
+
+/** `debug_token` の応答（`GraphClient.debugToken`）。`is_valid: false` でも HTTP 200 で返る */
+export interface DebugTokenResponse {
+  data?: DebugTokenData;
+}
+
 /** `fetch` が例外を投げた（レスポンスなし）ときの `GraphError.type`。`status` は 0 になる */
 export const NETWORK_ERROR_TYPE = "NetworkError";
 
@@ -167,6 +188,16 @@ export class GraphClient {
       };
     }
     return { ok: true, status: res.status, data: body as T, error: undefined, rateLimit };
+  }
+
+  /**
+   * `debug_token` でこのクライアントのトークンを調べる（設計 4.1 章、4.2 章）。
+   * `input_token` にこのクライアントのトークンをクエリで、`Authorization: Bearer` にアプリトークン
+   * （`appId|appSecret`）を付ける。呼び出し側がトークンの値に触れずに済む。
+   * `is_valid: false` は HTTP 200 で返るので `ok: true` の `data.data.is_valid` で判断する
+   */
+  debugToken(appToken: string): Promise<GraphResponse<DebugTokenResponse>> {
+    return this.get<DebugTokenResponse>("debug_token", { input_token: this.accessToken }, appToken);
   }
 
   /**
