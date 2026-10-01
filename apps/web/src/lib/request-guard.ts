@@ -5,7 +5,8 @@
  *   以外なら拒否する（DNS リバインディング対策）
  * - `isSameOriginPost`: `Sec-Fetch-Site` が `same-origin`／`none` 以外、または `Origin` が `APP_URL` のオリジンと
  *   違えば拒否する（Route Handler には Next.js の Origin 検査がないため）。`Origin` がない要求も拒否する
- *   （フォーム送信ではブラウザが必ず付ける）
+ *   （フォーム送信ではブラウザが付ける。ただし文書の `Referrer-Policy` が `no-referrer` だと同一オリジンでも
+ *   `Origin: null` になるので、`next.config.ts` は `same-origin` にしている）
  */
 
 /** `-H 127.0.0.1` で待ち受ける開発サーバーに届く、既定で許すホスト */
