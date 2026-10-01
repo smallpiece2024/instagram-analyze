@@ -15,7 +15,9 @@
     "build:worker": "npm run build -w worker",
     "worker:image": "docker compose build worker",
     "worker:check-env": "docker compose run --rm worker check-env",
-    "worker:verify-api": "docker compose run --rm worker verify-api"
+    "worker:verify-api": "docker compose run --rm worker verify-api",
+    "worker:register-token": "docker compose run --rm worker register-token",
+    "worker:job": "docker compose run --rm worker"
   },
   "devDependencies": {
     "supabase": "2.118.0"

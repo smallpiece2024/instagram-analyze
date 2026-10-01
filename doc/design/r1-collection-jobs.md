@@ -2,13 +2,13 @@
 
 | 項目 | 内容 |
 |---|---|
-| 版 | 0.2（案） |
+| 版 | 0.3 |
 | 作成日 | 2026-10-01 |
-| 更新履歴 | 0.1 初版案。0.2 セキュリティと品質のレビューを反映（秘密情報の記録とマスクの規則、消失判定の条件と余裕、内訳の「印」の行、スナップショットの欠損行、接続数、日次指標の窓を 4 日に、follower_count の窓を PT 0 時基準に、「今日」はジョブ開始時刻で固定、再試行は合計 3 回、レート制限のコード 80000〜80009、`numeric` の型、スケジューラの判定、実装の分割とファイルの担当、テストケースの具体化、R2 への申し送り） |
+| 更新履歴 | 0.1 初版案。0.2 セキュリティと品質のレビューを反映（秘密情報の記録とマスクの規則、消失判定の条件と余裕、内訳の「印」の行、スナップショットの欠損行、接続数、日次指標の窓を 4 日に、follower_count の窓を PT 0 時基準に、「今日」はジョブ開始時刻で固定、再試行は合計 3 回、レート制限のコード 80000〜80009、`numeric` の型、スケジューラの判定、実装の分割とファイルの担当、テストケースの具体化、R2 への申し送り）。0.3 段階 1（土台と検証）の実装で確定・変更した事項を 13 章に追記（11.1 章の P1〜P12 の結果、Bearer ヘッダ、ページングの終了判定、`metricDateFromEndTime`、`sanitizeForLog` の順序、エラー文のマスク、`deriveJobStatus`、Dockerfile） |
 | 対象 | 要件定義 4.2 章（F-COL-02、F-COL-03、F-COL-10〜24）、5.2 章、5.4 章、5.5 章、8.1 章、8.2 章 |
 | 入力 | `doc/requirements/requirements-definition.md`（版 0.4）、`doc/design/r1-db-design.md`（版 0.3）、`doc/verification/r0-meta-api-verification.md`、`supabase/migrations/20261001100000〜20261001100400`、`apps/worker/src/` |
 | 範囲外 | Facebook Login の接続画面（F-COL-01）、画面（F-UI-01〜03）、R2 の通知（F-SYS-14）、`export-dataset` コマンド |
-| 状態 | 案。11 章の確認事項に回答をもらってから実装に入る |
+| 状態 | 実装中。11.2 章の Q1〜Q9 は回答済み。段階 1（土台と検証）は実装済みで、確定・変更した事項は 13 章 |
 
 ---
 
@@ -964,3 +964,54 @@ R1 の設計で決めず、R2（クラウド稼働）の設計で扱う事項。
 | ローカルのポート | README に「Supabase CLI の 54321〜54324 を LAN に公開しない（サービスロールキーの既定値が公知のため）」と書く（段階 3） |
 | 接続解除時の削除 | サムネイル（`storage.objects`）の削除を接続画面の設計（F-COL-01、NF-CMP-02）で扱う。R1 は README の SQL の手順 |
 | Vault の権限 | Supabase Cloud の `postgres` ロールで `vault.decrypted_secrets` を読めるか、サーバーログにパラメータが出ないか（P6 と同じ確認を Cloud で行う） |
+
+---
+
+## 13. 段階 1 の実装で確定・変更した事項（2026-10-01）
+
+段階 1（土台と検証）の実装と、セキュリティ・品質レビューで、この文書の案から確定または変更した点。本文の各章は案のままなので、食い違うときはこの章が正。実機確認の結果は `doc/verification/r0-meta-api-verification.md` の 4 章。
+
+### 13.1 実機確認（11.1 章）で確定したこと
+
+| No | 結果 | 反映先 |
+|---|---|---|
+| P1 | 4 グループとも 1 リクエストでまとめて取れた | 5.2 章の `ACCOUNT_METRIC_GROUPS` のまま（1 日 4 リクエスト ＋ follower_count 1 回） |
+| P2 | 公開中の動画ストーリーズに `media_url` が返らなかった（`thumbnail_url` はある）。音楽入りの動画では著作権の判定で省かれる可能性 | 5.6 章の `no_video_url` の記録で扱う。3 日間の実機確認で割合を見て F-COL-23 の見直しを判断。許可ホストは `cdninstagram.com`、`fbcdn.net` で確定（`config.ts` の `DOWNLOAD_ALLOWED_HOSTS`） |
+| P3 | `since = PT 0 時`、`until = 翌日 PT 0 時 − 1 秒` で 1 日分だけ返る。`end_time` の PT の日付が**そのまま**指標の日付（前日ではない） | `pacificDayRange` は初期値のまま確定。`metricDateFromEndTime` は「前日」をやめ、`end_time` の PT の日付を返す。オフセットのない文字列は `RangeError` |
+| P4 | 値 0 の区分は `results` に含まれない。`follows_and_unfollows` の内訳つきは `total_value.value` がない（印の行の `value` は null） | 5.2 章の印の行の規則のまま |
+| P5 | 内訳つきと内訳なしは同じリクエストに入れられない | 5.5 章、5.6 章のまま分ける |
+| P6 | `postgres` ロール（非スーパーユーザー）で Vault の作成・復号・更新・削除ができる。`vault.secrets.name` に一意索引あり。`log_parameter_max_length_on_error = 0`。Storage の REST でアップロード・上書き・読み出し・削除ができる | 3.3 章、3.6 章のまま。R2 の Cloud でも同じ確認を行う（12 章） |
+| P7 | コラボ・お試しリール・ブーストを判定できるフィールドは見つからず（`boost_eligibility_info` などは取れる） | 5.4 章のとおり R1 は null。R3 で再確認 |
+| P8 | 最終ページでも `paging.cursors.after` が付き、`paging.next` がない | `pages()` は `paging.next` がない、`cursors.after` がない、`data` が空、同じ `after` が続く、のいずれかで止める（URL は使わない） |
+| P9、P12 | 未検証（カルーセルがない。レート制限は当てられない） | 変更なし |
+| P10 | 2 年超は `code 100`、`error_subcode` なし、メッセージは 5.3 章のとおり | `isHistoryLimitError` のまま |
+| P11 | `Authorization: Bearer` ヘッダだけで受け付けた | 採用。`GraphClient` はトークンをヘッダで送り、URL に載せない。`stripSecretParams` と `access_token=` のマスクは防御として残す |
+
+### 13.2 設計から変えたこと
+
+| 章 | 変更 | 理由 |
+|---|---|---|
+| 1.3 | `raw_api_responses.body` に入れる前に、キー名の置換（`stripVolatileFields`）に加えて、エラー応答の `error.message` を `sanitizeForLog` でマスクする | Graph API のエラー文にトークンやメディア ID が入ることがある。9.2 章の「秘密の非混入」を満たすため |
+| 1.5 | `items = 0` かつ `failures ≥ 1` は、停止の種類に関係なく `failed` | 「何も書き込めずに失敗した → failed」を機械的に判定するため。例: `media_sync` が最初のページから失敗したら `failed` |
+| 2.2 | Dockerfile は `deps` 段階（`npm ci --workspace worker --omit=dev --ignore-scripts`）の `node_modules` を実行イメージに入れる。`USER node` で動かし、`chown` は `/app/.local` だけ | postgres.js を実行時に使うため。root 時代に作られた `.local` 配下のディレクトリは `node` が書けないので、README に対処を書く |
+| 3.5 | 計測値の `bigint`（`account_daily_metrics.value`、`video_analyses.bitrate`、`file_size`）は行の型を `number` にし、`db/*.ts` の読み出しで `Number()` に変換する（ID 列の `bigint` は文字列のまま） | `numeric` と同じ扱いにそろえる。段階 2 の `db/account-daily.ts`、`db/video.ts` のテストに含める |
+| 5.0 | `metricDateFromEndTime` は `end_time` の PT の日付そのもの | P3 |
+| 8.1 | `sanitizeForLog` の順序を「URL のパターン（`https?://`、`postgres(ql)?://`）→ 登録値のマスク → 残りのパターン」にする。パターンに JSON 形の `"access_token":"…"`、Meta のトークン形（`EAA…`）、JWT 形（`eyJ…`）を加える。数値の項目もマスクを通す | ローカルの接続文字列（ユーザー名・パスワードが `postgres`）を登録すると `postgresql://` の語が先に壊れて `<db-url>` に置き換わらないため。登録値のマスクは引き続き全体に効くので安全性は落ちない |
+| 1.4 | `GraphClient.get` に 30 秒のリクエストタイムアウト（`AbortSignal.timeout`）。中断は `transient` | undici の既定（5 分）に頼ると、応答が止まったときにロックを持ったまま最長 15 分固まる |
+| 3.7 | `isAllowedDownloadUrl` はユーザー情報付きの URL と非標準ポートも拒む。本文が空なら `本文がない` の `DownloadError` | 契約を単純にする |
+| 11.3 | `config.ts` は `META_GRAPH_API_VERSION` の形（`v<数字>.<数字>`）、`DATABASE_URL` と `SUPABASE_URL` が URL として読めること、`WORKER_RATE_SOFT_LIMIT ≤ WORKER_RATE_HARD_LIMIT` も検証する | 不正な設定を起動時に止める |
+| 10.3 | `config.ts` は段階 1 の最初にオーケストレータが書き、`register-token` と `verify-api` が共有する形にした。`verify-api` の DB・Storage の確認（P6）は `db/client.ts` の `connectDb` を使う | 並列作業の依存を切るため |
+| 7.2 | `job_runs.rate_usage` は、その実行で API を 1 回以上呼んだときだけ書く（`api_calls = 0` なら null）。`latestRateUsage` も `api_calls > 0` の行だけを見る | 直近 1 時間の値がしきい値以上だと API を呼ばずに `skipped` になるが、引き継いだ値をそのまま書き戻すと次の実行もそれを拾い、実際の使用率が回復しても永久に `skipped` のままになる（品質レビューで発見） |
+| 1.2、8.1 | `JobContext` に `recordFailure({ code?, errorClass, message })` と `mask(text)` を足す。ジョブは項目の失敗ごとに `recordFailure` を呼び（`failures` は枠組みが増やす）、例外なしで `failures ≥ 1` の `partial` でも `job_runs.error` に最後の失敗のマスク済みメッセージが入り、ログは `WARN` で `error_code=` と `class=` が出る。ジョブが DB（`video_analyses.error` など）やログに書く文字列は `ctx.mask` を通す | `partial` の理由が収集ログ画面に残らず、ジョブ側から登録済みの秘密（Vault のトークン）でマスクする手段もなかったため |
+| 1.3 | `Tracked.error.message` は出所（`JobGraphClient.get`）でマスク済み。保存するエラー応答は `message`（マスク済み）、`type`、`code`、`error_subcode`、`fbtrace_id` だけ | `error_user_msg` などの自由文に URL や ID が入りうる |
+| 1.2 | プロセス全体の秘密の一覧 `processSecrets`（`jobs/framework.ts`）を `createJobDeps` が使い、`index.ts` のプロセスの保険もそれでマスクする。一時ディレクトリの接頭辞は `TMP_DIR_PREFIX = 'instagram-worker-'`（`worker-*` から変更。ホストで動かしたときに他のツールのディレクトリを消さない） | — |
+| 8.1 | ログの `account=` は内部 uuid の断片でなく、`runJobsForActiveAccounts` が渡す連番（`1/1`） | 「アカウントの ID を出さない」の規則に合わせる |
+| 4.1 | `register-token` は `toCredentialInfo`（純粋関数）と `registerToken(args, deps?)`（`env`、`fetchImpl`、`now` を注入）に分け、単体テストと結合テストを持つ | 4.1 章の分岐が未検証だったため |
+
+### 13.3 段階 2 への申し送り
+
+- `JobContext` の使い方、`begin` の中で禁止のこと（`ctx.db`、`ctx.graph.get`、`insertRawResponse`、入れ子の `begin`）、`Tracked` の読み方、`recordFailure` と `mask` の使い方は `jobs/framework.ts` と `jobs/graph-client.ts` の doc コメントに書いてある。`max: 2` のため、トランザクションの中で API を呼ぶと空き接続を待ち続けて止まる（エラーにならない）。
+- `rate` と `auth` は `RateLimitExceeded` と `AuthError` として投げられる。ジョブの `try/catch` で項目の失敗を数えるときは、この 2 つを再 throw する。
+- 一時ディレクトリは `mkdtemp(join(tmpdir(), TMP_DIR_PREFIX + '<用途>-'))` で作り、`finally` で消す。
+- `DownloadLimits` の既定値は `download.ts` にない。`maxBytes: 200 * 1024 * 1024`、`timeoutMs: 60_000`、`allowedHosts: config.downloadAllowedHosts` を呼び出し側で渡す。
+- 結合テストは `test/db/framework.test.ts` の形（偽 `fetch` の応答キュー、`createLogger` に `write` を注入、架空アカウントを `afterAll` で削除）にならう。`runJobsForActiveAccounts` はローカル DB の実アカウントに行を書くので結合テストで呼ばない。
