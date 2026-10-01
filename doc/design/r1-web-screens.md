@@ -249,6 +249,7 @@ Meta アプリ側の設定（ユーザーが行う。README に書く）: 「Fac
 - R3 への申し送り: `/media` の `offset` ページングと `order by posted_at desc` は全アカウント横断で索引（`account_id` 先頭）を使えない。R1 の件数では問題ないが、R3 で `account_id` の絞り込みかキーセットページングにする。
 - `npm run dev:web` で 3 画面を表示（実データ）。署名付き URL の応答形式の確認。
 - Meta アプリの設定（2.2 章）のあと `/connect` から接続して登録される（C2 の確認。POST での交換が通ることの確認を兼ねる）。確認項目: トークンがブラウザの URL、端末のログ、`accounts`、`job_runs.error` に出ていない。`data_access_expires_at` が約 90 日先。`npm run worker:job -- token-check` が `valid`。次の hourly が `success`。
+  - 2026-10-02 に実機で確認済み。POST での交換は通った。初回は `Referrer-Policy: no-referrer` のため `POST /api/meta/login` が 403 になり、`same-origin` に変更して成功（3 章）。
 
 ---
 
