@@ -88,7 +88,7 @@ npm run worker:verify-api   # Meta API の検証（トークンの有効性の�
    - 指標は JSON 型の列か縦持ちかを決める（要件 5.1 章の末尾）
    - 日次指標の日付は API の日付（太平洋時間）で持つ
 2. **ワーカーの収集ジョブ**（要件 5.2 章のスケジュール）。**次はここから**
-   - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.2）を作成。backend-architect が起草し、security-engineer と quality-engineer のレビュー（高 9 件、中 20 件、低 29 件）を反映済み。11.2 章の Q1〜Q9 についてユーザーの回答待ち
+   - 2026-10-01: 設計書 `doc/design/r1-collection-jobs.md`（版 0.2）を作成。backend-architect が起草し、security-engineer と quality-engineer のレビュー（高 9 件、中 20 件、低 29 件）を反映済み。11.2 章の Q1〜Q9 は回答済み（Q3 ストーリーズのサムネイルは保存する。他は設計書の案のとおり）
    - 決めたこと: Postgres 直結（postgres.js、`max: 2`）、Vault からトークンを読む、コンテナ常駐のスケジューラ（毎時 5 分と JST 05:30）、生レスポンスからトークンと署名付き URL を除く、ログは秘密情報をマスクしたメッセージだけ
    - 回答後の進め方: 段階 1（土台 + `verify-api` の P1〜P12 の実機確認）→ 段階 2（A〜E を同じ作業ツリーでファイルを分担して並列）→ 段階 3（統合と 3 日間の実機確認）。設計書 10.3 章と 10.4 章
    - P2（動画ストーリーズのダウンロード）は、ユーザーに動画ストーリーズを 1 本投稿してもらってから確かめる
@@ -102,6 +102,17 @@ npm run worker:verify-api   # Meta API の検証（トークンの有効性の�
    - まずは `.env` のページトークンで収集を動かしてよい。Facebook Login による接続画面（F-COL-01）とトークンの DB 保存は R1 の中で作る
    - トークンの有効期限とデータアクセス期限の記録と表示（F-COL-02、F-COL-03）
 4. **最小限の画面**（接続状態、収集ログ、投稿の簡易一覧）。見た目は簡素でよい。R2.5 で決めたデザインで R3 に作り直す
+
+### サブエージェントの導入（2026-10-01）
+
+ユーザーの方針: タスクごとに専門のサブエージェントを探して使い、並列化し、設計 → 並列レビュー → 差し戻しで進める。git worktree は使わない（同じ作業ツリーでファイルを分担する）。
+
+- 14 の提供元を調査し、候補 9 本と Supabase 公式スキル 2 本の本文を読んで評価した結果、次を導入することにした。
+  - `.claude/agents/` に 4 本（MIT。出所と改変をファイル先頭に表示、許諾文は `.claude/agents/LICENSES/`）: `postgres-sql-reviewer`（wshobson `sql-pro` を改変）、`node-worker-developer`（VoltAgent `node-specialist` を改変）、`nextjs-developer`（wshobson `frontend-developer` を改変。Next.js 16 の注記）、`dashboard-designer`（wshobson `ui-ux-designer` を改変。R2.5 用）
+  - Supabase 公式スキル 2 本（`supabase`、`supabase-postgres-best-practices`）は公式プラグイン（`supabase/agent-skills`）として `.claude/settings.json` に登録する（project スコープ）。ファイルはコピーしない。手順は README
+  - 入れないもの: バックエンド設計、テスト、デプロイ、セキュリティの外部エージェント（大規模前提、vitest に触れない、作り物の数値のひな形入り、など）。手元の SuperClaude の同種エージェントで足りる
+- SuperClaude は 4.0.8 のまま（手元の 14 エージェントの本文は上流の最新 v4.3.0 と同一で、増える分はこのプロジェクトに効かない）。必要になったら `superclaude install`（上書きなし）で新規分だけ追加する
+- マイグレーションは `supabase/migrations/` に手書きする方式を続ける。Supabase の MCP サーバは使わない
 
 ### R2.5（画面設計）の準備メモ
 
