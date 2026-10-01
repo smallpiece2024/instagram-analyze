@@ -49,6 +49,7 @@ describe("loadWorkerConfig", () => {
       hourlyMinute: 5,
       dailyTimeJst: { hour: 5, minute: 30 },
       backfillMaxDays: 30,
+      backfillHistoryDays: 730,
       rateHardLimit: 90,
       rateSoftLimit: 50,
       logLevel: "info",
@@ -117,6 +118,16 @@ describe("loadWorkerConfig", () => {
     expectConfigError(() => loadWorkerConfig(env({ WORKER_BACKFILL_MAX_DAYS: "0" })), "WORKER_BACKFILL_MAX_DAYS");
     expectConfigError(() => loadWorkerConfig(env({ WORKER_BACKFILL_MAX_DAYS: "731" })), "WORKER_BACKFILL_MAX_DAYS", "731");
     expect(loadWorkerConfig(env({ WORKER_BACKFILL_MAX_DAYS: "730" })).backfillMaxDays).toBe(730);
+  });
+
+  it("WORKER_BACKFILL_HISTORY_DAYS: 1〜730 の整数。既定は 730。値は例外に含めない", () => {
+    expect(loadWorkerConfig(env()).backfillHistoryDays).toBe(730);
+    expect(loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "" })).backfillHistoryDays).toBe(730);
+    expect(loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "400" })).backfillHistoryDays).toBe(400);
+    expect(loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "1" })).backfillHistoryDays).toBe(1);
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "0" })), "WORKER_BACKFILL_HISTORY_DAYS");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "731" })), "WORKER_BACKFILL_HISTORY_DAYS", "731");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_BACKFILL_HISTORY_DAYS: "1y" })), "WORKER_BACKFILL_HISTORY_DAYS", "1y");
   });
 
   it("WORKER_LOG_LEVEL: info か debug", () => {

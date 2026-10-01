@@ -1,7 +1,9 @@
 /**
  * `account_backfill` ジョブ（設計 5.3 章、7.2 章、13.2 章）。
  *
- * D−1 から過去へ向かって 1 日ずつ `fetchAccountDay` で取り、API が「2 年」のエラーを返すか D−730 に達するまで進める。
+ * D−1 から過去へ向かって 1 日ずつ `fetchAccountDay` で取り、API が「2 年」のエラーを返すか D−`config.backfillHistoryDays`
+ * （既定 730）に達するまで進める。遡る日数は実行のたびに読み、保存済みの `oldest_date` と「今日 − 日数」の遅い方を下限にする
+ * （途中で設定を小さくしても効く。大きくし直すときは `job_state` を消してやり直す）。
  * 進み具合は `job_state`（`BackfillState`）に 1 日ごとに書き、中断しても続きから再開する。
  * 1 回の実行は `config.backfillMaxDays` 日まで。各日の前に使用率が `config.rateSoftLimit` 以上なら
  * `RateLimitExceeded` を投げて止める（書けた分は残り、次回に続く）。
@@ -24,7 +26,7 @@ export { isHistoryLimitError } from "./account-metrics.js";
 
 const JOB_NAME = "account_backfill";
 
-/** 取る範囲の下限（D−730）。API の保持期間は 2 年（V1） */
+/** 遡る日数の既定（D−730）。API の保持期間は 2 年（V1）。`WORKER_BACKFILL_HISTORY_DAYS` で短くできる */
 export const BACKFILL_HISTORY_DAYS = 730;
 
 /** これより古い日でコード 100 が「2 年」の判定に当たらなかったら `warn`（文言の変更に備える。設計 5.3 章） */
@@ -60,15 +62,25 @@ export interface BackfillWindow {
   state: BackfillState;
 }
 
-/** 初回の状態。`next_date` は D−1、`oldest_date` は D−730 */
-export function initialBackfillState(today: string): BackfillState {
+/** 初回の状態。`next_date` は D−1、`oldest_date` は D−`historyDays`（既定 730） */
+export function initialBackfillState(today: string, historyDays: number = BACKFILL_HISTORY_DAYS): BackfillState {
   return {
     next_date: addDays(today, -1),
-    oldest_date: addDays(today, -BACKFILL_HISTORY_DAYS),
+    oldest_date: addDays(today, -historyDays),
     done: false,
     days_done: 0,
     failed_dates: [],
   };
+}
+
+/**
+ * 設定の遡る日数を保存済みの状態に効かせる（純粋関数）。`oldest_date` は、保存済みの値と「今日 − historyDays」の遅い方。
+ * 設定を小さくすれば下限が新しい日に縮み、`next_date` がそれより古ければ通常の日は終わった扱いになる。
+ * 大きくしても過去には広がらない（`job_state` を消してやり直す）。変わらなければ同じオブジェクトを返す
+ */
+export function applyHistoryDays(state: BackfillState, today: string, historyDays: number): BackfillState {
+  const floor = addDays(today, -historyDays);
+  return state.oldest_date >= floor ? state : { ...state, oldest_date: floor };
 }
 
 function retryable(state: BackfillState): BackfillFailedDate[] {
@@ -81,14 +93,20 @@ function normalDaysDone(state: BackfillState): boolean {
 }
 
 /**
- * 次に取る日の列を決める（純粋関数）。
+ * 次に取る日の列を決める（純粋関数）。`historyDays`（既定 730）は `applyHistoryDays` で `oldest_date` に効かせる。
  * - 初回（`state` が undefined）: D−1 から過去へ最大 `maxDays` 日
  * - 通常: `next_date` から過去へ最大 `maxDays` 日（`oldest_date` まで）
  * - 通常の日を終えていれば: `failed_dates` の `attempts < 3` の日を最大 `maxDays` 件（`retry: true`）
  * - `done` か、何も残っていなければ `dates: []`
+ * 戻り値の `state` は `oldest_date` が変わっていれば新しいオブジェクト、変わらなければ渡したもの
  */
-export function nextBackfillWindow(state: BackfillState | undefined, today: string, maxDays: number): BackfillWindow {
-  const current = state ?? initialBackfillState(today);
+export function nextBackfillWindow(
+  state: BackfillState | undefined,
+  today: string,
+  maxDays: number,
+  historyDays: number = BACKFILL_HISTORY_DAYS,
+): BackfillWindow {
+  const current = applyHistoryDays(state ?? initialBackfillState(today, historyDays), today, historyDays);
   const limit = Math.max(0, Math.floor(maxDays));
   if (current.done) return { dates: [], retry: false, state: current };
   if (!normalDaysDone(current)) {
@@ -167,7 +185,7 @@ export const job: JobDefinition = {
   async run(ctx) {
     const today = zonedDate(ctx.startedAt, PT);
     const stored = await getJobState<BackfillState>(ctx.db, ctx.account.id, JOB_NAME);
-    const window = nextBackfillWindow(stored, today, ctx.config.backfillMaxDays);
+    const window = nextBackfillWindow(stored, today, ctx.config.backfillMaxDays, ctx.config.backfillHistoryDays);
     const warnBefore = addDays(today, -BACKFILL_WARN_AFTER_DAYS);
     let state = window.state;
     let processed = 0;
