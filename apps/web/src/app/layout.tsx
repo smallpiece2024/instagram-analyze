@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,13 +18,41 @@ export const metadata: Metadata = {
   description: "自分の Instagram プロアカウントのデータを蓄積して分析するツール",
 };
 
+/** 共通のナビゲーション（設計 1.1 章）。レイアウトは DB を読まない */
+const NAV = [
+  { href: "/", label: "接続状態" },
+  { href: "/jobs", label: "収集ログ" },
+  { href: "/media", label: "投稿一覧" },
+  { href: "/connect", label: "接続設定" },
+] as const;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="ja"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="ja" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col">
+        <header className="border-b border-neutral-200 bg-white">
+          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+            <Link href="/" className="font-semibold">
+              Instagram 分析ツール
+            </Link>
+            <nav aria-label="主要">
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {NAV.map((item) => (
+                  <li key={item.href}>
+                    <Link href={item.href} className="text-blue-700 underline-offset-2 hover:underline">
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
+        </header>
+        {children}
+        <footer className="mt-auto px-4 py-6 text-center text-xs text-neutral-500">
+          R1: 最小限の画面。時刻はすべて日本時間（JST）。
+        </footer>
+      </body>
     </html>
   );
 }

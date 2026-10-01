@@ -146,6 +146,36 @@ delete from storage.objects where bucket_id = 'thumbnails' and name like '<accou
 
 **注意**: ローカルの Supabase のポート（54321〜54324）を LAN に公開しない。サービスロールキーと DB パスワードの既定値が公知のため、同じネットワークから DB と Storage を読み書きできてしまう。
 
+## Web アプリの画面と Meta との接続（R1）
+
+`npm run dev:web` で `http://localhost:3000` を開く（`127.0.0.1` だけで待ち受ける。LAN には公開しない）。ログインはまだない（R2）。設計は `doc/design/r1-web-screens.md`。
+
+| 画面 | 内容 |
+|---|---|
+| `/` 接続状態 | アカウント、トークンの種類と期限、データアクセス期限の残り日数、権限、認証情報の状態、最終収集時刻。再接続が必要なら帯で知らせる |
+| `/jobs` 収集ログ | ジョブごとの直近の実行と、直近 100 件の実行記録（`?job=<ジョブ名>` で絞り込み） |
+| `/media` 投稿一覧 | サムネイル、種類、投稿日時、最新の主要指標（50 件ずつ） |
+| `/connect` 接続設定 | Facebook Login で Meta と接続し、Instagram プロアカウントを登録する |
+
+Web アプリのサーバー側は Postgres に直結し、Storage の署名付き URL とトークンの登録に次の変数を使う（`apps/web/.env.example` を `apps/web/.env.local` にコピーして入れる。`NEXT_PUBLIC_` が付かない変数はブラウザに渡らない）。
+
+| 変数 | 内容 |
+|---|---|
+| `DATABASE_URL` | ローカルは `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
+| `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` | サムネイルの署名付き URL に使う。`npm run db:status` の値 |
+| `META_APP_ID`、`META_APP_SECRET`、`META_GRAPH_API_VERSION` | ワーカーの `.env` と同じ値 |
+| `APP_URL` | `http://localhost:3000`。Meta からの戻り先 `${APP_URL}/api/meta/callback` の元 |
+| `META_TARGET_IG_USER_ID` | 任意。指定すると、候補の数にかかわらず一致する Instagram アカウントのページだけを登録し、一致がなければ登録しない（複数のページを管理しているときの保険） |
+
+### Meta アプリ側の設定（Facebook Login を使う前に 1 回）
+
+1. [Meta for Developers](https://developers.facebook.com/apps/) で自分のアプリを開き、「製品を追加」から **Facebook ログイン** を追加する。
+2. Facebook ログインの「設定」で「クライアント OAuth ログイン」と「ウェブ OAuth ログイン」を「はい」にして保存する。
+3. 戻り先 `http://localhost:3000/api/meta/callback` は **登録しなくてよい**。開発モードのアプリでは `http://localhost` への戻り先が自動的に許可される（Meta の設定画面にその旨が表示される。2026-10-02 に確認）。`127.0.0.1` は HTTPS が必須なので使わない。ブラウザも `http://localhost:3000` で開く（`APP_URL` と同じオリジンでないと接続の開始が 403 になる）。
+4. アプリは開発モードのままでよい。ログインする Facebook ユーザーは、アプリの管理者・開発者・テスターのいずれかである必要がある。
+
+`/connect` の「Meta と接続する」で認可画面に進み、許可すると、Instagram プロアカウントの付いた Facebook ページのトークンが DB（Supabase Vault）に登録される。`.env` のトークンを `register-token` で入れていた場合も、同じアカウントなら差し替わる。候補のページが複数あるときは登録せずに戻るので、認可画面で対象のページだけを選び直すか `META_TARGET_IG_USER_ID` を設定する。
+
 ## Meta API の検証
 
 要件定義の F-COL-00 に従い、Meta API で実際に何が取れるかを自分のアカウントで確かめる。
@@ -179,7 +209,9 @@ npm run worker:verify-api
 | コマンド | 内容 |
 |---|---|
 | `npm run lint:web` | Web アプリの lint |
-| `npm run build:web` | Web アプリのビルド |
+| `npm run build:web` | Web アプリのビルド（出力で 4 ルートが `ƒ (Dynamic)` であることを確かめる） |
+| `npm run typecheck -w web` | Web アプリの型チェック（`next typegen` のあと `tsc`） |
+| `npm run test -w web` | Web アプリの単体テスト。`TEST_DATABASE_URL=...`（ワーカーと同じ）を付けると結合テストも動く |
 | `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す）。Storage の結合テストが使うサービスロールキーの既定値は Supabase CLI の公知のローカル用の値で、秘密ではない |
 | `npm run typecheck -w worker` | ワーカーの型チェック |
 | `npm run build:worker` | ワーカーのビルド（`apps/worker/dist/`。Docker を使わずに `node apps/worker/dist/index.js` で動かすときに使う） |
