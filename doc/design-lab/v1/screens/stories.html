@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja" data-screen="stories">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ストーリーズ | design-lab v1</title>
+<script src="../variants.js"></script>
+<script>
+  // URL の #03 などで案を選ぶ。描画前にトークン CSS を差し込む。
+  (function () {
+    var m = (location.hash || "").replace("#", "").slice(0, 2);
+    var v = window.LAB_VARIANTS.filter(function (x) { return x.id === m; })[0] || window.LAB_VARIANTS[0];
+    document.write('<link rel="stylesheet" id="labTokens" href="../tokens/' + v.tokens + '">');
+  })();
+</script>
+<link rel="stylesheet" href="../lab.css">
+<link rel="stylesheet" href="../parts.css">
+</head>
+<body>
+<div id="app"></div>
+<div class="lab-theme" id="labTheme"></div>
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+</body>
+</html>
