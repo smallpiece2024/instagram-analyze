@@ -55,8 +55,6 @@ describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
     // readEnv が読む変数。DB 以外は架空の値（Meta には繋がない。Storage は thumbnail_path が null なので呼ばれない）
     const env: Record<string, string> = {
       DATABASE_URL: url,
-      SUPABASE_URL: "http://127.0.0.1:54321",
-      SUPABASE_SERVICE_ROLE_KEY: "test-key",
       META_APP_ID: "1",
       META_APP_SECRET: "test-secret",
       META_GRAPH_API_VERSION: "v25.0",

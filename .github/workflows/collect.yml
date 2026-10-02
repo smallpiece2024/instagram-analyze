@@ -1,0 +1,133 @@
+# 収集ワーカー（R2 設計 5.1 章）。
+# - 毎時 17 分（UTC）に run-hourly。UTC 20:17（JST 05:17）の回だけ run-daily → run-hourly。
+#   毎時 0 分は GitHub 全体の混雑で遅延・欠落しうるので 17 分にずらす。
+# - 最後に check-alerts（人が見るべき状態なら終了コード 1 → GitHub の失敗メール）と死活監視への ping。
+# - 秘密（Secrets）は必要なステップの env にだけ渡す。Variables はログでマスクされないので公開してよい値だけ置く。
+# - アクションはコミット SHA で固定する（横に版）。更新は dependabot（.github/dependabot.yml）。
+name: collect
+
+on:
+  schedule:
+    - cron: '17 0-19,21-23 * * *'
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+    inputs:
+      simulate_alert:
+        description: '収集を飛ばし、check-alerts だけを alert=simulated で失敗させる（通知の経路の確認）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instagram-analyze-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      WORKER_LOG_LEVEL: info
+      # 通知の経路の確認（R2 設計 5.2 章）。dispatch の入力か repo Variable。schedule では inputs が空なので Variable だけが効く。
+      # 1 か所で評価し、収集を飛ばす判定（daily、hourly）と check-alerts の両方で参照する
+      SIMULATE: ${{ inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true' }}
+    steps:
+      # 接続エラーの文言にホスト名・ユーザー名・project ref が混じっても公開ログに出ないよう、部分文字列としてマスクする
+      # （setup-node より前なので node に頼らず sed で切り出す。パスワードは URL エンコード済みの前提）
+      - name: mask db host, user, project ref
+        run: |
+          host=$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/?]+).*#\2#')
+          user=$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^:@/]+)(:[^@/]*)?@.*#\1#')
+          ref=${user#postgres.}
+          api_host=$(printf '%s' "$SUPABASE_URL" | sed -E 's#^[a-z]+://([^:/?]+).*#\1#')
+          [ -n "$host" ] && echo "::add-mask::$host"
+          [ -n "$user" ] && echo "::add-mask::$user"
+          [ -n "$ref" ] && [ "$ref" != "$user" ] && echo "::add-mask::$ref"
+          [ -n "$api_host" ] && echo "::add-mask::$api_host"
+          true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --workspace worker --ignore-scripts
+      - run: npm run build --workspace worker
+
+      # 入らなくても収集は進める（stories の動画解析だけ failed になり、メールで分かる）
+      - name: ffmpeg
+        continue-on-error: true
+        run: |
+          if command -v ffmpeg > /dev/null; then exit 0; fi
+          for i in 1 2 3; do
+            sudo apt-get update -qq \
+              && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
+              && break
+            sleep 15
+          done
+
+      - id: daily
+        if: ${{ github.event.schedule == '17 20 * * *' && env.SIMULATE != 'true' }}
+        run: node apps/worker/dist/index.js run-daily
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_GRAPH_API_VERSION: v25.0
+          WORKER_BACKFILL_HISTORY_DAYS: '400'
+
+      - id: hourly
+        if: ${{ !cancelled() && env.SIMULATE != 'true' }}
+        run: node apps/worker/dist/index.js run-hourly
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_GRAPH_API_VERSION: v25.0
+          WORKER_BACKFILL_HISTORY_DAYS: '400'
+
+      # 収集が失敗しても判定は行う（cancelled のときだけ飛ばす）。該当があれば終了コード 1 でこのジョブが失敗になる
+      - id: alerts
+        if: ${{ !cancelled() }}
+        run: node apps/worker/dist/index.js check-alerts --scope ${{ github.event.schedule == '17 20 * * *' && 'daily' || 'hourly' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
+          WORKER_SIMULATE_ALERT: ${{ env.SIMULATE }}
+
+      # 走ったことだけを知らせる（成否は GitHub のメールが担う。R2 設計 5.3 章、5.5 章）
+      - name: ping
+        if: ${{ !cancelled() }}
+        run: curl -fsS --max-time 10 --retry 3 "$HEALTHCHECKS_PING_URL" > /dev/null
+        env:
+          HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+
+  # 公開リポジトリは 60 日間活動がないとスケジュールが無効になる（R2 設計 5.4 章）。daily の回に再有効化の API を呼ぶ。
+  # repo Variable COLLECT_KEEPALIVE=true のときだけ（意図的に無効化したワークフローを勝手に戻さない）
+  keepalive:
+    needs: collect
+    if: ${{ !cancelled() && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/collect.yml/enable"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

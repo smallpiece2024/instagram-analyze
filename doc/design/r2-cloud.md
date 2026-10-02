@@ -297,6 +297,17 @@ drop role web_app;
 
 ---
 
+### 4.6 実装で確定・変更したこと（段階 C。2026-10-02）
+
+- 認証の環境変数（`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`APP_URL`、`WEB_ALLOWED_USER_ID`）は `src/lib/auth-env.ts` の `readAuthEnv` で読む（`readEnv` と分け、段 2 の変数がなくてもログインが動く）。`process.env` を読む例外は `proxy.ts` と `auth-env.ts`（R1 設計 1.2 章の注記に追加）。
+- proxy のリダイレクトは相対の `Location` だと Next.js 16 が `TypeError: Invalid URL` で 500 になる（実機で確認）ので `NextResponse.redirect(new URL('/login', request.nextUrl), 303)`。リダイレクトと 403 のレスポンスにも `setAll` が書いた Cookie とキャッシュ系ヘッダを写す。
+- ログイン失敗は `/login?result=failed` へリダイレクトして固定文言を出す（Client Component を増やさない）。1 秒の固定遅延。
+- Route Handler 内の `getClaims()` は `cookies()` で作ったクライアントで行う。直前に proxy がセッションを更新しているので、ここでトークンの更新が起きることは通常ない。
+- `db-errors.ts` は証明書エラーを「DB 接続に失敗（TLS 証明書の検証: <コード>）」に分類。平文を許すホストは `127.0.0.1`、`localhost`、`host.docker.internal`。`ssl: false` を明示して URL の `?sslmode=` を無視する。
+- supabase-js は内部で `AuthApiError: Invalid Refresh Token` を `console.warn` に出すことがある（固定文言の規則の例外。秘密は含まない）。
+- 未確認: `createServerClient` の `cookieOptions.maxAge` が `@supabase/ssr` 側で上書きされないか（10.2 章のブラウザ確認で Cookie の期限を見る）。
+- レビュー（セキュリティ・品質）を反映（2026-10-02）: 認証 Cookie の名前は https で `__Host-sb-auth`（http は `sb-auth`）。`forbid`（許可外の利用者）には更新済みの Cookie を写さない（セッションを延命しない）。`/login` へのリダイレクトの基点は `APP_URL`（認証の設定が足りないときだけ要求の URL）。公開経路は `/login`、`/_next/static`、`/favicon.ico` だけ（`next/image` は使っていないので proxy の matcher からも外した）。ログイン画面は設定不足のとき固定文言だけを出し、変数名はサーバーのログに出す。ナビゲーションは本人（`sub` 一致）にだけ、ログアウトはログイン済みなら誰にでも出す。失敗の固定遅延は Server Action の側で「失敗なら必ず 1 秒以上」を保証する（設定不足や例外の経路でも応答時間が変わらない）。proxy の分岐は `test/proxy.test.ts`（Supabase クライアントを差し替え）で検証。`storage.ts` の 10 秒のタイムアウトは下層の fetch を中断しない（結果は捨てる。許容）。
+
 ## 5. 収集ワーカー（GitHub Actions）
 
 ### 5.1 ワークフロー `.github/workflows/collect.yml`（1 本）
@@ -376,7 +387,8 @@ evaluateAlerts(input: AlertInput, now: Date, scope: 'hourly' | 'daily', simulate
 | シミュレーション | 両方 | `simulate` が true | `WARN alert=simulated` |
 | トークンの期限 | daily のみ | `accounts.status = 'active'` で、credential がない、`credential.status <> 'valid'`、または残り日数が 14 日未満（`token_check` と同じ計算: UTC、切り捨て。定数 `DATA_ACCESS_WARN_DAYS` を共用し、新しい環境変数は作らない。14 日ちょうどは警告しない） | `WARN alert=token account=1/N days_left=13 status=valid` |
 | ストーリーズの連続失敗 | hourly（daily の回も hourly を含む） | `active` のアカウントで、`stories` の直近 2 回（`running` を除く）がどちらも `failed`（`partial`／`skipped` は数えない） | `WARN alert=stories_failed account=1/N runs=2` |
-| 見送りの連続 | hourly | `stories` の直近 3 回がすべて `skipped`（レート制限かロック。R1 設計 8.2 章） | `WARN alert=stories_skipped account=1/N runs=3` |
+| 見送りの連続 | hourly（daily の回も hourly を含む） | `stories` の直近 3 回がすべて `skipped`（レート制限かロック。R1 設計 8.2 章） | `WARN alert=stories_skipped account=1/N runs=3` |
+| トークンの期限が不明 | daily のみ | `credential.status = 'valid'` なのに `data_access_expires_at` が null（ページトークンでは起きないはず） | `WARN alert=token account=1/N days_left=unknown status=valid` |
 | 履歴なし | 両方 | 該当ジョブの記録が足りない（初回、移行直後）→ 判定しない | `INFO alerts=0 reason=no_history` |
 
 - 「停滞」の判定は入れない。収集が走っていないことは死活監視（5.5 章）が、走って失敗したことは `run-*` の終了コード 1 と GitHub のメールが拾う。重複させない。
@@ -427,6 +439,17 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 
 ---
 
+### 5.7 実装で確定・変更したこと（段階 B。2026-10-02）
+
+- `evaluateAlerts(input, now, scope, simulate)` は `{ alerts, noHistory }` を返す（`reason=no_history` を運ぶ）。`DATA_ACCESS_WARN_DAYS` と `daysLeft` は `token-check.ts` と共用。
+- `check-alerts` は Vault を復号しない `readCredentialStatus`（`status` と `data_access_expires_at` だけ）を使い、設定も最小の `loadCheckAlertsConfig`（`DATABASE_URL`、`DATABASE_SSL_CA`、`WORKER_LOG_LEVEL`、`WORKER_SIMULATE_ALERT`）で読む（そのステップには Meta と Storage の変数を渡さないため）。要約行は `INFO command=check-alerts scope=… accounts=N alerts=<n> [reason=no_history]`。`Logger` に `error()` を追加。
+- `token_check` の `profile_id` の検査はページトークン（`type: PAGE`）だけに掛ける（ユーザートークンには `profile_id` がない）。`fb_page_id` が null なら飛ばす。
+- `normalizeDbError` の証明書エラーは既存の「DB 接続に失敗（<コード>）」の形のまま対象コードを広げた。
+- ワークフローの ffmpeg ステップは `command -v ffmpeg` で短絡し、再試行ループの中で `apt-get update -qq` を行う。`::add-mask::` は `setup-node` より前なので `sed` で切り出す（Node に依存しない）。
+- `WORKER_SIMULATE_ALERT` は `true`／`false` だけ（省略は false。それ以外は `ConfigError`）。
+- `verify-api` コマンド（ローカル専用の検証）は `connectDb` に CA を渡していない。クラウドに向けて使う必要が出たら足す。
+- レビュー（セキュリティ・品質）を反映（2026-10-02）: ワークフローはジョブの `env.SIMULATE`（`inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true'`）を 1 か所で評価し、`daily`／`hourly` のスキップと `check-alerts` の両方で参照する（repo Variable の経路でも収集を飛ばす）。`::add-mask::` はホスト名、ユーザー名に加えて project ref 単体と `SUPABASE_URL` のホストもマスクする。アクションの SHA は `git ls-remote --tags` で GitHub から直接取った値（2026-10-02）。`check-alerts` の `reason` は該当なしのときだけ（`no_accounts`: 対象なし、`no_history`: 履歴不足）。`data_access_expires_at` が null で `valid` のときも警告する（`days_left=unknown`。フェイルクローズ）。`stories_skipped` は hourly と daily の回の両方で判定する。`token_check` は `fb_page_id` が null のアカウントで `WARN reason=fb_page_id_missing` を出す（`profile_id` の検査が効かないことを知らせる。ID は出さない）。
+
 ## 6. 秘密の一覧と漏洩時の対応（NF-SEC-04）
 
 置き場の基準: **GitHub Variables と Vercel の通常の環境変数は「公開ログや画面に出てもよい値」だけ**（Variables はステップの展開で平文になる。5.1 章）。「漏れても無害」ではなく「公開されてよい」で判断する。
@@ -458,7 +481,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 | # | 手順 |
 |---|---|
-| 1 | 2 章の Supabase の設定（Auth、SSL 強制、Data API、利用者の作成）。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
+| 1 | 2 章の Supabase の設定（**着手条件**: サインアップ無効、匿名サインイン無効、Data API の公開スキーマから `public` を外す。ブラウザに出る publishable key で第三者が `authenticated` の JWT を得られないようにする）、SSL 強制、利用者の作成。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
 | 2 | Vercel に段 1 の環境変数を入れて `main` をデプロイ。未ログインで `/` → `/login`、本人でログイン → 3 画面が「設定が不足」、別の利用者（一時的に作る）でログイン → 403 → その利用者を削除。確認できたら段 2 の変数を入れて再デプロイ → 3 画面が「データなし」で出る |
 | 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`、`COLLECT_KEEPALIVE=true`）の登録 |
 | 4 | サムネイルの 1 回目のコピー（不変なので先にできる）: ダッシュボードで S3 互換キーを生成し、`rclone` でローカルの S3 互換エンドポイント（`supabase status` の S3 キー）から Cloud の `thumbnails` バケットへ |

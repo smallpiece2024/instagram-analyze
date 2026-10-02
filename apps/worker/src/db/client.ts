@@ -31,6 +31,19 @@ export type ReservedSql = postgres.ReservedSql<{ date: string }>;
 export interface ConnectDbOptions {
   /** 接続のタイムアウト（秒）。既定 10。テストで短くするためのもの */
   connectTimeoutSeconds?: number;
+  /**
+   * TLS に使う CA 証明書（PEM）。あれば `ssl: { ca: [pem], rejectUnauthorized: true }`（`verify-full` 相当。
+   * ホスト名も検証する）。なければ平文（ローカルだけ。`config.ts` のフェイルクローズが保証する）。R2 設計 2.2 章
+   */
+  sslCa?: string;
+}
+
+/**
+ * `ssl` は常にここで組み立てる。URL の `?sslmode=` は使わない（postgres.js は `sslmode=require` を
+ * `rejectUnauthorized: false`（検証なし）と解釈するため、明示的に上書きする）
+ */
+export function sslOptions(sslCa: string | undefined): { ca: string[]; rejectUnauthorized: true } | false {
+  return sslCa === undefined ? false : { ca: [sslCa], rejectUnauthorized: true };
 }
 
 /**
@@ -42,6 +55,7 @@ export function connectDb(url: string, options: ConnectDbOptions = {}): Db {
     max: 2,
     connect_timeout: options.connectTimeoutSeconds ?? 10,
     idle_timeout: 30,
+    ssl: sslOptions(options.sslCa),
     onnotice: () => {},
     types: TYPES,
     connection: { application_name: "instagram-analyze-worker" },
@@ -86,8 +100,19 @@ const CONNECTION_CODES = new Set([
   "SELF_SIGNED_CERT_IN_CHAIN",
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
   "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_GET_ISSUER_CERT",
   "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_UNTRUSTED",
+  "CERT_REJECTED",
+  "CERT_SIGNATURE_FAILURE",
+  "CERT_CHAIN_TOO_LONG",
+  "HOSTNAME_MISMATCH",
+  "EPROTO",
 ]);
+
+/** 証明書と TLS の失敗のコードの接頭辞（Node の TLS、OpenSSL）。`DATABASE_SSL_CA` の誤り、チェーン不一致、ホスト名不一致 */
+const TLS_CODE_PREFIXES = ["ERR_TLS_", "ERR_SSL_", "ERR_OSSL_", "CERT_"];
 
 /** `code` が英大文字・数字・下線だけの短い文字列のときだけ返す。それ以外は出力に乗せない */
 function errorCode(e: unknown): string | undefined {
@@ -108,7 +133,8 @@ function isSqlState(e: unknown, code: string): boolean {
  * - `DB 接続に失敗（SQLSTATE 28P01）`: 認証と接続の失敗（Postgres から返った SQLSTATE）
  * - `DB の権限がない（SQLSTATE 42501）`
  * - `DB エラー（SQLSTATE 23505）`: その他の Postgres のエラー
- * - `DB 接続に失敗（ECONNREFUSED）`: postgres.js、ソケット、TLS の接続エラー
+ * - `DB 接続に失敗（ECONNREFUSED）`: postgres.js、ソケット、TLS の接続エラー（証明書の検証失敗、CA の PEM の誤り、
+ *   ホスト名の不一致も同じ形。Node のメッセージはホスト名を含むので使わず、コードだけを出す）
  * - `DB エラー（UNDEFINED_VALUE）`: その他のコードつきのエラー
  * - `DB エラー`: コードがない、または形が不正
  */
@@ -122,8 +148,13 @@ export function normalizeDbError(e: unknown): string {
     }
     return `DB エラー（SQLSTATE ${code}）`;
   }
-  if (CONNECTION_CODES.has(code) || code.startsWith("ERR_TLS_") || code.startsWith("CERT_")) {
+  if (CONNECTION_CODES.has(code) || isTlsCode(code)) {
     return `DB 接続に失敗（${code}）`;
   }
   return `DB エラー（${code}）`;
+}
+
+/** 証明書・TLS の失敗のコードか（`normalizeDbError` の分類と、`check-alerts` の `error_code` の表示に使う） */
+export function isTlsCode(code: string): boolean {
+  return TLS_CODE_PREFIXES.some((prefix) => code.startsWith(prefix));
 }

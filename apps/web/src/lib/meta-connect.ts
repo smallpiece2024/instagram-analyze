@@ -95,7 +95,7 @@ export async function handleCallback(input: CallbackInput, deps: ConnectDeps): P
 
 async function run(input: CallbackInput, deps: ConnectDeps, log: (line: string) => void): Promise<CallbackOutcome> {
   const { env } = deps;
-  const graph = { graphApiVersion: env.graphApiVersion, fetchImpl: deps.fetch };
+  const graph = { graphApiVersion: env.graphApiVersion, appSecret: env.metaAppSecret, fetchImpl: deps.fetch };
 
   // 1. state（CSRF）
   if (typeof input.state !== "string" || input.state.length === 0) return fail(log, "invalid_request", "state なし");

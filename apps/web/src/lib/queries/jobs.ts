@@ -3,7 +3,7 @@
  */
 import "server-only";
 import { cache } from "react";
-import { getDb } from "@/lib/db";
+import { dbFromEnv } from "@/lib/db";
 import { describeDbError, type QueryResult } from "@/lib/db-errors";
 import { markDynamic } from "@/lib/dynamic";
 import { configMissingReason, readEnv } from "@/lib/env";
@@ -39,7 +39,7 @@ export const getLatestRuns = cache(async (): Promise<QueryResult<JobRunView[]>> 
   const env = readEnv();
   if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
   try {
-    const db = getDb(env.env.databaseUrl);
+    const db = dbFromEnv(env.env);
     const rows = await db<JobRunView[]>`
       select
         l.id, l.job_name, l.account_id, a.username, l.started_at, l.finished_at, l.status,
@@ -65,7 +65,7 @@ export const listRecentRuns = cache(async (job?: JobName): Promise<QueryResult<J
   const env = readEnv();
   if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
   try {
-    const db = getDb(env.env.databaseUrl);
+    const db = dbFromEnv(env.env);
     const rows = await db<JobRunView[]>`
       select
         r.id, r.job_name, r.account_id, a.username, r.started_at, r.finished_at, r.status,

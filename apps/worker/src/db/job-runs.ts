@@ -100,6 +100,25 @@ export async function latestRateUsage(db: Db, since: Date, until?: Date): Promis
 }
 
 /**
+ * そのアカウント・ジョブの直近の実行（`started_at desc`、`running` を除く、最大 `limit` 件）。
+ * `check-alerts` の連続失敗・連続見送りの判定に使う（R2 設計 5.2 章）。`error` は読まない
+ */
+export async function listRecentRuns(
+  db: Db,
+  accountId: string,
+  jobName: JobName,
+  limit: number,
+): Promise<{ status: JobStatus; started_at: Date }[]> {
+  const rows = await db<{ status: JobStatus; started_at: Date }[]>`
+    select status, started_at from public.job_runs
+    where account_id = ${accountId} and job_name = ${jobName} and status <> 'running'
+    order by started_at desc, id desc
+    limit ${limit}
+  `;
+  return [...rows];
+}
+
+/**
  * そのジョブ（全アカウント）の最新の `started_at`。行がなければ undefined。
  * スケジューラの起動時の初期値（hourly は `stories`、daily は `profile_daily`）に使う（設計 2.3 章）
  */

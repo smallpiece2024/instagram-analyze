@@ -19,6 +19,8 @@ export type LogFields = Record<string, string | number | boolean | undefined>;
 export interface Logger {
   info(fields: LogFields): void;
   warn(fields: LogFields): void;
+  /** コマンド自体が続行できない失敗（`check-alerts` の DB 接続の失敗など）。alert の WARN と区別する */
+  error(fields: LogFields): void;
   /** `createLogger` の level が `debug` のときだけ出る */
   debug(fields: LogFields): void;
 }
@@ -144,7 +146,7 @@ export function sanitizeForLog(text: string, secrets: SecretRegistry): string {
   return applyPatterns(masked, VALUE_PATTERNS);
 }
 
-type Label = "INFO" | "WARN" | "DEBUG";
+type Label = "INFO" | "WARN" | "ERROR" | "DEBUG";
 
 /** ラベルの幅（`INFO `、`WARN `、`DEBUG`） */
 const LABEL_WIDTH = 5;
@@ -185,6 +187,7 @@ export function createLogger(
   return {
     info: (fields) => emit("INFO", fields),
     warn: (fields) => emit("WARN", fields),
+    error: (fields) => emit("ERROR", fields),
     debug: (fields) => {
       if (level === "debug") emit("DEBUG", fields);
     },

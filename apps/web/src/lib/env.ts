@@ -1,16 +1,23 @@
 /**
- * サーバー側の環境変数（設計 1.2 章、2.2 章）。
+ * サーバー側の環境変数（設計 1.2 章、2.2 章。R2 設計 2.2 章、4.2 章）。
  *
- * - `process.env` を読むのはこのモジュールの `readEnv` だけ（データアクセス層に閉じる）
+ * - `process.env` を読むのはこのモジュールの `readEnv` だけ（データアクセス層に閉じる。例外は `src/proxy.ts` と
+ *   `src/lib/auth-env.ts` の `readAuthEnv`。ログインの変数は段 2 の変数が未設定でも読めるよう分けている）
  * - 呼び出し側は `connection()`（`src/lib/dynamic.ts`）の後に、関数の中で呼ぶ（ビルド時に値が焼き込まれないため）
  * - 欠落と書式の不備は変数名だけを `missing` に入れて返す。値、`new URL()` の例外（`input` に値が入る）は外に出さない
+ * - TLS はフェイルクローズ: `DATABASE_URL` のホストがローカル以外で `DATABASE_SSL_CA` がなければ不備。
+ *   PEM は `\n` のリテラルを改行に正規化し、`-----BEGIN CERTIFICATE-----` で始まることを検査する（値は出さない）
  */
 import "server-only";
 
+export type DatabasePoolMode = "session" | "transaction";
+
 export interface WebEnv {
   databaseUrl: string;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  /** 共有プーラーのトランザクションモード（`:6543`）は `transaction`（プリペアドステートメント不可）。既定 `session` */
+  databasePoolMode: DatabasePoolMode;
+  /** 正規化済みの CA 証明書（PEM）。ローカルの DB だけ undefined（平文） */
+  databaseSslCa: string | undefined;
   metaAppId: string;
   metaAppSecret: string;
   graphApiVersion: string;
@@ -30,6 +37,9 @@ const GRAPH_API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const NUMERIC_ID_PATTERN = /^\d{1,40}$/;
 const DB_PROTOCOLS: readonly string[] = ["postgres:", "postgresql:"];
 const HTTP_PROTOCOLS: readonly string[] = ["http:", "https:"];
+/** 平文で接続してよい DB のホスト（R2 設計 2.2 章） */
+const LOCAL_DB_HOSTS: readonly string[] = ["127.0.0.1", "localhost", "host.docker.internal"];
+const PEM_HEADER = "-----BEGIN CERTIFICATE-----";
 
 type Source = Record<string, string | undefined>;
 
@@ -52,6 +62,20 @@ function parseUrl(value: string | undefined, protocols: readonly string[]): URL 
   }
 }
 
+/** `DATABASE_URL` のホストが平文で接続してよいローカルか */
+export function isLocalDbHost(hostname: string): boolean {
+  return LOCAL_DB_HOSTS.includes(hostname.toLowerCase());
+}
+
+/**
+ * 環境変数から受け取った PEM を正規化する。`\n` のリテラル（2 文字）を改行にし、前後の空白を落とす。
+ * `-----BEGIN CERTIFICATE-----` で始まらなければ undefined（不備）。値はエラーに出さない
+ */
+export function normalizePem(raw: string): string | undefined {
+  const normalized = raw.replace(/\\n/g, "\n").replace(/\r\n/g, "\n").trim();
+  return normalized.startsWith(PEM_HEADER) ? normalized : undefined;
+}
+
 /**
  * 環境変数を読んで検証する。不備があれば `ok: false` と変数名の一覧。
  * `source` はテスト用の注入（既定は `process.env`）
@@ -59,15 +83,24 @@ function parseUrl(value: string | undefined, protocols: readonly string[]): URL 
 export function readEnv(source: Source = process.env): EnvResult {
   const missing: string[] = [];
 
-  const databaseUrl = nonEmpty(source, "DATABASE_URL");
-  if (parseUrl(databaseUrl, DB_PROTOCOLS) === undefined) missing.push("DATABASE_URL");
+  const databaseUrlRaw = nonEmpty(source, "DATABASE_URL");
+  const databaseUrl = parseUrl(databaseUrlRaw, DB_PROTOCOLS);
+  if (databaseUrl === undefined) missing.push("DATABASE_URL");
 
-  const supabaseUrlRaw = nonEmpty(source, "SUPABASE_URL");
-  const supabaseUrl = parseUrl(supabaseUrlRaw, HTTP_PROTOCOLS);
-  if (supabaseUrl === undefined) missing.push("SUPABASE_URL");
+  const poolModeRaw = nonEmpty(source, "DATABASE_POOL_MODE") ?? "session";
+  const databasePoolMode: DatabasePoolMode | undefined =
+    poolModeRaw === "session" || poolModeRaw === "transaction" ? poolModeRaw : undefined;
+  if (databasePoolMode === undefined) missing.push("DATABASE_POOL_MODE");
 
-  const supabaseServiceRoleKey = nonEmpty(source, "SUPABASE_SERVICE_ROLE_KEY");
-  if (supabaseServiceRoleKey === undefined) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  const sslCaRaw = nonEmpty(source, "DATABASE_SSL_CA");
+  let databaseSslCa: string | undefined;
+  if (sslCaRaw !== undefined) {
+    databaseSslCa = normalizePem(sslCaRaw);
+    if (databaseSslCa === undefined) missing.push("DATABASE_SSL_CA");
+  } else if (databaseUrl !== undefined && !isLocalDbHost(databaseUrl.hostname)) {
+    // フェイルクローズ: ローカル以外は CA がなければ接続しない
+    missing.push("DATABASE_SSL_CA");
+  }
 
   const metaAppId = nonEmpty(source, "META_APP_ID");
   if (metaAppId === undefined || !NUMERIC_ID_PATTERN.test(metaAppId)) missing.push("META_APP_ID");
@@ -88,9 +121,8 @@ export function readEnv(source: Source = process.env): EnvResult {
 
   if (
     missing.length > 0 ||
-    databaseUrl === undefined ||
-    supabaseUrlRaw === undefined ||
-    supabaseServiceRoleKey === undefined ||
+    databaseUrlRaw === undefined ||
+    databasePoolMode === undefined ||
     metaAppId === undefined ||
     metaAppSecret === undefined ||
     appUrlRaw === undefined
@@ -101,10 +133,9 @@ export function readEnv(source: Source = process.env): EnvResult {
   return {
     ok: true,
     env: {
-      databaseUrl,
-      // 末尾のスラッシュを落として `${supabaseUrl}/storage/v1/...` と連結できる形にそろえる
-      supabaseUrl: supabaseUrlRaw.replace(/\/+$/, ""),
-      supabaseServiceRoleKey,
+      databaseUrl: databaseUrlRaw,
+      databasePoolMode,
+      databaseSslCa,
       metaAppId,
       metaAppSecret,
       graphApiVersion,

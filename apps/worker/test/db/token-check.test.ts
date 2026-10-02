@@ -144,7 +144,10 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/token-check（結合）", () => {
 
   beforeAll(async () => {
     db = connectDb(url);
-    account = await db.begin((tx) => upsertAccount(tx, { ig_user_id: fakeIgUserId(), username: "fake_token_check" }));
+    // fb_page_id は debugTokenOk の profile_id と同じ値（null だと profile_id の検査が飛び、WARN reason=fb_page_id_missing が出る）
+    account = await db.begin((tx) =>
+      upsertAccount(tx, { ig_user_id: fakeIgUserId(), username: "fake_token_check", fb_page_id: "000000000000099" }),
+    );
     await db.begin((tx) => upsertCredential(tx, account.id, FAKE_TOKEN, INITIAL));
 
     const secrets = new SecretRegistry();

@@ -8,7 +8,10 @@
  * - ネットワーク失敗（`status: 0`）と、本文が JSON でない応答の扱い
  * - エラーの分類 `classifyGraphError`、再試行の待ち時間 `backoffDelay`
  * - レート制限ヘッダの読み取り `parseRateUsage`
+ *
+ * R2 で足したもの（R2 設計 5.6 章）: `appSecret` を渡すと全リクエストに `appsecret_proof` を付ける
  */
+import { createHmac } from "node:crypto";
 
 export interface GraphError {
   message: string;
@@ -94,6 +97,14 @@ function extractGraphError(body: unknown): GraphError | undefined {
   };
 }
 
+/**
+ * Meta の `appsecret_proof`: `HMAC-SHA256(key = app_secret, message = そのリクエストに使うアクセストークン)` の 16 進
+ * （R2 設計 5.6 章 Q6）。`debug_token` をアプリトークン（`app_id|app_secret`）で呼ぶときはアプリトークンが message
+ */
+export function appSecretProof(appSecret: string, token: string): string {
+  return createHmac("sha256", appSecret).update(token).digest("hex");
+}
+
 export class GraphClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -105,6 +116,8 @@ export class GraphClient {
     fetchImpl: typeof fetch = fetch,
     /** 接続から本文の読み終わりまでの制限時間（ミリ秒）。超えたら `status: 0`（transient）になる */
     private readonly requestTimeoutMs = 30_000,
+    /** アプリシークレット。あれば全リクエストに `appsecret_proof` を付ける（なければ付けない。`verify-api` の省略時だけ） */
+    private readonly appSecret?: string,
   ) {
     this.baseUrl = `https://graph.facebook.com/${apiVersion}`;
     this.fetchImpl = fetchImpl;
@@ -136,8 +149,12 @@ export class GraphClient {
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
+    const token = tokenOverride ?? this.accessToken;
+    // そのリクエストに使うトークン（debug_token ならアプリトークン）で計算する。`params` には入れない（生レスポンスの
+    // `params` に残らない。`stripSecretParams` と `raw.ts` の入口検査が二重の防御）
+    if (this.appSecret !== undefined) url.searchParams.set("appsecret_proof", appSecretProof(this.appSecret, token));
     const init: RequestInit = {
-      ...this.authorize(tokenOverride ?? this.accessToken),
+      ...this.authorize(token),
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     };
 

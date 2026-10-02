@@ -3,7 +3,8 @@
  * 正常系の URL・本文・ヘッダは `test/meta-connect.test.ts` が通しで確かめる。
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { debugToken, exchangeCode, getPageToken, listPages } from "../src/lib/meta-graph";
+import { createHmac } from "node:crypto";
+import { appSecretProof, debugToken, exchangeCode, getPageToken, listPages } from "../src/lib/meta-graph";
 
 type Reply = () => Response;
 
@@ -31,7 +32,7 @@ describe("meta-graph", () => {
     return reply();
   };
 
-  const options = { graphApiVersion: "v25.0", fetchImpl };
+  const options = { graphApiVersion: "v25.0", appSecret: "APP_SECRET_FOR_PROOF", fetchImpl };
 
   beforeEach(() => {
     replies.length = 0;
@@ -144,5 +145,47 @@ describe("meta-graph", () => {
       replies.push(ok({ data: { is_valid: true, type: "PAGE" } }));
       expect(await debugToken("PAGE", "APP", options)).toEqual({ ok: true, data: { is_valid: true, type: "PAGE" } });
     });
+  });
+});
+
+describe("appsecret_proof（R2 設計 Q6、10.1 章）", () => {
+  const SECRET = "APP_SECRET_FOR_PROOF";
+  const expected = (token: string) => createHmac("sha256", SECRET).update(token).digest("hex");
+
+  it("既知のベクトル: HMAC-SHA256(key = app_secret, message = token) の 16 進", () => {
+    // key "key"、message "The quick brown fox jumps over the lazy dog" の HMAC-SHA256（RFC の例として広く使われる値）
+    expect(appSecretProof("key", "The quick brown fox jumps over the lazy dog")).toBe(
+      "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8",
+    );
+    expect(appSecretProof(SECRET, "T")).toBe(expected("T"));
+    expect(appSecretProof(SECRET, "T")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  const replies: Reply[] = [];
+  const calls: Call[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url);
+    calls.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : undefined });
+    const reply = replies.shift();
+    return reply ? reply() : jsonResponse({ error: { message: "応答の用意がない", code: 999_999 } }, { status: 400 });
+  };
+  const options = { graphApiVersion: "v25.0", appSecret: SECRET, fetchImpl };
+
+  beforeEach(() => {
+    replies.length = 0;
+    calls.length = 0;
+  });
+
+  it("me/accounts と {page_id} はユーザートークン、debug_token はアプリトークンで計算し、交換には付けない", async () => {
+    replies.push(ok({ data: [] }), ok({ access_token: "PAGE_T" }), ok({ data: { is_valid: true } }), ok({ access_token: "S" }));
+    await listPages("USER_T", options);
+    await getPageToken("123", "USER_T", options);
+    await debugToken("PAGE_T", `123456|${SECRET}`, options);
+    await exchangeCode({ appId: "123456", appSecret: SECRET, redirectUri: "http://localhost:3000/api/meta/callback", code: "CODE" }, options);
+    expect(calls[0].url.searchParams.get("appsecret_proof")).toBe(expected("USER_T"));
+    expect(calls[1].url.searchParams.get("appsecret_proof")).toBe(expected("USER_T"));
+    expect(calls[2].url.searchParams.get("appsecret_proof")).toBe(expected(`123456|${SECRET}`));
+    expect(calls[3].url.searchParams.has("appsecret_proof")).toBe(false);
+    for (const call of calls) expect(call.url.toString()).not.toContain(SECRET.slice(0, 8));
   });
 });

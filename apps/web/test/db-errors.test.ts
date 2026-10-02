@@ -37,10 +37,10 @@ describe("describeDbError", () => {
       "DB 接続に失敗（ENOTFOUND）",
     );
     expect(describeDbError(Object.assign(new Error("self signed certificate"), { code: "SELF_SIGNED_CERT_IN_CHAIN" }))).toBe(
-      "DB 接続に失敗（SELF_SIGNED_CERT_IN_CHAIN）",
+      "DB 接続に失敗（TLS 証明書の検証: SELF_SIGNED_CERT_IN_CHAIN）",
     );
     expect(describeDbError(Object.assign(new Error("Hostname/IP does not match"), { code: "ERR_TLS_CERT_ALTNAME_INVALID" }))).toBe(
-      "DB 接続に失敗（ERR_TLS_CERT_ALTNAME_INVALID）",
+      "DB 接続に失敗（TLS 証明書の検証: ERR_TLS_CERT_ALTNAME_INVALID）",
     );
   });
 

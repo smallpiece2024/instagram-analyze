@@ -17,7 +17,11 @@
  * | `fatal`（アプリシークレットの誤りなど） | `status = 'error'`、`last_error`、`last_checked_at` | `failed` |
  * | `is_valid: false`（`data` なしも含む） | `status = 'expired'`、`last_error`、期限、`last_checked_at` | `success`、`warn` |
  * | 必要な権限が足りない | `status = 'insufficient_scope'`、`scopes`、期限、`last_checked_at`、`last_error` | `success`、`warn` |
+ * | `app_id` が `META_APP_ID` と違う、`profile_id` が `accounts.fb_page_id` と違う（R2 設計 5.6 章） | `status = 'error'`、`last_error`、`last_checked_at` | `failed` |
  * | 有効で権限も足りる | `status = 'valid'`、`scopes`、期限、`last_checked_at`、`last_error = null` | `success`。残り 14 日以下なら `warn` |
+ *
+ * `profile_id` の検査は `fb_page_id` が null のアカウントでは飛ばす。ユーザートークン（`type: USER`）には `profile_id` が
+ * ないので、検査はページトークンだけに掛ける
  */
 import { toCredentialInfo } from "../commands/register-token.js";
 import { updateCredentialStatus, type CredentialPatch } from "../db/accounts.js";
@@ -30,10 +34,22 @@ export const INVALID_TOKEN_ERROR = "トークンが無効（debug_token）";
 /** `debug_token` が PAGE／USER 以外の種類を返したときの `private.credentials.last_error` */
 export const UNSUPPORTED_TOKEN_TYPE_ERROR = "対応していないトークンの種類（debug_token）";
 
-/** データアクセス期限の残りがこの日数以下なら `warn` の行を出す */
+/** `app_id` が `META_APP_ID` と違うときの `private.credentials.last_error` */
+export const APP_ID_MISMATCH_ERROR = "アプリ ID が一致しない（debug_token）";
+
+/** `profile_id` が `accounts.fb_page_id` と違うときの `private.credentials.last_error` */
+export const PROFILE_ID_MISMATCH_ERROR = "ページ ID が一致しない（debug_token）";
+
+/** データアクセス期限の残りがこの日数以下なら `warn` の行を出す（`check-alerts` も共用。R2 設計 5.2 章） */
 export const DATA_ACCESS_WARN_DAYS = 14;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** `debug_token` の結果と突き合わせる期待値（R2 設計 5.6 章）。`fbPageId` が null なら `profile_id` は見ない */
+export interface ExpectedTokenIdentity {
+  appId: string;
+  fbPageId: string | null;
+}
 
 export type TokenCheckOutcome = "transient" | "fatal" | "invalid" | "insufficient_scope" | "valid";
 
@@ -58,16 +74,21 @@ function unixToDate(seconds: unknown): Date | null {
   return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000) : null;
 }
 
-/** 残り日数（切り捨て）。期限が分からなければ undefined。過ぎていれば負の値 */
-function daysLeft(until: Date | null, now: Date): number | undefined {
+/** 残り日数（切り捨て）。期限が分からなければ undefined。過ぎていれば負の値。`check-alerts` も同じ計算を使う */
+export function daysLeft(until: Date | null, now: Date): number | undefined {
   return until ? Math.floor((until.getTime() - now.getTime()) / DAY_MS) : undefined;
 }
 
 /**
  * `debug_token` の結果から `private.credentials` の更新内容を決める純粋関数（設計 4.2 章の表）。
- * `now` は `last_checked_at` と残り日数の基準。`last_error` は固定文言だけで、トークンや URL、Graph のエラー文を含めない
+ * `now` は `last_checked_at` と残り日数の基準。`last_error` は固定文言だけで、トークンや URL、Graph のエラー文を含めない。
+ * `expected` を渡すと `app_id` と `profile_id` も突き合わせ、違えば `fatal`（`status = 'error'`）
  */
-export function evaluateDebugToken(res: Tracked<DebugTokenResponse>, now: Date): TokenCheckEvaluation {
+export function evaluateDebugToken(
+  res: Tracked<DebugTokenResponse>,
+  now: Date,
+  expected?: ExpectedTokenIdentity,
+): TokenCheckEvaluation {
   if (!res.ok) {
     if (res.errorClass === "transient") {
       return { outcome: "transient", patch: undefined, daysLeft: undefined, missing: [] };
@@ -110,6 +131,29 @@ export function evaluateDebugToken(res: Tracked<DebugTokenResponse>, now: Date):
   }
 
   const { credential, missing } = parsed;
+  if (expected) {
+    // 別のアプリで発行されたトークン、別のページのトークンは設定の誤りとして `error` にする（Web の接続処理と同じ基準）
+    if (data.app_id === undefined || String(data.app_id) !== expected.appId) {
+      return {
+        outcome: "fatal",
+        patch: { status: "error", last_error: APP_ID_MISMATCH_ERROR, last_checked_at: now },
+        daysLeft: undefined,
+        missing: [],
+      };
+    }
+    if (
+      expected.fbPageId !== null &&
+      credential.token_type === "PAGE" &&
+      (data.profile_id === undefined || String(data.profile_id) !== expected.fbPageId)
+    ) {
+      return {
+        outcome: "fatal",
+        patch: { status: "error", last_error: PROFILE_ID_MISMATCH_ERROR, last_checked_at: now },
+        daysLeft: undefined,
+        missing: [],
+      };
+    }
+  }
   const base: CredentialPatch = {
     scopes: credential.scopes,
     expires_at: credential.expires_at,
@@ -137,7 +181,7 @@ export const job: JobDefinition = {
   name: "token_check",
   async run(ctx) {
     const res = await ctx.graph.debugToken();
-    const result = evaluateDebugToken(res, ctx.now());
+    const result = evaluateDebugToken(res, ctx.now(), { appId: ctx.config.metaAppId, fbPageId: ctx.account.fb_page_id });
 
     // transient と fatal は 1 件のみなので、枠組みの規則で failed になる（例外は投げない）
     if (result.outcome === "transient") {
@@ -160,6 +204,11 @@ export const job: JobDefinition = {
 
     await updateCredentialStatus(ctx.db, ctx.account.id, result.patch);
     ctx.progress.items += 1;
+
+    // fb_page_id がないと profile_id の検査（別のページのトークンへの差し替えの検出）が効かない。ID は出さない
+    if (ctx.account.fb_page_id === null) {
+      ctx.log.warn({ job: "token_check", reason: "fb_page_id_missing" });
+    }
 
     const status = result.patch.status;
     if (result.outcome === "invalid" || result.outcome === "insufficient_scope") {

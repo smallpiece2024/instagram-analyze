@@ -1,0 +1,7 @@
+# GitHub Actions の SHA 固定を週 1 で更新する（R2 設計 5.1 章）。npm の依存はここでは扱わない
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

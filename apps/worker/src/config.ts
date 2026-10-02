@@ -12,9 +12,14 @@ export const DOWNLOAD_ALLOWED_HOSTS: readonly string[] = ["cdninstagram.com", "f
 
 export type LogLevel = "info" | "debug";
 
+/** `DATABASE_SSL_CA` なしで接続してよい（平文のまま）ホスト。これ以外は CA が必須（R2 設計 2.2 章のフェイルクローズ） */
+export const LOCAL_DB_HOSTS: readonly string[] = ["127.0.0.1", "localhost", "host.docker.internal"];
+
 /** 収集ジョブとスケジューラが使う設定（設計 10.2 章、11.3 章） */
 export interface WorkerConfig {
   databaseUrl: string;
+  /** DB の TLS に使う CA 証明書（PEM）。ローカルのホストでは省略可。値はログや例外に出さない（R2 設計 2.2 章） */
+  databaseSslCa?: string;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   graphApiVersion: string;
@@ -60,6 +65,18 @@ export interface VerifyConfig extends MetaConfig {
   databaseUrl: string | undefined;
   supabaseUrl: string | undefined;
   supabaseServiceRoleKey: string | undefined;
+}
+
+/**
+ * `check-alerts` の設定（R2 設計 5.2 章）。DB を読むだけなので、Meta と Storage の変数は要らない
+ * （GitHub Actions ではこのステップに `DATABASE_URL`、`DATABASE_SSL_CA`、`WORKER_SIMULATE_ALERT` だけを渡す）
+ */
+export interface CheckAlertsConfig {
+  databaseUrl: string;
+  databaseSslCa: string | undefined;
+  logLevel: LogLevel;
+  /** `WORKER_SIMULATE_ALERT=true` のとき true。`alert=simulated` を出して終了コード 1 にする */
+  simulateAlert: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -137,6 +154,41 @@ function requiredUrl(env: Env, name: string): string {
   return value;
 }
 
+/** `true`／`false`（省略時は false）。それ以外は `ConfigError` */
+function booleanFlag(env: Env, name: string): boolean {
+  const raw = optional(env, name);
+  if (raw === undefined || raw === "false") return false;
+  if (raw === "true") return true;
+  throw new ConfigError(`環境変数 ${name} の書式が不正です（true か false）`);
+}
+
+const PEM_CERTIFICATE_HEADER = "-----BEGIN CERTIFICATE-----";
+
+/** `DATABASE_URL` のホスト名。`requiredUrl` で検証済みの URL を渡す */
+function databaseHost(databaseUrl: string): string {
+  return new URL(databaseUrl).hostname;
+}
+
+/**
+ * `DATABASE_SSL_CA`（PEM）。環境変数の入力経路で改行が `\n` のリテラルになることがあるので改行に正規化し、
+ * `-----BEGIN CERTIFICATE-----` で始まることを検査する（値は例外に入れない）。
+ * フェイルクローズ: `DATABASE_URL` のホストが `LOCAL_DB_HOSTS` 以外なのに未設定なら `ConfigError`（R2 設計 2.2 章）
+ */
+function databaseSslCa(env: Env, databaseUrl: string): string | undefined {
+  const raw = optional(env, "DATABASE_SSL_CA");
+  if (raw === undefined) {
+    if (LOCAL_DB_HOSTS.includes(databaseHost(databaseUrl))) return undefined;
+    throw new ConfigError(
+      "環境変数 DATABASE_SSL_CA が設定されていません（DATABASE_URL のホストがローカル以外のときは必須。Supabase の CA 証明書を PEM で渡す）",
+    );
+  }
+  const pem = raw.replace(/\\n/g, "\n").replace(/\r\n?/g, "\n").trim();
+  if (!pem.startsWith(PEM_CERTIFICATE_HEADER)) {
+    throw new ConfigError("環境変数 DATABASE_SSL_CA の書式が不正です（PEM の証明書。-----BEGIN CERTIFICATE----- で始まる）");
+  }
+  return pem;
+}
+
 /** 検証結果などのローカル出力先（Git 管理外） */
 export function outputDir(env: Env = process.env): string {
   return optional(env, "WORKER_OUTPUT_DIR") ?? ".local";
@@ -149,8 +201,10 @@ export function loadWorkerConfig(env: Env = process.env): WorkerConfig {
   if (rateSoftLimit > rateHardLimit) {
     throw new ConfigError("環境変数 WORKER_RATE_SOFT_LIMIT は WORKER_RATE_HARD_LIMIT 以下にしてください");
   }
+  const databaseUrl = requiredUrl(env, "DATABASE_URL");
   return {
-    databaseUrl: requiredUrl(env, "DATABASE_URL"),
+    databaseUrl,
+    databaseSslCa: databaseSslCa(env, databaseUrl),
     supabaseUrl: requiredUrl(env, "SUPABASE_URL"),
     supabaseServiceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     graphApiVersion: graphApiVersion(env),
@@ -191,6 +245,17 @@ export function loadMetaConfig(env: Env = process.env): MetaConfig {
     igUserId: optional(env, "IG_USER_ID"),
     appId: optional(env, "META_APP_ID"),
     appSecret: optional(env, "META_APP_SECRET"),
+  };
+}
+
+/** `check-alerts` の設定。`DATABASE_URL`（と、ローカル以外なら `DATABASE_SSL_CA`）が必須 */
+export function loadCheckAlertsConfig(env: Env = process.env): CheckAlertsConfig {
+  const databaseUrl = requiredUrl(env, "DATABASE_URL");
+  return {
+    databaseUrl,
+    databaseSslCa: databaseSslCa(env, databaseUrl),
+    logLevel: logLevel(env, "WORKER_LOG_LEVEL"),
+    simulateAlert: booleanFlag(env, "WORKER_SIMULATE_ALERT"),
   };
 }
 

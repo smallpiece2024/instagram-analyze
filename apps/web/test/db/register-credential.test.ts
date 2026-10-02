@@ -1,5 +1,7 @@
 /**
- * `src/lib/queries/register-credential.ts` の結合テスト（設計 4.3 章）。`TEST_DATABASE_URL` があるときだけ動く。
+ * `src/lib/queries/register-credential.ts` の結合テスト（設計 4.3 章。R2 設計 3.5 章）。
+ * `TEST_DATABASE_URL`（postgres。Vault の復号と後始末）と `TEST_WEB_DATABASE_URL`（web_app。登録の実行）の両方があるときだけ動く。
+ * 登録は `web_app` で行い（`private.store_token` 経由。`vault.secrets` は読めない）、結果は postgres で読んで確かめる。
  * 架空の Instagram アカウント ID（`000000` ＋ 乱数 9 桁）と偽のトークンで登録し、終了時に `accounts` を消す
  * （CASCADE と `private.credentials` のトリガーで Vault も消える）。
  */
@@ -9,6 +11,7 @@ import type { CredentialInfo } from "../../src/lib/meta-oauth";
 import { registerCredential, vaultSecretName, type RegisterCredentialInput } from "../../src/lib/queries/register-credential";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_WEB_DATABASE_URL = process.env.TEST_WEB_DATABASE_URL;
 
 function fakeIgUserId(): string {
   return "000000" + Math.floor(Math.random() * 1_000_000_000).toString().padStart(9, "0");
@@ -47,11 +50,15 @@ interface CredentialRow {
   decrypted_secret: string | null;
 }
 
-describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", () => {
+describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("queries/register-credential（結合。web_app で登録）", () => {
   const url = TEST_DATABASE_URL ?? "";
+  const webUrl = TEST_WEB_DATABASE_URL ?? "";
   const igUserId = fakeIgUserId();
   const otherIgUserId = fakeIgUserId();
+  /** postgres（確認と後始末） */
   let db: Db;
+  /** web_app（登録の実行） */
+  let web: Db;
 
   function input(overrides: Partial<RegisterCredentialInput> = {}): RegisterCredentialInput {
     return {
@@ -93,6 +100,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
 
   beforeAll(() => {
     db = getDb(url);
+    web = getDb(webUrl);
   });
 
   afterAll(async () => {
@@ -103,7 +111,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
   });
 
   it("新規登録で accounts、private.credentials、Vault に 1 件ずつ入り、トークンは Vault から復号できる", async () => {
-    const result = await registerCredential(db, input());
+    const result = await registerCredential(web, input());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -132,7 +140,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
     const beforeCred = await credential(before?.id ?? "");
     const secondToken = `${FAKE_TOKEN}_2`;
     const result = await registerCredential(
-      db,
+      web,
       input({ username: null, name: null, token: secondToken, credential: { ...VALID, scopes: ALL_SCOPES } }),
     );
     expect(result.ok).toBe(true);
@@ -153,11 +161,11 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
 
   it("disconnected のアカウントは active に戻り、paused はそのまま", async () => {
     await db`update public.accounts set status = 'disconnected' where ig_user_id = ${igUserId}`;
-    expect((await registerCredential(db, input())).ok).toBe(true);
+    expect((await registerCredential(web, input())).ok).toBe(true);
     expect((await account())?.status).toBe("active");
 
     await db`update public.accounts set status = 'paused' where ig_user_id = ${igUserId}`;
-    expect((await registerCredential(db, input())).ok).toBe(true);
+    expect((await registerCredential(web, input())).ok).toBe(true);
     expect((await account())?.status).toBe("paused");
 
     await db`update public.accounts set status = 'active' where ig_user_id = ${igUserId}`;
@@ -176,7 +184,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
     expect(before?.status).toBe("expired");
     expect(before?.last_error).toBe("テスト");
 
-    expect((await registerCredential(db, input())).ok).toBe(true);
+    expect((await registerCredential(web, input())).ok).toBe(true);
     const after = await credential(accountId);
     expect(after?.status).toBe("valid");
     expect(after?.last_error).toBeNull();
@@ -184,7 +192,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
   });
 
   it("scopes が空配列でも登録でき、空配列で読める", async () => {
-    const result = await registerCredential(db, input({ credential: { ...VALID, scopes: [], status: "insufficient_scope" } }));
+    const result = await registerCredential(web, input({ credential: { ...VALID, scopes: [], status: "insufficient_scope" } }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const cred = await credential(result.accountId);
@@ -193,26 +201,26 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
   });
 
   it("fb_page_id を別の値で再登録すると置き換わる", async () => {
-    expect((await registerCredential(db, input({ fbPageId: "000000000000098" }))).ok).toBe(true);
+    expect((await registerCredential(web, input({ fbPageId: "000000000000098" }))).ok).toBe(true);
     expect((await account())?.fb_page_id).toBe("000000000000098");
-    expect((await registerCredential(db, input())).ok).toBe(true);
+    expect((await registerCredential(web, input())).ok).toBe(true);
     expect((await account())?.fb_page_id).toBe(FB_PAGE_ID);
   });
 
   it("expires_at が非 null の Date なら保存され、同じ時刻で読める", async () => {
     const expiresAt = new Date(Math.floor(Date.now() / 1000) * 1000 + 60 * 24 * 60 * 60 * 1000);
-    const result = await registerCredential(db, input({ credential: { ...VALID, expires_at: expiresAt } }));
+    const result = await registerCredential(web, input({ credential: { ...VALID, expires_at: expiresAt } }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const cred = await credential(result.accountId);
     expect(cred?.expires_at).toEqual(expiresAt);
-    expect((await registerCredential(db, input())).ok).toBe(true);
+    expect((await registerCredential(web, input())).ok).toBe(true);
     expect((await credential(result.accountId))?.expires_at).toBeNull();
   });
 
   it("権限が足りなければ insufficient_scope で登録する", async () => {
     const result = await registerCredential(
-      db,
+      web,
       input({ credential: { ...VALID, scopes: ["instagram_basic"], status: "insufficient_scope" } }),
     );
     expect(result.ok).toBe(true);
@@ -225,7 +233,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
   it("トランザクション途中の失敗（credentials の check 違反）では、新規アカウントも Vault の孤児も残らない。理由は固定文言", async () => {
     const vaultBefore = await allTokenSecrets();
     const result = await registerCredential(
-      db,
+      web,
       input({ igUserId: otherIgUserId, token: "FAKE_WEB_ORPHAN_TOKEN", credential: { ...VALID, status: "bogus" as "valid" } }),
     );
     expect(result.ok).toBe(false);
@@ -241,7 +249,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/register-credential（結合）", (
     const before = await account();
     const beforeCred = await credential(before?.id ?? "");
     const result = await registerCredential(
-      db,
+      web,
       input({ token: "FAKE_WEB_ROLLBACK_TOKEN", credential: { ...VALID, status: "bogus" as "valid" } }),
     );
     expect(result.ok).toBe(false);

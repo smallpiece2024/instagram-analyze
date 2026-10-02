@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAuthorizeUrl,
+  STATE_COOKIE_MAX_AGE,
+  stateCookieName,
+  stateCookieOptions,
   GENERIC_REASON_MESSAGE,
   generateState,
   graphErrorCode,
@@ -351,5 +354,35 @@ describe("REASON_MESSAGES / reasonMessage", () => {
     expect(isReasonCode("unknown")).toBe(true);
     expect(isReasonCode("constructor")).toBe(false);
     expect(isReasonCode(1)).toBe(false);
+  });
+});
+
+describe("stateCookieName / stateCookieOptions（R2 設計 4.3 章、10.1 章）", () => {
+  it("https → __Host-meta_oauth_state と secure、path=/。http → 接頭辞なし、secure なし、path=/", () => {
+    expect(stateCookieName("https://app.example.com")).toBe("__Host-meta_oauth_state");
+    expect(stateCookieOptions("https://app.example.com")).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: STATE_COOKIE_MAX_AGE,
+      secure: true,
+    });
+    expect(stateCookieName("http://localhost:3000")).toBe("meta_oauth_state");
+    expect(stateCookieOptions("http://localhost:3000")).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: STATE_COOKIE_MAX_AGE,
+      secure: false,
+    });
+    expect(stateCookieName(undefined)).toBe("meta_oauth_state");
+    expect(STATE_COOKIE_MAX_AGE).toBe(600);
+  });
+
+  it("削除用は maxAge: 0 で他の属性は同じ（ブラウザが同じ Cookie と見なす）", () => {
+    expect(stateCookieOptions("https://app.example.com", { clear: true })).toEqual({
+      ...stateCookieOptions("https://app.example.com"),
+      maxAge: 0,
+    });
   });
 });
