@@ -47,16 +47,18 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const decision = decideAccess(request.nextUrl.pathname, claims, authEnv.ok ? authEnv.env.allowedUserId : undefined);
   if (decision === "login") {
     // Proxy のリダイレクトは絶対 URL が要る（相対の Location は `Invalid URL` で 500 になる。2026-10-02 の実機）。
-    // `request.nextUrl` のホストは上の Host 検査を通ったものだけ
-    return carryCookies(response, NextResponse.redirect(new URL(LOGIN_PATH, request.nextUrl), 303));
+    // 基点は `APP_URL`（コールバックと同じ基準）。認証の設定が足りないときだけ要求の URL（Host 検査は通っている）
+    const base = authEnv.ok ? authEnv.env.appUrl : request.nextUrl;
+    return carryCookies(response, NextResponse.redirect(new URL(LOGIN_PATH, base), 303));
   }
   if (decision === "forbid") {
-    return carryCookies(response, new NextResponse("Forbidden", { status: 403 }));
+    // 許可外の利用者には更新済みの Cookie を写さない（セッションを延命しない）
+    return new NextResponse("Forbidden", { status: 403 });
   }
   return response;
 }
 
-/** 静的資産以外のすべての要求に適用する（ルートを足したときに漏れないよう、列挙しない） */
+/** 静的資産以外のすべての要求に適用する（ルートを足したときに漏れないよう、列挙しない。`next/image` は使っていない） */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico).*)"],
+  matcher: ["/((?!_next/static|favicon\\.ico).*)"],
 };

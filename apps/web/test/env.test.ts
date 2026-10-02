@@ -132,7 +132,10 @@ describe("readEnv: DATABASE_POOL_MODE と DATABASE_SSL_CA（R2 設計 2.2 章、
   });
 
   it("DATABASE_SSL_CA あり → 正規化した PEM（\n のリテラルを改行に戻す。CRLF も LF に）", () => {
-    const literal = readEnv(withEnv({ DATABASE_SSL_CA: "-----BEGIN CERTIFICATE-----\nMIIBpem-body-secret\n-----END CERTIFICATE-----" }));
+    // `\n` の 2 文字（バックスラッシュと n）で渡されたものを改行に戻す（環境変数の入力経路で起きる）
+    const escaped = PEM.replace(/\n/g, "\\n");
+    expect(escaped).not.toContain("\n");
+    const literal = readEnv(withEnv({ DATABASE_SSL_CA: escaped }));
     expect(literal.ok && literal.env.databaseSslCa).toBe(PEM);
     const crlf = readEnv(withEnv({ DATABASE_SSL_CA: `${PEM.replace(/\n/g, "\r\n")}\r\n` }));
     expect(crlf.ok && crlf.env.databaseSslCa).toBe(PEM);

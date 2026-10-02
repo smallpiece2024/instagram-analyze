@@ -32,17 +32,26 @@ jobs:
       contents: read
     env:
       WORKER_LOG_LEVEL: info
+      # 通知の経路の確認（R2 設計 5.2 章）。dispatch の入力か repo Variable。schedule では inputs が空なので Variable だけが効く。
+      # 1 か所で評価し、収集を飛ばす判定（daily、hourly）と check-alerts の両方で参照する
+      SIMULATE: ${{ inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true' }}
     steps:
-      # 接続エラーの文言にホスト名やユーザー名が混じっても公開ログに出ないよう、部分文字列としてマスクする
+      # 接続エラーの文言にホスト名・ユーザー名・project ref が混じっても公開ログに出ないよう、部分文字列としてマスクする
       # （setup-node より前なので node に頼らず sed で切り出す。パスワードは URL エンコード済みの前提）
-      - name: mask db host and user
+      - name: mask db host, user, project ref
         run: |
           host=$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/?]+).*#\2#')
           user=$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^:@/]+)(:[^@/]*)?@.*#\1#')
+          ref=${user#postgres.}
+          api_host=$(printf '%s' "$SUPABASE_URL" | sed -E 's#^[a-z]+://([^:/?]+).*#\1#')
           [ -n "$host" ] && echo "::add-mask::$host"
           [ -n "$user" ] && echo "::add-mask::$user"
+          [ -n "$ref" ] && [ "$ref" != "$user" ] && echo "::add-mask::$ref"
+          [ -n "$api_host" ] && echo "::add-mask::$api_host"
+          true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,7 +77,7 @@ jobs:
           done
 
       - id: daily
-        if: ${{ github.event.schedule == '17 20 * * *' && !inputs.simulate_alert }}
+        if: ${{ github.event.schedule == '17 20 * * *' && env.SIMULATE != 'true' }}
         run: node apps/worker/dist/index.js run-daily
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -81,7 +90,7 @@ jobs:
           WORKER_BACKFILL_HISTORY_DAYS: '400'
 
       - id: hourly
-        if: ${{ !cancelled() && !inputs.simulate_alert }}
+        if: ${{ !cancelled() && env.SIMULATE != 'true' }}
         run: node apps/worker/dist/index.js run-hourly
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -100,7 +109,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
-          WORKER_SIMULATE_ALERT: ${{ inputs.simulate_alert || vars.WORKER_SIMULATE_ALERT || 'false' }}
+          WORKER_SIMULATE_ALERT: ${{ env.SIMULATE }}
 
       # 走ったことだけを知らせる（成否は GitHub のメールが担う。R2 設計 5.3 章、5.5 章）
       - name: ping

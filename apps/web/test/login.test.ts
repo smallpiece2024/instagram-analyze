@@ -94,8 +94,9 @@ describe("signInResultMessage", () => {
 });
 
 describe("authCookieOptions", () => {
-  it("httpOnly、SameSite=Lax、path=/、7 日。secure は https のときだけ", () => {
+  it("httpOnly、SameSite=Lax、path=/、7 日。secure と __Host- 接頭辞は https のときだけ", () => {
     expect(authCookieOptions("https://app.example.com")).toEqual({
+      name: "__Host-sb-auth",
       httpOnly: true,
       secure: true,
       sameSite: "lax",
@@ -103,7 +104,9 @@ describe("authCookieOptions", () => {
       maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
     });
     expect(authCookieOptions("http://localhost:3000").secure).toBe(false);
+    expect(authCookieOptions("http://localhost:3000").name).toBe("sb-auth");
     expect(authCookieOptions(undefined).secure).toBe(false);
+    expect(authCookieOptions(undefined).name).toBe("sb-auth");
     expect(AUTH_COOKIE_MAX_AGE_SECONDS).toBe(7 * 24 * 60 * 60);
   });
 });

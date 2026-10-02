@@ -32,6 +32,8 @@ describe("appSecretProof", () => {
   it("既知のベクトル: key=secret、message=token の HMAC-SHA256 の 16 進（Node の crypto と一致）", () => {
     const expected = hmacHex("secret", "token");
     expect(appSecretProof("secret", "token")).toBe(expected);
+    // 定数でも固定する（鍵と message の取り違え以外の崩れも捕まえる）
+    expect(appSecretProof("secret", "token")).toBe("e941110e3d2bfe82621f0e3e1434730d7305d106c5f68c87165d0b27a4611a4a");
     expect(appSecretProof("secret", "token")).toMatch(/^[0-9a-f]{64}$/);
     // 鍵と message を取り違えていない
     expect(appSecretProof("secret", "token")).not.toBe(hmacHex("token", "secret"));

@@ -74,6 +74,15 @@ export async function signInWithForm(
   return "failed";
 }
 
+/**
+ * 失敗の応答が `startedAt` から少なくとも `SIGN_IN_FAILURE_DELAY_MS` 後になるよう待つ。
+ * `signInWithForm` に届く前の失敗（設定不足、クライアント生成の例外）でも応答時間が変わらないようにする
+ */
+export async function ensureFailureDelay(startedAt: number, sleep: (ms: number) => Promise<void> = defaultSleep): Promise<void> {
+  const remaining = SIGN_IN_FAILURE_DELAY_MS - (Date.now() - startedAt);
+  if (remaining > 0) await sleep(remaining);
+}
+
 /** すべてのセッションからサインアウトする。失敗しても例外を投げない（Cookie の削除は `setAll` で済む） */
 export async function signOutEverywhere(auth: AuthApi): Promise<void> {
   try {

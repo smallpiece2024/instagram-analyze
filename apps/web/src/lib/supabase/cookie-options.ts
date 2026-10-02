@@ -9,6 +9,8 @@
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 export interface AuthCookieOptions {
+  /** Cookie の名前。https では `__Host-` 接頭辞（`secure` と `path=/` が条件。`@supabase/ssr` の分割 `.0`、`.1` も接頭辞を保つ） */
+  name: string;
   httpOnly: true;
   secure: boolean;
   sameSite: "lax";
@@ -20,6 +22,18 @@ export function isHttps(appUrl: string | undefined): boolean {
   return appUrl?.startsWith("https:") ?? false;
 }
 
+/** 認証 Cookie の名前。https なら `__Host-sb-auth`、http（ローカル）なら `sb-auth` */
+export function authCookieName(appUrl: string | undefined): string {
+  return isHttps(appUrl) ? "__Host-sb-auth" : "sb-auth";
+}
+
 export function authCookieOptions(appUrl: string | undefined): AuthCookieOptions {
-  return { httpOnly: true, secure: isHttps(appUrl), sameSite: "lax", path: "/", maxAge: AUTH_COOKIE_MAX_AGE_SECONDS };
+  return {
+    name: authCookieName(appUrl),
+    httpOnly: true,
+    secure: isHttps(appUrl),
+    sameSite: "lax",
+    path: "/",
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+  };
 }

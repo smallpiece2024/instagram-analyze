@@ -69,9 +69,9 @@ describe("evaluateAlerts", () => {
       expect(result.alerts).toEqual([{ kind: "token", ordinal: 1, total: 1, daysLeft: -1, status: "valid" }]);
     });
 
-    it("期限が不明（null）で valid なら警告しない", () => {
+    it("期限が不明（null）で valid でも警告する（daysLeft は undefined。フェイルクローズ）", () => {
       const result = evaluateAlerts(input(account({ credential: { status: "valid", dataAccessExpiresAt: null } })), NOW, "daily", false);
-      expect(result.alerts).toEqual([]);
+      expect(result.alerts).toEqual([{ kind: "token", ordinal: 1, total: 1, daysLeft: undefined, status: "valid" }]);
     });
 
     it("credential がなければ status=none で警告", () => {
@@ -143,7 +143,10 @@ describe("evaluateAlerts", () => {
   });
 
   describe("stories の連続見送り", () => {
-    it("skipped × 3 は stories_skipped（runs=3）", () => {
+    it("skipped × 3 は stories_skipped（runs=3）。daily の回でも同じ", () => {
+      expect(evaluateAlerts(input(account({ recentStoriesRuns: runs("skipped", "skipped", "skipped") })), NOW, "daily", false).alerts).toEqual([
+        { kind: "stories_skipped", ordinal: 1, total: 1, runs: 3 },
+      ]);
       expect(evaluateAlerts(input(account({ recentStoriesRuns: runs("skipped", "skipped", "skipped") })), NOW, "hourly", false)).toEqual({
         alerts: [{ kind: "stories_skipped", ordinal: 1, total: 1, runs: 3 }],
         noHistory: false,

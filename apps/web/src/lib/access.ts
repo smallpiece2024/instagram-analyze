@@ -16,9 +16,9 @@ export interface AccessClaims {
 
 export const LOGIN_PATH = "/login";
 
-/** 認証なしで通す経路。`/login` 配下（Server Action の POST も同じ経路に届く）と静的資産 */
+/** 認証なしで通す経路。`/login` 配下（Server Action の POST も同じ経路に届く）と静的資産（`next/image` は使っていないので含めない） */
 const PUBLIC_PATHS: readonly string[] = [LOGIN_PATH, "/favicon.ico"];
-const PUBLIC_PREFIXES: readonly string[] = ["/_next/static/", "/_next/image"];
+const PUBLIC_PREFIXES: readonly string[] = ["/_next/static/"];
 
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;

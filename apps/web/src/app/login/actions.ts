@@ -10,10 +10,11 @@
 import { redirect } from "next/navigation";
 import { LOGIN_PATH } from "@/lib/access";
 import { readAuthEnv } from "@/lib/auth-env";
-import { signInWithForm, signOutEverywhere } from "@/lib/login";
+import { ensureFailureDelay, signInWithForm, signOutEverywhere } from "@/lib/login";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function signInAction(formData: FormData): Promise<void> {
+  const startedAt = Date.now();
   let result: "ok" | "failed" = "failed";
   try {
     const authEnv = readAuthEnv();
@@ -25,6 +26,8 @@ export async function signInAction(formData: FormData): Promise<void> {
     console.error("[auth] result=sign_in_error 例外");
     result = "failed";
   }
+  // 設定不足や例外で早く失敗した経路でも、応答時間から状態を推測されないよう同じだけ待つ
+  if (result !== "ok") await ensureFailureDelay(startedAt);
   redirect(result === "ok" ? "/" : `${LOGIN_PATH}?result=failed`);
 }
 

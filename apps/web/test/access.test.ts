@@ -5,12 +5,12 @@ const ALLOWED = "00000000-0000-0000-0000-000000000001";
 const OTHER = "00000000-0000-0000-0000-000000000002";
 
 describe("isPublicPath", () => {
-  it("/login、/login 配下、favicon、_next/static、_next/image は公開", () => {
+  it("/login、/login 配下、favicon、_next/static は公開。_next/image は使っていないので公開しない", () => {
     expect(isPublicPath(LOGIN_PATH)).toBe(true);
     expect(isPublicPath("/login/")).toBe(true);
     expect(isPublicPath("/favicon.ico")).toBe(true);
     expect(isPublicPath("/_next/static/chunks/main.js")).toBe(true);
-    expect(isPublicPath("/_next/image?url=x")).toBe(true);
+    expect(isPublicPath("/_next/image?url=x")).toBe(false);
   });
 
   it("それ以外は公開でない（/loginx、/api/meta/callback、/）", () => {

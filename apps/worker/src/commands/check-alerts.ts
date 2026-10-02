@@ -57,7 +57,7 @@ export function alertFields(alert: Alert): LogFields {
     case "simulated":
       return { alert: "simulated" };
     case "token":
-      return { alert: "token", account: `${alert.ordinal}/${alert.total}`, days_left: alert.daysLeft, status: alert.status };
+      return { alert: "token", account: `${alert.ordinal}/${alert.total}`, days_left: alert.daysLeft ?? "unknown", status: alert.status };
     case "stories_failed":
     case "stories_skipped":
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, runs: alert.runs };
@@ -95,13 +95,10 @@ export async function runCheckAlerts(scope: AlertScope, deps: CheckAlertsDeps): 
   }
   const result = evaluateAlerts({ accounts }, now(), scope, deps.config.simulateAlert);
   for (const alert of result.alerts) deps.log.warn(alertFields(alert));
-  deps.log.info({
-    command: COMMAND,
-    scope,
-    accounts: accounts.length,
-    alerts: result.alerts.length,
-    reason: result.noHistory ? "no_history" : undefined,
-  });
+  // reason は該当なしのときだけ（no_accounts: 対象のアカウントがない。no_history: 判定に足りる履歴がない）
+  const reason =
+    result.alerts.length > 0 ? undefined : accounts.length === 0 ? "no_accounts" : result.noHistory ? "no_history" : undefined;
+  deps.log.info({ command: COMMAND, scope, accounts: accounts.length, alerts: result.alerts.length, reason });
   return result.alerts.length === 0;
 }
 

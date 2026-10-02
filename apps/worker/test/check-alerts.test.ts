@@ -45,7 +45,7 @@ describe("parseScope", () => {
 });
 
 describe("alertFields", () => {
-  it("account は ordinal/total の連番。days_left が undefined なら項目ごと出ない", () => {
+  it("account は ordinal/total の連番。days_left が undefined なら unknown", () => {
     const alerts: Alert[] = [
       { kind: "simulated" },
       { kind: "token", ordinal: 1, total: 2, daysLeft: 13, status: "valid" },
@@ -56,7 +56,7 @@ describe("alertFields", () => {
     expect(alerts.map(alertFields)).toEqual([
       { alert: "simulated" },
       { alert: "token", account: "1/2", days_left: 13, status: "valid" },
-      { alert: "token", account: "2/2", days_left: undefined, status: "none" },
+      { alert: "token", account: "2/2", days_left: "unknown", status: "none" },
       { alert: "stories_failed", account: "1/2", runs: 2 },
       { alert: "stories_skipped", account: "2/2", runs: 3 },
     ]);
@@ -66,11 +66,18 @@ describe("alertFields", () => {
     const lines: string[] = [];
     const log = createLogger("info", new SecretRegistry(), (line) => lines.push(line), () => NOW);
     log.warn(alertFields({ kind: "token", ordinal: 1, total: 3, daysLeft: 13, status: "valid" }));
+    log.warn(alertFields({ kind: "token", ordinal: 1, total: 3, daysLeft: undefined, status: "valid" }));
     log.warn(alertFields({ kind: "stories_failed", ordinal: 2, total: 3, runs: 2 }));
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=token account=1/3 days_left=13 status=valid",
+      "2026-10-01T05:30:00.000Z WARN  alert=token account=1/3 days_left=unknown status=valid",
       "2026-10-01T05:30:00.000Z WARN  alert=stories_failed account=2/3 runs=2",
     ]);
+    // ID、ユーザー名、URL、トークンに当たるものは行に含まれない
+    for (const line of lines) {
+      expect(line).not.toContain("://");
+      expect(line).not.toMatch(/\d{10}/);
+    }
   });
 });
 
@@ -78,7 +85,7 @@ describe("runCheckAlerts（DB に触れない経路）", () => {
   it("アカウントが 0 件なら INFO alerts=0 で true", async () => {
     const { deps, lines } = fakeDeps();
     await expect(runCheckAlerts("hourly", deps)).resolves.toBe(true);
-    expect(lines).toEqual(["2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=0 alerts=0"]);
+    expect(lines).toEqual(["2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=0 alerts=0 reason=no_accounts"]);
   });
 
   it("simulate なら WARN alert=simulated を出して false", async () => {

@@ -2,7 +2,7 @@
  * `/login`: メールアドレスとパスワードでのログイン（R2 設計 4.3 章。F-SYS-13）。Server Component のフォームと Server Action。
  *
  * - `?result=` は `signInResultMessage` で固定文言にする。値そのものは描画しない
- * - 認証の環境変数が足りなければ変数名を示してフォームを出さない（値は出ない）
+ * - 認証の環境変数が足りなければ固定文言だけを出してフォームを出さない（変数名はサーバーのログにだけ出す。未認証の訪問者に設定の中身を見せない）
  * - ログイン済みならフォームの代わりにトップへの案内を出す
  */
 import Link from "next/link";
@@ -16,6 +16,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const resultParam = params.result;
   const message = signInResultMessage(Array.isArray(resultParam) ? resultParam[0] : resultParam);
   const authEnv = readAuthEnv();
+  if (!authEnv.ok) console.warn(`[auth] result=config_missing missing=${authEnv.missing.join(",")}`);
   const claims = authEnv.ok ? await currentClaims() : undefined;
 
   return (
@@ -31,7 +32,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
       {!authEnv.ok ? (
         <p className="mt-6 rounded border border-red-400 bg-red-50 p-4 text-sm text-red-900">
-          設定が足りません（{authEnv.missing.join("、")}）。
+          設定が完了していません。管理者はサーバーのログを確認してください。
         </p>
       ) : claims ? (
         <p className="mt-6 rounded border border-neutral-200 p-4 text-sm">

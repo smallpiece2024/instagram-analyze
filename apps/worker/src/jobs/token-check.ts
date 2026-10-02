@@ -205,6 +205,11 @@ export const job: JobDefinition = {
     await updateCredentialStatus(ctx.db, ctx.account.id, result.patch);
     ctx.progress.items += 1;
 
+    // fb_page_id がないと profile_id の検査（別のページのトークンへの差し替えの検出）が効かない。ID は出さない
+    if (ctx.account.fb_page_id === null) {
+      ctx.log.warn({ job: "token_check", reason: "fb_page_id_missing" });
+    }
+
     const status = result.patch.status;
     if (result.outcome === "invalid" || result.outcome === "insufficient_scope") {
       ctx.log.warn({

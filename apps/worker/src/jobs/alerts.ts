@@ -65,7 +65,8 @@ function evaluateToken(account: AlertAccount, total: number, now: Date): Alert |
   if (credential.status !== "valid") {
     return { kind: "token", ordinal, total, daysLeft: left, status: credential.status };
   }
-  if (left !== undefined && left < DATA_ACCESS_WARN_DAYS) {
+  // 期限が不明（null）はページトークンでは起きないはずなので、分からないまま黙らず警告する（フェイルクローズ。days_left=unknown）
+  if (left === undefined || left < DATA_ACCESS_WARN_DAYS) {
     return { kind: "token", ordinal, total, daysLeft: left, status: credential.status };
   }
   return undefined;

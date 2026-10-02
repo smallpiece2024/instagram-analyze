@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runCheckAlerts, type CheckAlertsDeps } from "../../src/commands/check-alerts.js";
-import { upsertAccount, upsertCredential, type CredentialInfo } from "../../src/db/accounts.js";
+import { upsertAccount, upsertCredential, vaultSecretName, type CredentialInfo } from "../../src/db/accounts.js";
 import { closeDb, connectDb, type Db } from "../../src/db/client.js";
 import { finishJobRun, listRecentRuns, startJobRun } from "../../src/db/job-runs.js";
 import type { AccountRow, JobStatus } from "../../src/db/types.js";
@@ -87,6 +87,11 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
       select count(*)::int as n from public.job_runs where account_id in (${accountA.id}, ${accountB.id})
     `;
     expect(rest?.n).toBe(0);
+    // credentials のトリガーで Vault の秘密も消えている
+    const [vault] = await db<{ n: number }[]>`
+      select count(*)::int as n from vault.secrets where name in (${vaultSecretName(accountA.id)}, ${vaultSecretName(accountB.id)})
+    `;
+    expect(vault?.n).toBe(0);
     await closeDb(db);
   });
 
@@ -101,8 +106,8 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     await expect(runCheckAlerts("daily", deps)).resolves.toBe(false);
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=token account=1/2 days_left=10 status=valid",
-      "2026-10-01T05:30:00.000Z WARN  alert=token account=2/2 status=none",
-      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=daily accounts=2 alerts=2 reason=no_history",
+      "2026-10-01T05:30:00.000Z WARN  alert=token account=2/2 days_left=unknown status=none",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=daily accounts=2 alerts=2",
     ]);
   });
 
@@ -120,7 +125,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     await expect(runCheckAlerts("hourly", deps)).resolves.toBe(false);
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=stories_failed account=1/2 runs=2",
-      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=1 reason=no_history",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=1",
     ]);
     await finishJobRun(db, runningId, { status: "success", items_fetched: 1, api_calls: 1 });
   });
