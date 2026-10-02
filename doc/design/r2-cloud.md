@@ -8,7 +8,7 @@
 | 対象 | 要件定義 4.3 章（F-SYS-10〜15）、6.3 章、8.1〜8.3 章、10 章（R2 の完了条件）、11.1 章の C3 |
 | 入力 | `doc/requirements/requirements-definition.md`（版 0.4）、`doc/design/r1-db-design.md`（7 章、7.1 章）、`doc/design/r1-collection-jobs.md`（6.2 章、8.1 章、8.2 章、12 章）、`doc/design/r1-web-screens.md`（1.2 章、2.2 章、3 章、12 章）、`supabase/migrations/`（5 本）、`apps/worker/src/`、`apps/web/src/`、`docker-compose.yml`、`apps/worker/Dockerfile`、Supabase・GitHub・Vercel の文書とローカル DB での確認（13 章） |
 | 範囲外 | 画面の見た目（R2.5、R3）、接続解除の画面（R3。R1 は README の SQL）、生レスポンスの削除ジョブ（12 章）、R4 以降の動画解析のクラウド化（実行環境は共通。ジョブを足すだけ） |
-| 状態 | レビュー反映済み。11 章の Q1〜Q10 は未回答 |
+| 状態 | レビュー反映済み。11 章の Q1〜Q11 は回答済み（2026-10-02）。段階 A から実装中 |
 
 ---
 
@@ -101,7 +101,7 @@ npx supabase logout                               # 作業が終わったら（�
 | 設定 | 値 | 理由 |
 |---|---|---|
 | Allow new users to sign up | **オフ** | 利用者は本人だけ（NF-SEC-02）。オフにすると既存の利用者だけがサインインできる（13 章 S5） |
-| 利用者の作成 | Authentication → Users で 1 人作る（メール確認済み、パスワードは 20 文字以上の乱数） | メール送信を使わない。利用者の `id`（uuid）を Vercel の `WEB_ALLOWED_USER_ID` に入れる（4.3 章） |
+| 利用者の作成 | Authentication → Users で 1 人作る（メール確認済み。パスワードは 8 文字以上。Q3） | メール送信を使わない。利用者の `id`（uuid）を Vercel の `WEB_ALLOWED_USER_ID` に入れる（4.3 章）。Password Requirements で「8 文字以上、文字種の混在」を設定する |
 | Site URL | `https://<app>.vercel.app` | Auth のリダイレクト先の既定 |
 | Redirect URLs | 追加しない | メールのリンクを使わない |
 | 匿名サインイン | オフ（既定のまま） | 匿名の利用者も `authenticated` ロールになり、Storage のポリシー（3.3 章）に影響する |
@@ -540,17 +540,17 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 | No | 内容 | 推奨 | 備考 |
 |---|---|---|---|
-| Q1 | Supabase のリージョン | 東京（`ap-northeast-1`） | 作成済みなら変更不可。どこで作ったかを教えてほしい |
-| Q2 | 依存パッケージの追加: `@supabase/supabase-js`、`@supabase/ssr`（Web） | 追加する | ログインに必須。版を固定 |
-| Q3 | ログインの方式 | メール＋パスワード（20 文字以上の乱数） | マジックリンクは組み込み SMTP の上限が小さく毎回のログインに向かない |
-| Q4 | 死活監視 | 案 A: Healthchecks.io（アカウント作成が要る） | 案 B: cron-job.org ＋ `/api/health` |
-| Q5 | ワーカーの実行環境 | Docker を使わず、ランナーに ffmpeg を入れて Node で直接実行 | 代替: 毎回 Docker ビルド、GHCR の公開イメージ |
-| Q6 | `appsecret_proof` を R2 で入れるか | 入れる（DB の資格情報が漏れてもトークン単独では使えない。コストは HMAC 1 つ） | アプリ設定の必須化は両方のデプロイ後 |
-| Q7 | Supabase Auth の TOTP（MFA） | R3 までに入れる（`/login` の総当たりで本人がロックされうるため） | R2 では入れない |
-| Q8 | `web_app` に `raw_api_responses` の `select` を与えるか | 与えない（ビューの依存なしを確認済み） | 将来の生データ閲覧画面では追加のマイグレーション |
-| Q9 | ローカルの `web_app` のパスワードを `seed.sql` に公知の値で置く | 置く（ローカルのサービスロールキーと同じ扱い） | 本番では `\password` で別の値 |
-| Q10 | ワークフローのファイルを誰のアカウントでコミットするか | ユーザー本人のアカウントでコミットする（失敗メールの宛先になる） | 親がコミットするなら、作成後にユーザーが cron を一度編集する |
-| Q11 | Data API の公開スキーマから `public` を外す（2.6 章） | 外す | ブラウザと REST から DB を読まない方針を設定で固定する |
+| Q1 | Supabase のリージョン | 東京（`ap-northeast-1`） | **回答: 東京（`ap-northeast-1`）で作り直した**（最初は `ap-south-1` で作っていた）。プーラーのホストは `aws-<n>-ap-northeast-1.pooler.supabase.com` |
+| Q2 | 依存パッケージの追加: `@supabase/supabase-js`、`@supabase/ssr`（Web） | 追加する | **回答: 追加する** |
+| Q3 | ログインの方式 | メール＋パスワード（20 文字以上の乱数） | **回答: メール＋パスワード、8 文字以上**。推奨より短い分、`/login` の固定遅延と、Supabase 側のパスワード要件（ダッシュボードで 8 文字以上・文字種を設定）、R3 までの TOTP（Q7）で補う |
+| Q4 | 死活監視 | 案 A: Healthchecks.io | **回答: 案 A。アカウント作成済み** |
+| Q5 | ワーカーの実行環境 | Docker を使わず、ランナーに ffmpeg を入れて Node で直接実行 | **回答: 推奨どおり** |
+| Q6 | `appsecret_proof` を R2 で入れるか | 入れる | **回答: 推奨どおり** |
+| Q7 | Supabase Auth の TOTP（MFA） | R3 までに入れる | **回答: 推奨どおり** |
+| Q8 | `web_app` に `raw_api_responses` の `select` を与えるか | 与えない | **回答: 推奨どおり** |
+| Q9 | ローカルの `web_app` のパスワードを `seed.sql` に公知の値で置く | 置く | **回答: 推奨どおり** |
+| Q10 | ワークフローのファイルを誰のアカウントでコミットするか | ユーザー本人のアカウントでコミットする | **回答: 推奨どおり**。このリポジトリのコミットはユーザーの git の身元で作られ push されるので、親が作ったコミットでも作成者はユーザーになる。念のためマージ後にユーザーが cron を一度編集して宛先を確定する |
+| Q11 | Data API の公開スキーマから `public` を外す（2.6 章） | 外す | **回答: 推奨どおり** |
 
 決定済み（レビューで確定。確認は不要）: `check-alerts` は収集の失敗後も走る（`!cancelled()`）。履歴が足りないときは判定しない。`partial`／`skipped` は失敗に数えない（`skipped` の連続は別の alert）。トークン警告は daily だけ。通知の試験は T0 の前に行う。
 

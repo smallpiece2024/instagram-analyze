@@ -211,7 +211,7 @@ npm run worker:verify-api
 | `npm run lint:web` | Web アプリの lint |
 | `npm run build:web` | Web アプリのビルド（出力で 4 ルートが `ƒ (Dynamic)` であることを確かめる） |
 | `npm run typecheck -w web` | Web アプリの型チェック（`next typegen` のあと `tsc`） |
-| `npm run test -w web` | Web アプリの単体テスト。`TEST_DATABASE_URL=...`（ワーカーと同じ）を付けると結合テストも動く |
+| `npm run test -w web` | Web アプリの単体テスト。`TEST_DATABASE_URL=...`（ワーカーと同じ）を付けると結合テストも動く。R2 の Web 用ロールの結合テスト（`test/db/web-role.test.ts`）は、さらに `TEST_WEB_DATABASE_URL=postgresql://web_app:web_app_local@127.0.0.1:54322/postgres` を付けたときだけ動く（パスワードは `supabase/seed.sql` のローカル専用の公知の値） |
 | `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す）。Storage の結合テストが使うサービスロールキーの既定値は Supabase CLI の公知のローカル用の値で、秘密ではない |
 | `npm run typecheck -w worker` | ワーカーの型チェック |
 | `npm run build:worker` | ワーカーのビルド（`apps/worker/dist/`。Docker を使わずに `node apps/worker/dist/index.js` で動かすときに使う） |
@@ -222,6 +222,8 @@ npm run worker:verify-api
 ## DB
 
 テーブル設計は `doc/design/r1-db-design.md`、マイグレーションは `supabase/migrations/` にある。ローカルの DB にはユーザーの実データが入るので、ダンプやエクスポートをコミットしない。
+
+R2（`doc/design/r2-cloud.md` 3 章）で Web 用のロール `web_app` を追加した（`20261002005926_r2_web_role.sql`）。パスワードはマイグレーションに書かない。ローカルは `supabase/seed.sql` が `db reset` のたびに公知の値（`web_app_local`）を設定する。`db reset` せずに適用したときは `npm run db:reset` の代わりに `npx supabase migration up --local` のあと `docker exec supabase_db_instagram-analyze psql -U postgres -d postgres -f -` 相当で `seed.sql` を流す。本番（Supabase Cloud）では `seed.sql` は流れず、`psql` の `\password web_app` で別の値を設定する。
 
 ## Claude Code のサブエージェントとスキル
 
