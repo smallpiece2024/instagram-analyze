@@ -26,6 +26,8 @@ concurrency:
 
 jobs:
   collect:
+    # repo Variable COLLECT_ENABLED=true のときだけ動く（Secrets を登録する前や、ローカルへ戻すときは false にする。R2 設計 7.3 章）
+    if: ${{ vars.COLLECT_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -122,7 +124,7 @@ jobs:
   # repo Variable COLLECT_KEEPALIVE=true のときだけ（意図的に無効化したワークフローを勝手に戻さない）
   keepalive:
     needs: collect
-    if: ${{ !cancelled() && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}
+    if: ${{ !cancelled() && needs.collect.result != 'skipped' && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
