@@ -35,6 +35,8 @@ jobs:
     if: ${{ vars.COLLECT_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Secrets は GitHub の Environment「Production」に置いている（Repository secrets ではない）。保護ルール（承認者など）は付けない
+    environment: Production
     permissions:
       contents: read
     outputs:
