@@ -6,6 +6,7 @@
 import { NextRequest } from "next/server";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeAllDb } from "../src/lib/db";
+import { checkAccess } from "../src/lib/auth";
 import { handleCallback } from "../src/lib/meta-connect";
 import { GET as callbackGet } from "../src/app/api/meta/callback/route";
 import * as login from "../src/app/api/meta/login/route";
@@ -15,13 +16,14 @@ vi.mock("../src/lib/meta-connect", async (importOriginal) => {
   return { ...actual, handleCallback: vi.fn(actual.handleCallback) };
 });
 
+// ログインの再確認は `checkAccess` を差し替える（既定は pass。login と forbid は下の describe で確かめる）
+vi.mock("../src/lib/auth", () => ({ checkAccess: vi.fn(async () => "pass") }));
+
 const APP_URL = "http://localhost:3000";
 const STATE = "STATE_VALUE_abcdefghijklmnopqrstuvwxyz0123";
 
 const BASE_ENV: Record<string, string | undefined> = {
   DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-  SUPABASE_URL: "http://127.0.0.1:54321",
-  SUPABASE_SERVICE_ROLE_KEY: "FAKE_ROUTES_SERVICE_ROLE_KEY",
   META_APP_ID: "123456",
   META_APP_SECRET: "FAKE_ROUTES_APP_SECRET",
   META_GRAPH_API_VERSION: "v25.0",
@@ -58,6 +60,8 @@ describe("routes", () => {
     stubEnv();
     warn.mockClear();
     vi.mocked(handleCallback).mockClear();
+    vi.mocked(checkAccess).mockReset();
+    vi.mocked(checkAccess).mockResolvedValue("pass");
   });
 
   afterEach(() => {
@@ -88,7 +92,7 @@ describe("routes", () => {
       expect((await login.POST(loginRequest({ "sec-fetch-site": "cross-site" }))).status).toBe(403);
     });
 
-    it("正常なら 303 で facebook.com へ。state は Cookie（HttpOnly、SameSite=Lax、Path=/api/meta、Max-Age=600、http なら Secure なし）と URL で同じ", async () => {
+    it("正常なら 303 で facebook.com へ。state は Cookie（HttpOnly、SameSite=Lax、Path=/、Max-Age=600、http なら Secure なし）と URL で同じ", async () => {
       const res = await login.POST(loginRequest());
       expect(res.status).toBe(303);
       const location = new URL(res.headers.get("location") ?? "");
@@ -102,7 +106,7 @@ describe("routes", () => {
       const match = /^meta_oauth_state=([A-Za-z0-9_-]{43});/.exec(cookie);
       expect(match).not.toBeNull();
       expect(location.searchParams.get("state")).toBe(match?.[1]);
-      expect(cookie).toMatch(/;\s*Path=\/api\/meta/i);
+      expect(cookie).toMatch(/;\s*Path=\/(;|$)/i);
       expect(cookie).toMatch(/;\s*Max-Age=600/i);
       expect(cookie).toMatch(/;\s*HttpOnly/i);
       expect(cookie).toMatch(/;\s*SameSite=lax/i);
@@ -141,7 +145,7 @@ describe("routes", () => {
       expect(res.headers.get("location")).toBe(`${APP_URL}/connect?result=state_mismatch`);
       const cookie = setCookie(res);
       expect(cookie).toMatch(deleteCookie);
-      expect(cookie).toMatch(/;\s*Path=\/api\/meta/i);
+      expect(cookie).toMatch(/;\s*Path=\/(;|$)/i);
       expect(cookie).toMatch(/;\s*HttpOnly/i);
       expect(cookie).toMatch(/;\s*SameSite=lax/i);
       expect(cookie).not.toMatch(/Secure/i);
@@ -190,6 +194,48 @@ describe("routes", () => {
       const res = await callbackGet(callbackRequest({ error: "access_denied", state: STATE }, `meta_oauth_state=${STATE}`));
       expect(res.headers.get("location")).toBe("https://app.example.com/connect?result=denied");
       expect(setCookie(res)).toMatch(/;\s*Secure/i);
+    });
+  });
+
+  describe("ログインの再確認（checkAccess。R2 設計 4.3 章）", () => {
+    it("login なら両方とも 303 /login（Cookie なし。handleCallback は呼ばない。pathname を渡す）", async () => {
+      vi.mocked(checkAccess).mockResolvedValue("login");
+      const res = await login.POST(loginRequest());
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe("/login");
+      expect(setCookie(res)).toBe("");
+      const cb = await callbackGet(callbackRequest({ code: "AQD", state: STATE }, `meta_oauth_state=${STATE}`));
+      expect(cb.status).toBe(303);
+      expect(cb.headers.get("location")).toBe("/login");
+      expect(handleCallback).not.toHaveBeenCalled();
+      expect(checkAccess).toHaveBeenCalledWith("/api/meta/login");
+      expect(checkAccess).toHaveBeenCalledWith("/api/meta/callback");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("forbid なら両方とも 403", async () => {
+      vi.mocked(checkAccess).mockResolvedValue("forbid");
+      expect((await login.POST(loginRequest())).status).toBe(403);
+      expect((await callbackGet(callbackRequest({ code: "AQD", state: STATE }, `meta_oauth_state=${STATE}`))).status).toBe(403);
+      expect(handleCallback).not.toHaveBeenCalled();
+    });
+
+    it("APP_URL が https なら state の Cookie は __Host-meta_oauth_state（Secure、Path=/）で、callback も同じ名前を読む", async () => {
+      stubEnv({ APP_URL: "https://app.example.com" });
+      const req = new NextRequest("https://app.example.com/api/meta/login", {
+        method: "POST",
+        headers: { origin: "https://app.example.com", "sec-fetch-site": "same-origin" },
+      });
+      const cookie = setCookie(await login.POST(req));
+      expect(cookie).toMatch(/^__Host-meta_oauth_state=[A-Za-z0-9_-]{43};/);
+      expect(cookie).toMatch(/;\s*Path=\/(;|$)/i);
+      expect(cookie).toMatch(/;\s*Secure/i);
+      vi.mocked(handleCallback).mockResolvedValueOnce({ result: "denied" });
+      const cb = await callbackGet(
+        callbackRequest({ code: "AQD", state: STATE }, `__Host-meta_oauth_state=${STATE}; meta_oauth_state=other`),
+      );
+      expect(handleCallback).toHaveBeenCalledWith(expect.objectContaining({ cookieState: STATE }), expect.anything());
+      expect(setCookie(cb)).toMatch(/^__Host-meta_oauth_state=;.*Max-Age=0/i);
     });
   });
 });

@@ -1,32 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { configMissingReason, DEFAULT_GRAPH_API_VERSION, readEnv } from "@/lib/env";
+import { configMissingReason, DEFAULT_GRAPH_API_VERSION, isLocalDbHost, normalizePem, readEnv } from "@/lib/env";
 
 /** 検証に通る一式。秘密の値は、結果に混入していないことを確かめる目印にする */
 const VALID: Record<string, string> = {
   DATABASE_URL: "postgresql://postgres:db-secret-value@127.0.0.1:54322/postgres",
-  SUPABASE_URL: "http://127.0.0.1:54321",
-  SUPABASE_SERVICE_ROLE_KEY: "service-role-secret-value",
   META_APP_ID: "123456789012345",
   META_APP_SECRET: "meta-secret-value",
   META_GRAPH_API_VERSION: "v25.0",
   APP_URL: "http://localhost:3000",
 };
 
-const SECRETS = ["db-secret-value", "service-role-secret-value", "meta-secret-value"];
+const SECRETS = ["db-secret-value", "meta-secret-value"];
 
 function withEnv(overrides: Record<string, string | undefined>): Record<string, string | undefined> {
   return { ...VALID, ...overrides };
 }
 
 describe("readEnv", () => {
-  it("一式そろえば ok。末尾のスラッシュは落とし、任意の変数は undefined", () => {
-    const result = readEnv(withEnv({ SUPABASE_URL: "http://127.0.0.1:54321/" }));
+  it("一式そろえば ok。プールモードは既定の session、CA はローカルなので undefined、任意の変数は undefined", () => {
+    const result = readEnv(withEnv({}));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.env).toEqual({
       databaseUrl: VALID.DATABASE_URL,
-      supabaseUrl: "http://127.0.0.1:54321",
-      supabaseServiceRoleKey: VALID.SUPABASE_SERVICE_ROLE_KEY,
+      databasePoolMode: "session",
+      databaseSslCa: undefined,
       metaAppId: VALID.META_APP_ID,
       metaAppSecret: VALID.META_APP_SECRET,
       graphApiVersion: "v25.0",
@@ -53,9 +51,9 @@ describe("readEnv", () => {
   });
 
   it("空白だけは未設定として扱う", () => {
-    expect(readEnv(withEnv({ SUPABASE_SERVICE_ROLE_KEY: "   " }))).toEqual({
+    expect(readEnv(withEnv({ META_APP_SECRET: "   " }))).toEqual({
       ok: false,
-      missing: ["SUPABASE_SERVICE_ROLE_KEY"],
+      missing: ["META_APP_SECRET"],
     });
     expect(readEnv(withEnv({ DATABASE_URL: "\t\n" }))).toEqual({ ok: false, missing: ["DATABASE_URL"] });
   });
@@ -69,12 +67,6 @@ describe("readEnv", () => {
     expect(bad).toEqual({ ok: false, missing: ["DATABASE_URL"] });
     expect(JSON.stringify(bad)).not.toContain("bad-secret");
     expect(readEnv(withEnv({ DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:54322/postgres" })).ok).toBe(true);
-  });
-
-  it("SUPABASE_URL は http(s) だけ", () => {
-    expect(readEnv(withEnv({ SUPABASE_URL: "ftp://127.0.0.1" }))).toEqual({ ok: false, missing: ["SUPABASE_URL"] });
-    expect(readEnv(withEnv({ SUPABASE_URL: "not a url" }))).toEqual({ ok: false, missing: ["SUPABASE_URL"] });
-    expect(readEnv(withEnv({ SUPABASE_URL: "https://example.supabase.co" })).ok).toBe(true);
   });
 
   it("APP_URL はオリジンだけ。末尾のスラッシュ、パス、クエリ、スキームなしは不備", () => {
@@ -122,5 +114,66 @@ describe("readEnv", () => {
   it("source を渡さなければ process.env を読む（この環境では不備があっても例外にならない）", () => {
     const result = readEnv();
     expect(typeof result.ok).toBe("boolean");
+  });
+});
+
+describe("readEnv: DATABASE_POOL_MODE と DATABASE_SSL_CA（R2 設計 2.2 章、10.1 章）", () => {
+  const PEM = "-----BEGIN CERTIFICATE-----\nMIIBpem-body-secret\n-----END CERTIFICATE-----";
+  const REMOTE = "postgresql://web_app.ref:pw-secret-value@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require";
+
+  it("DATABASE_POOL_MODE: 未設定 → session、transaction → transaction、不正値 → missing（値を含まない）", () => {
+    const unset = readEnv(withEnv({ DATABASE_POOL_MODE: undefined }));
+    expect(unset.ok && unset.env.databasePoolMode).toBe("session");
+    const tx = readEnv(withEnv({ DATABASE_POOL_MODE: "transaction" }));
+    expect(tx.ok && tx.env.databasePoolMode).toBe("transaction");
+    const bad = readEnv(withEnv({ DATABASE_POOL_MODE: "pooled-secret" }));
+    expect(bad).toEqual({ ok: false, missing: ["DATABASE_POOL_MODE"] });
+    expect(JSON.stringify(bad)).not.toContain("pooled-secret");
+  });
+
+  it("DATABASE_SSL_CA あり → 正規化した PEM（\n のリテラルを改行に戻す。CRLF も LF に）", () => {
+    const literal = readEnv(withEnv({ DATABASE_SSL_CA: "-----BEGIN CERTIFICATE-----\nMIIBpem-body-secret\n-----END CERTIFICATE-----" }));
+    expect(literal.ok && literal.env.databaseSslCa).toBe(PEM);
+    const crlf = readEnv(withEnv({ DATABASE_SSL_CA: `${PEM.replace(/\n/g, "\r\n")}\r\n` }));
+    expect(crlf.ok && crlf.env.databaseSslCa).toBe(PEM);
+  });
+
+  it("なし＋ローカルのホスト → ok で databaseSslCa は undefined", () => {
+    for (const host of ["127.0.0.1", "localhost", "host.docker.internal"]) {
+      const r = readEnv(withEnv({ DATABASE_URL: `postgresql://web_app:web_app_local@${host}:54322/postgres` }));
+      expect(r.ok).toBe(true);
+      expect(r.ok && r.env.databaseSslCa).toBeUndefined();
+    }
+  });
+
+  it("なし＋それ以外のホスト → missing DATABASE_SSL_CA（フェイルクローズ。接続文字列の値を含まない）", () => {
+    const r = readEnv(withEnv({ DATABASE_URL: REMOTE }));
+    expect(r).toEqual({ ok: false, missing: ["DATABASE_SSL_CA"] });
+    expect(JSON.stringify(r)).not.toContain("pw-secret-value");
+  });
+
+  it("あり＋リモート → ok（URL の ?sslmode= は残るが db.ts が ssl を明示するので使われない）", () => {
+    const r = readEnv(withEnv({ DATABASE_URL: REMOTE, DATABASE_SSL_CA: PEM, DATABASE_POOL_MODE: "transaction" }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.env.databaseSslCa).toBe(PEM);
+    expect(r.env.databasePoolMode).toBe("transaction");
+  });
+
+  it("PEM の先頭が -----BEGIN CERTIFICATE----- でなければ missing（値を含まない）", () => {
+    const r = readEnv(withEnv({ DATABASE_SSL_CA: "garbage-ca-secret-value" }));
+    expect(r).toEqual({ ok: false, missing: ["DATABASE_SSL_CA"] });
+    expect(JSON.stringify(r)).not.toContain("garbage-ca-secret-value");
+    expect(normalizePem("MIIB\n-----BEGIN CERTIFICATE-----")).toBeUndefined();
+    expect(normalizePem("  -----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----  ")).toBe(
+      "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----",
+    );
+  });
+
+  it("isLocalDbHost は大文字小文字を無視し、それ以外のホストは false", () => {
+    expect(isLocalDbHost("LOCALHOST")).toBe(true);
+    expect(isLocalDbHost("127.0.0.1")).toBe(true);
+    expect(isLocalDbHost("db.example.supabase.co")).toBe(false);
+    expect(isLocalDbHost("127.0.0.1.evil.example")).toBe(false);
   });
 });

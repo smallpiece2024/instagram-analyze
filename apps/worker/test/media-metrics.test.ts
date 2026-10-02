@@ -303,6 +303,7 @@ function fakeContext(handler: Handler): Fake {
   const warns: LogFields[] = [];
   const infos: LogFields[] = [];
   const log: Logger = {
+    error: () => {},
     info: (fields) => void infos.push(fields),
     warn: (fields) => void warns.push(fields),
     debug: () => {},

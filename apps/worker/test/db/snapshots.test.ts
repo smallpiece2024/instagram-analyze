@@ -384,8 +384,14 @@ describe.skipIf(!TEST_DATABASE_URL)("db/snapshots と jobs/media-snapshot（結�
     expect(run?.api_calls).toBe(3);
     expect(run?.error).toBeNull();
 
-    // 新しい順（REELS → FEED）。内訳つきは metric_type=total_value を付け、URL にトークンを載せない
-    const described = requests.map((u) => `${u.pathname.replace("/v25.0/", "")}?${u.searchParams.toString()}`);
+    // 新しい順（REELS → FEED）。内訳つきは metric_type=total_value を付け、URL にトークンを載せない。
+    // appsecret_proof（R2 設計 5.6 章）は全リクエストに付く。比較からは除く（値は test/appsecret-proof.test.ts で確かめる）
+    for (const u of requests) expect(u.searchParams.get("appsecret_proof")).toMatch(/^[0-9a-f]{64}$/);
+    const described = requests.map((u) => {
+      const query = new URLSearchParams(u.searchParams);
+      query.delete("appsecret_proof");
+      return `${u.pathname.replace("/v25.0/", "")}?${query.toString()}`;
+    });
     expect(described).toEqual([
       `${successReelId}/insights?metric=${encodeURIComponent(REELS_PLAIN.join(","))}`,
       `${successFeedId}/insights?metric=${encodeURIComponent(FEED_PLAIN.join(","))}`,

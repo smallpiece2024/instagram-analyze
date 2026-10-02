@@ -424,7 +424,13 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     expect(list?.pathname).toBe(`/v25.0/${account.ig_user_id}/stories`);
     expect(list?.searchParams.get("fields")).toBe(STORIES_LIST_FIELDS);
     for (const u of graphRequests) expect(u.searchParams.has("access_token")).toBe(false);
-    const insightPaths = graphRequests.slice(1).map((u) => `${u.pathname.replace("/v25.0/", "")}?${u.searchParams.toString()}`);
+    // appsecret_proof（R2 設計 5.6 章）は全リクエストに付く。比較からは除く（値は test/appsecret-proof.test.ts で確かめる）
+    for (const u of graphRequests) expect(u.searchParams.get("appsecret_proof")).toMatch(/^[0-9a-f]{64}$/);
+    const insightPaths = graphRequests.slice(1).map((u) => {
+      const query = new URLSearchParams(u.searchParams);
+      query.delete("appsecret_proof");
+      return `${u.pathname.replace("/v25.0/", "")}?${query.toString()}`;
+    });
     expect(insightPaths).toEqual([
       `${videoId}/insights?metric=${encodeURIComponent(STORY_PLAIN.join(","))}`,
       `${videoId}/insights?metric=navigation&breakdown=story_navigation_action_type&metric_type=total_value`,

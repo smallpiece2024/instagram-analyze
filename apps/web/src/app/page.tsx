@@ -10,7 +10,6 @@ import {
   tokenTypeLabel,
 } from "@/lib/format";
 import { getConnectionStatus, type ConnectionStatus } from "@/lib/queries/connection-status";
-import { checkSupabaseHealth } from "@/lib/supabase-health";
 
 /** 再接続を促す帯の理由（設計 1.1 章、1.6 章）。固定文言と DB の `last_error`（ワーカーがマスク済み）だけ */
 function reconnectReason(s: ConnectionStatus, now: Date): string {
@@ -74,10 +73,10 @@ function AccountCard({ s, now }: { s: ConnectionStatus; now: Date }) {
   );
 }
 
+/** 接続状態（設計 1.1 章）。R0 の Supabase の接続状態の表示は R2 で削除した（Data API を使わない。R2 設計 2.6 章） */
 export default async function Home() {
-  const [status, health] = await Promise.all([getConnectionStatus(), checkSupabaseHealth(2000)]);
+  const status = await getConnectionStatus();
   const now = new Date();
-  const allOk = health.configured && health.services.every((s) => s.ok);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
@@ -101,40 +100,6 @@ export default async function Home() {
           status.data.map((s) => <AccountCard key={s.account_id} s={s} now={now} />)
         )}
       </div>
-
-      <section className="mt-10 border-t border-neutral-200 pt-6">
-        <h2 className="text-base font-semibold text-neutral-700">開発環境: Supabase の接続状態</h2>
-        <p className="mt-1 text-sm text-neutral-500">接続先: {health.url ?? "未設定"}</p>
-        {!health.configured ? (
-          <p className="mt-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-            環境変数が設定されていません。apps/web/.env.example を .env.local にコピーし、値を入れてください。
-          </p>
-        ) : (
-          <>
-            <ul className="mt-3 divide-y divide-neutral-200 rounded border border-neutral-200 text-sm">
-              {health.services.map((s) => (
-                <li key={s.path} className="flex items-center justify-between gap-4 px-4 py-2">
-                  <span>{s.name}</span>
-                  <span
-                    className={
-                      s.ok
-                        ? "rounded bg-green-100 px-2 py-0.5 text-green-800"
-                        : "rounded bg-red-100 px-2 py-0.5 text-red-800"
-                    }
-                  >
-                    {s.ok ? "OK" : "NG"}・{s.detail}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-sm text-neutral-600">
-              {allOk
-                ? "すべてのサービスに接続できています。"
-                : "接続できないサービスがあります。ルートで npm run db:start を実行したか確認してください。"}
-            </p>
-          </>
-        )}
-      </section>
     </main>
   );
 }

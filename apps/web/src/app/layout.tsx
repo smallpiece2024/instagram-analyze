@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { currentClaims } from "@/lib/auth";
+import { signOutAction } from "./login/actions";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,7 +28,13 @@ const NAV = [
   { href: "/connect", label: "接続設定" },
 ] as const;
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/**
+ * ナビゲーションとログアウトはログイン済み（JWT の検証に通った）ときだけ出す（R2 設計 4.3 章）。
+ * ログアウトは POST の Server Action（`signOut({ scope: 'global' })` → `/login`）
+ */
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const claims = await currentClaims();
+  const signedIn = claims !== undefined;
   return (
     <html lang="ja" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
@@ -35,17 +43,26 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Link href="/" className="font-semibold">
               Instagram 分析ツール
             </Link>
-            <nav aria-label="主要">
-              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                {NAV.map((item) => (
-                  <li key={item.href}>
-                    <Link href={item.href} className="text-blue-700 underline-offset-2 hover:underline">
-                      {item.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
+            {signedIn && (
+              <>
+                <nav aria-label="主要">
+                  <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    {NAV.map((item) => (
+                      <li key={item.href}>
+                        <Link href={item.href} className="text-blue-700 underline-offset-2 hover:underline">
+                          {item.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+                <form action={signOutAction} className="ml-auto">
+                  <button type="submit" className="text-sm text-neutral-700 underline-offset-2 hover:underline">
+                    ログアウト
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </header>
         {children}

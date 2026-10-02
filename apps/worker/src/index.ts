@@ -9,6 +9,7 @@
  * - ここで `console.log` を使うのは使い方の表示だけ。例外のオブジェクト（`new URL()` の `input` に接続文字列を持つ
  *   `ERR_INVALID_URL`、`query`／`parameters` を持つ `PostgresError` など）は出さない
  */
+import { checkAlerts } from "./commands/check-alerts.js";
 import { checkEnv } from "./commands/check-env.js";
 import { registerToken } from "./commands/register-token.js";
 import { groupCommand, jobCommand, type CommandSpec } from "./commands/run-job.js";
@@ -41,6 +42,10 @@ const COMMANDS: Record<string, Command> = {
   stories: jobCommand(storiesJob, "ストーリーズの一覧、指標、動画解析"),
   "run-hourly": groupCommand("hourly", HOURLY_JOBS, "stories → media-sync → media-snapshot → account-backfill を順に実行"),
   "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → media-sync --full を順に実行"),
+  "check-alerts": {
+    description: "トークンの期限と stories の連続失敗・見送りを調べ、該当があれば終了コード 1（--scope hourly|daily）",
+    run: (args) => checkAlerts(args),
+  },
   schedule: {
     description: "常駐して 1 時間ごとに run-hourly、1 日 1 回 run-daily を同じプロセス内で実行する",
     run: (args) => schedule(args),

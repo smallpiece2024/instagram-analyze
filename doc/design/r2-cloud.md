@@ -297,6 +297,16 @@ drop role web_app;
 
 ---
 
+### 4.6 実装で確定・変更したこと（段階 C。2026-10-02）
+
+- 認証の環境変数（`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`APP_URL`、`WEB_ALLOWED_USER_ID`）は `src/lib/auth-env.ts` の `readAuthEnv` で読む（`readEnv` と分け、段 2 の変数がなくてもログインが動く）。`process.env` を読む例外は `proxy.ts` と `auth-env.ts`（R1 設計 1.2 章の注記に追加）。
+- proxy のリダイレクトは相対の `Location` だと Next.js 16 が `TypeError: Invalid URL` で 500 になる（実機で確認）ので `NextResponse.redirect(new URL('/login', request.nextUrl), 303)`。リダイレクトと 403 のレスポンスにも `setAll` が書いた Cookie とキャッシュ系ヘッダを写す。
+- ログイン失敗は `/login?result=failed` へリダイレクトして固定文言を出す（Client Component を増やさない）。1 秒の固定遅延。
+- Route Handler 内の `getClaims()` は `cookies()` で作ったクライアントで行う。直前に proxy がセッションを更新しているので、ここでトークンの更新が起きることは通常ない。
+- `db-errors.ts` は証明書エラーを「DB 接続に失敗（TLS 証明書の検証: <コード>）」に分類。平文を許すホストは `127.0.0.1`、`localhost`、`host.docker.internal`。`ssl: false` を明示して URL の `?sslmode=` を無視する。
+- supabase-js は内部で `AuthApiError: Invalid Refresh Token` を `console.warn` に出すことがある（固定文言の規則の例外。秘密は含まない）。
+- 未確認: `createServerClient` の `cookieOptions.maxAge` が `@supabase/ssr` 側で上書きされないか（10.2 章のブラウザ確認で Cookie の期限を見る）。
+
 ## 5. 収集ワーカー（GitHub Actions）
 
 ### 5.1 ワークフロー `.github/workflows/collect.yml`（1 本）
@@ -426,6 +436,16 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 | `.env.example` | `DATABASE_SSL_CA` を追記。`DATABASE_URL` の説明に「Cloud はセッションモード。ローカル以外のホストでは CA 必須」 |
 
 ---
+
+### 5.7 実装で確定・変更したこと（段階 B。2026-10-02）
+
+- `evaluateAlerts(input, now, scope, simulate)` は `{ alerts, noHistory }` を返す（`reason=no_history` を運ぶ）。`DATA_ACCESS_WARN_DAYS` と `daysLeft` は `token-check.ts` と共用。
+- `check-alerts` は Vault を復号しない `readCredentialStatus`（`status` と `data_access_expires_at` だけ）を使い、設定も最小の `loadCheckAlertsConfig`（`DATABASE_URL`、`DATABASE_SSL_CA`、`WORKER_LOG_LEVEL`、`WORKER_SIMULATE_ALERT`）で読む（そのステップには Meta と Storage の変数を渡さないため）。要約行は `INFO command=check-alerts scope=… accounts=N alerts=<n> [reason=no_history]`。`Logger` に `error()` を追加。
+- `token_check` の `profile_id` の検査はページトークン（`type: PAGE`）だけに掛ける（ユーザートークンには `profile_id` がない）。`fb_page_id` が null なら飛ばす。
+- `normalizeDbError` の証明書エラーは既存の「DB 接続に失敗（<コード>）」の形のまま対象コードを広げた。
+- ワークフローの ffmpeg ステップは `command -v ffmpeg` で短絡し、再試行ループの中で `apt-get update -qq` を行う。`::add-mask::` は `setup-node` より前なので `sed` で切り出す（Node に依存しない）。
+- `WORKER_SIMULATE_ALERT` は `true`／`false` だけ（省略は false。それ以外は `ConfigError`）。
+- `verify-api` コマンド（ローカル専用の検証）は `connectDb` に CA を渡していない。クラウドに向けて使う必要が出たら足す。
 
 ## 6. 秘密の一覧と漏洩時の対応（NF-SEC-04）
 

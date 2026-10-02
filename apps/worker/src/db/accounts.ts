@@ -93,6 +93,17 @@ interface CredentialJoinRow {
  * 認証情報がない、または Vault の行が見つからなければ undefined。
  * 戻り値の `token` は呼び出し側が秘密の一覧に登録すること
  */
+/** `private.credentials` の状態と期限だけ（Vault には触れない）。`check-alerts` が使う。行がなければ undefined */
+export async function readCredentialStatus(
+  db: Db,
+  accountId: string,
+): Promise<{ status: CredentialStatus; data_access_expires_at: Date | null } | undefined> {
+  const rows = await db<{ status: CredentialStatus; data_access_expires_at: Date | null }[]>`
+    select status, data_access_expires_at from private.credentials where account_id = ${accountId}
+  `;
+  return rows[0];
+}
+
 export async function readCredential(
   db: Db,
   accountId: string,

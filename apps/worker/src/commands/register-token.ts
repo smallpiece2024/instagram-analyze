@@ -99,7 +99,7 @@ export async function registerToken(args: string[], deps: RegisterTokenDeps = {}
   const now = deps.now?.() ?? new Date();
 
   try {
-    const graph = new GraphClient(config.accessToken, config.graphApiVersion, 200, deps.fetchImpl);
+    const graph = new GraphClient(config.accessToken, config.graphApiVersion, 200, deps.fetchImpl, undefined, config.metaAppSecret);
 
     // 1. debug_token（アプリトークンで。生レスポンスは保存しない）
     const debug = await graph.debugToken(`${config.metaAppId}|${config.metaAppSecret}`);

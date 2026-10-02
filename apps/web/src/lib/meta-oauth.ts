@@ -78,28 +78,31 @@ export function reasonMessage(code: string | undefined): string | undefined {
 // state（CSRF 対策）
 // ---------------------------------------------------------------------------
 
-/** `state` を入れる Cookie の名前。`/api/meta/login` が置き、`/api/meta/callback` が読んで消す */
-export const STATE_COOKIE_NAME = "meta_oauth_state";
+/** `state` を入れる Cookie の名前（R2 設計 4.3 章）。`/api/meta/login` が置き、`/api/meta/callback` が読んで消す。
+ * 両方がこの関数を使う。https（本番）は `__Host-` 接頭辞（`secure` と `path=/` が条件）、http（ローカル）は接頭辞なし */
+export function stateCookieName(appUrl: string | undefined): string {
+  return appUrl?.startsWith("https:") ? "__Host-meta_oauth_state" : "meta_oauth_state";
+}
 /** Cookie の寿命（秒）。認可画面での操作に十分で、放置しても残らない長さ */
 export const STATE_COOKIE_MAX_AGE = 600;
 
 export interface StateCookieOptions {
   httpOnly: true;
   sameSite: "lax";
-  path: "/api/meta";
+  path: "/";
   maxAge: number;
   secure: boolean;
 }
 
 /**
- * `state` の Cookie の属性。httpOnly、SameSite=Lax、`path=/api/meta`、`secure` は `APP_URL` が https のときだけ。
+ * `state` の Cookie の属性。httpOnly、SameSite=Lax、`path=/`（`__Host-` の条件）、`secure` は `APP_URL` が https のときだけ。
  * `clear: true` で `maxAge: 0`（削除用。属性をそろえないとブラウザが同じ Cookie と見なさない）
  */
 export function stateCookieOptions(appUrl: string | undefined, options: { clear?: boolean } = {}): StateCookieOptions {
   return {
     httpOnly: true,
     sameSite: "lax",
-    path: "/api/meta",
+    path: "/",
     maxAge: options.clear ? 0 : STATE_COOKIE_MAX_AGE,
     secure: appUrl?.startsWith("https:") ?? false,
   };

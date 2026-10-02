@@ -5,10 +5,12 @@
  * - トークン交換（短期、長期化）は POST の本文（`application/x-www-form-urlencoded`）で送り、`client_secret` と
  *   `code` を URL に載せない
  * - ユーザートークンとアプリトークンは `Authorization: Bearer` で送る。`debug_token` の `input_token` だけはクエリ
+ * - トークン交換以外の呼び出しには `appsecret_proof`（そのリクエストのトークンで計算）をクエリに付ける（R2 設計 Q6）
  * - `cache: 'no-store'`、タイムアウト 15 秒。`fetch` の例外は捨てる（メッセージに URL が入りうる）
  * - ログを出さない。URL やトークンを含む文字列を戻り値に入れない
  */
 import "server-only";
+import { createHmac } from "node:crypto";
 import { graphErrorCode, type DebugTokenData } from "@/lib/meta-oauth";
 
 const GRAPH_ORIGIN = "https://graph.facebook.com";
@@ -22,6 +24,8 @@ export type GraphResult<T> = { ok: true; data: T } | { ok: false; status: number
 export interface GraphOptions {
   /** `v25.0` の形（`readEnv` で検証済み） */
   graphApiVersion: string;
+  /** `appsecret_proof` の鍵（`META_APP_SECRET`） */
+  appSecret: string;
   /** テスト用。省略時はグローバルの `fetch` */
   fetchImpl?: typeof fetch;
 }
@@ -32,6 +36,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function endpoint(version: string, path: string): URL {
   return new URL(`${GRAPH_ORIGIN}/${version}/${path}`);
+}
+
+/**
+ * `appsecret_proof`（R2 設計 5.6 章、Q6）: `HMAC-SHA256(key = app_secret, message = そのリクエストに使うトークン)` の 16 進。
+ * 呼び出しごとに、そのリクエストの Bearer に使うトークンで計算する（ユーザートークンの呼び出しはユーザートークン、
+ * `debug_token` はアプリトークン）。トークン交換（`oauth/access_token`）には付けない（`client_secret` を送る）
+ */
+export function appSecretProof(appSecret: string, token: string): string {
+  return createHmac("sha256", appSecret).update(token).digest("hex");
 }
 
 /** 1 回の呼び出し。HTTP の失敗、本文に `error`、JSON でない本文はすべて `ok: false` */
@@ -118,6 +131,7 @@ export async function listPages(userToken: string, options: GraphOptions): Promi
     const url = endpoint(options.graphApiVersion, "me/accounts");
     url.searchParams.set("fields", "id,name,instagram_business_account{id,username,name}");
     url.searchParams.set("limit", String(PAGE_LIMIT));
+    url.searchParams.set("appsecret_proof", appSecretProof(options.appSecret, userToken));
     if (after !== undefined) url.searchParams.set("after", after);
     const result = await call(url, { method: "GET", headers: bearer(userToken) }, options);
     if (!result.ok) return result;
@@ -137,6 +151,7 @@ export async function listPages(userToken: string, options: GraphOptions): Promi
 export async function getPageToken(pageId: string, userToken: string, options: GraphOptions): Promise<GraphResult<string>> {
   const url = endpoint(options.graphApiVersion, pageId);
   url.searchParams.set("fields", "access_token");
+  url.searchParams.set("appsecret_proof", appSecretProof(options.appSecret, userToken));
   const result = await call(url, { method: "GET", headers: bearer(userToken) }, options);
   if (!result.ok) return result;
   const token = isRecord(result.data) ? result.data["access_token"] : undefined;
@@ -155,6 +170,7 @@ export async function debugToken(
 ): Promise<GraphResult<DebugTokenData>> {
   const url = endpoint(options.graphApiVersion, "debug_token");
   url.searchParams.set("input_token", inputToken);
+  url.searchParams.set("appsecret_proof", appSecretProof(options.appSecret, appToken));
   const result = await call(url, { method: "GET", headers: bearer(appToken) }, options);
   if (!result.ok) return result;
   const data = isRecord(result.data) ? result.data["data"] : undefined;

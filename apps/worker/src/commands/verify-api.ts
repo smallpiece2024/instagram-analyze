@@ -115,7 +115,7 @@ const nowSec = (): number => Math.floor(Date.now() / 1000);
 
 export async function verifyApi(): Promise<boolean> {
   const config = loadVerifyConfig();
-  const graph = new GraphClient(config.accessToken, config.graphApiVersion);
+  const graph = new GraphClient(config.accessToken, config.graphApiVersion, 200, fetch, 30_000, config.appSecret);
 
   // 要約と標準出力のマスク: トークン類、Instagram の ID、接続先（DB と Storage）のユーザー名・パスワード・ホスト名
   const secrets = new SecretRegistry();

@@ -4,12 +4,14 @@
  */
 import "server-only";
 import { cache } from "react";
-import { getDb } from "@/lib/db";
+import { dbFromEnv } from "@/lib/db";
 import { describeDbError, type QueryResult } from "@/lib/db-errors";
 import { markDynamic } from "@/lib/dynamic";
 import { configMissingReason, readEnv } from "@/lib/env";
 import { PAGE_SIZE, type MediaMetrics } from "@/lib/format";
-import { signThumbnailUrls } from "@/lib/storage";
+import { readAuthEnv } from "@/lib/auth-env";
+import { signThumbnailUrls, THUMBNAIL_BUCKET } from "@/lib/storage";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface MediaListItem {
   id: string;
@@ -45,7 +47,7 @@ export const listMedia = cache(async (page: number): Promise<QueryResult<MediaPa
   const safePage = Number.isSafeInteger(page) && page >= 1 ? page : 1;
   const offset = (safePage - 1) * PAGE_SIZE;
   try {
-    const db = getDb(env.env.databaseUrl);
+    const db = dbFromEnv(env.env);
     const rows = await db<MediaListItem[]>`
       select
         id, media_type, media_product_type, posted_at, permalink, thumbnail_path, gone_at,
@@ -66,12 +68,26 @@ export const listMedia = cache(async (page: number): Promise<QueryResult<MediaPa
 export const getMediaPage = cache(async (page: number): Promise<QueryResult<MediaPage<MediaListItemWithThumbnail>>> => {
   const list = await listMedia(page);
   if (!list.ok) return list;
-  const env = readEnv();
   const paths = list.data.items.map((m) => m.thumbnail_path).filter((p): p is string => typeof p === "string");
-  const signed = env.ok && paths.length > 0 ? await signThumbnailUrls(env.env, paths) : new Map<string, string>();
+  const signed = paths.length > 0 ? await signWithSession(paths) : new Map<string, string>();
   const items = list.data.items.map((m) => ({
     ...m,
     thumbnail_url: m.thumbnail_path === null ? null : (signed.get(m.thumbnail_path) ?? null),
   }));
   return { ok: true, data: { page: list.data.page, items, hasNext: list.data.hasNext } };
 });
+
+/**
+ * ログインした本人のセッションで署名付き URL を作る（R2 設計 3.3 章）。認証の設定がない、クライアントを作れない、
+ * 署名に失敗したときは空（画像なし）。例外を投げない
+ */
+async function signWithSession(paths: readonly string[]): Promise<Map<string, string>> {
+  const authEnv = readAuthEnv();
+  if (!authEnv.ok) return new Map<string, string>();
+  try {
+    const supabase = await createSupabaseServerClient(authEnv.env);
+    return await signThumbnailUrls(supabase.storage.from(THUMBNAIL_BUCKET), authEnv.env.supabaseUrl, paths);
+  } catch {
+    return new Map<string, string>();
+  }
+}

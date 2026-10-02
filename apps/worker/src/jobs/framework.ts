@@ -245,7 +245,7 @@ export function createJobDeps(
   const log = createLogger(config.logLevel, secrets);
   let db: Db;
   try {
-    db = connectDb(config.databaseUrl);
+    db = connectDb(config.databaseUrl, { sslCa: config.databaseSslCa });
   } catch (error) {
     // 不正な URL は同期的に TypeError（message と input に接続文字列を含みうる）。固定文言だけにする
     throw new Error(normalizeDbError(error));
@@ -357,7 +357,8 @@ export async function runJob(
     } else {
       // 読んだ直後に登録する（この先で例外が出ても登録済みであるように）
       secrets.add(credential.token);
-      const graphClient = new GraphClient(credential.token, config.graphApiVersion, 200, deps.fetchImpl);
+      // appsecret_proof は GraphClient の中でリクエストごとに計算する（R2 設計 5.6 章）
+      const graphClient = new GraphClient(credential.token, config.graphApiVersion, 200, deps.fetchImpl, undefined, config.metaAppSecret);
       const rate = new RateMonitor(
         await latestRateUsage(db, new Date(startedAt.getTime() - ONE_HOUR_MS), startedAt),
       );

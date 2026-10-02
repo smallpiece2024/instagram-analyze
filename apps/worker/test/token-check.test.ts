@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { DebugTokenData } from "../src/lib/graph.js";
 import type { DebugTokenResponse, Tracked } from "../src/jobs/graph-client.js";
 import {
+  APP_ID_MISMATCH_ERROR,
   DATA_ACCESS_WARN_DAYS,
   evaluateDebugToken,
   INVALID_TOKEN_ERROR,
+  PROFILE_ID_MISMATCH_ERROR,
   UNSUPPORTED_TOKEN_TYPE_ERROR,
 } from "../src/jobs/token-check.js";
 
@@ -193,5 +195,63 @@ describe("evaluateDebugToken", () => {
     const snapshot = JSON.stringify(res);
     evaluateDebugToken(res, NOW);
     expect(JSON.stringify(res)).toBe(snapshot);
+  });
+});
+
+describe("evaluateDebugToken の app_id／profile_id の検査（R2 設計 5.6 章）", () => {
+  const expected = { appId: "123", fbPageId: "000000000000099" };
+
+  it("app_id が META_APP_ID と違えば fatal（status=error、固定文言）。app_id がなくても同じ", () => {
+    for (const data of [{ ...VALID, app_id: "999" }, { ...VALID, app_id: undefined }]) {
+      expect(evaluateDebugToken(okWith(data), NOW, expected)).toEqual({
+        outcome: "fatal",
+        patch: { status: "error", last_error: APP_ID_MISMATCH_ERROR, last_checked_at: NOW },
+        daysLeft: undefined,
+        missing: [],
+      });
+    }
+    expect(APP_ID_MISMATCH_ERROR).toBe("アプリ ID が一致しない（debug_token）");
+  });
+
+  it("profile_id が accounts.fb_page_id と違えば fatal（status=error、固定文言）。profile_id がなくても同じ", () => {
+    for (const data of [{ ...VALID, app_id: "123", profile_id: "000000000000001" }, { ...VALID, app_id: "123", profile_id: undefined }]) {
+      expect(evaluateDebugToken(okWith(data), NOW, expected)).toEqual({
+        outcome: "fatal",
+        patch: { status: "error", last_error: PROFILE_ID_MISMATCH_ERROR, last_checked_at: NOW },
+        daysLeft: undefined,
+        missing: [],
+      });
+    }
+    expect(PROFILE_ID_MISMATCH_ERROR).toBe("ページ ID が一致しない（debug_token）");
+  });
+
+  it("両方が一致すれば valid。fb_page_id が null なら profile_id は見ない", () => {
+    expect(evaluateDebugToken(okWith({ ...VALID, app_id: "123" }), NOW, expected).outcome).toBe("valid");
+    expect(evaluateDebugToken(okWith({ ...VALID, app_id: "123", profile_id: "000000000000001" }), NOW, { appId: "123", fbPageId: null }).outcome).toBe(
+      "valid",
+    );
+  });
+
+  it("ユーザートークン（USER）には profile_id がないので検査しない。app_id は検査する", () => {
+    expect(evaluateDebugToken(okWith({ ...VALID, type: "USER", app_id: "123", profile_id: undefined }), NOW, expected).outcome).toBe("valid");
+    expect(evaluateDebugToken(okWith({ ...VALID, type: "USER", app_id: "999", profile_id: undefined }), NOW, expected).patch?.last_error).toBe(
+      APP_ID_MISMATCH_ERROR,
+    );
+  });
+
+  it("is_valid: false と対応していない種類は、不一致より先に判定する", () => {
+    expect(evaluateDebugToken(okWith({ ...VALID, is_valid: false, app_id: "999" }), NOW, expected).outcome).toBe("invalid");
+    expect(evaluateDebugToken(okWith({ ...VALID, type: "APP", app_id: "999" }), NOW, expected).patch?.last_error).toBe(UNSUPPORTED_TOKEN_TYPE_ERROR);
+  });
+
+  it("expected を渡さなければ従来どおり（app_id がなくても valid）", () => {
+    expect(evaluateDebugToken(okWith(VALID), NOW).outcome).toBe("valid");
+  });
+
+  it("last_error に ID が入らない", () => {
+    const text = JSON.stringify(evaluateDebugToken(okWith({ ...VALID, app_id: "999", profile_id: "000000000000001" }), NOW, expected));
+    expect(text).not.toContain("999");
+    expect(text).not.toContain("000000000000001");
+    expect(text).not.toContain("000000000000099");
   });
 });

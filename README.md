@@ -157,12 +157,14 @@ delete from storage.objects where bucket_id = 'thumbnails' and name like '<accou
 | `/media` 投稿一覧 | サムネイル、種類、投稿日時、最新の主要指標（50 件ずつ） |
 | `/connect` 接続設定 | Facebook Login で Meta と接続し、Instagram プロアカウントを登録する |
 
-Web アプリのサーバー側は Postgres に直結し、Storage の署名付き URL とトークンの登録に次の変数を使う（`apps/web/.env.example` を `apps/web/.env.local` にコピーして入れる。`NEXT_PUBLIC_` が付かない変数はブラウザに渡らない）。
+Web アプリのサーバー側は Postgres に直結し、ログイン（Supabase Auth）、サムネイルの署名付き URL（ログインした利用者のセッション）、トークンの登録に次の変数を使う（`apps/web/.env.example` を `apps/web/.env.local` にコピーして入れる。`NEXT_PUBLIC_` が付かない変数はブラウザに渡らない）。
 
 | 変数 | 内容 |
 |---|---|
-| `DATABASE_URL` | ローカルは `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
-| `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` | サムネイルの署名付き URL に使う。`npm run db:status` の値 |
+| `DATABASE_URL` | ローカルは `postgresql://web_app:web_app_local@127.0.0.1:54322/postgres`（R2 で Web 用のロール `web_app` に変えた。パスワードはローカル専用の公知の値） |
+| `DATABASE_POOL_MODE`、`DATABASE_SSL_CA` | ローカルは省略。本番（プーラーのトランザクションモード）では `transaction` と Supabase の CA 証明書の PEM（`doc/design/r2-cloud.md` 2.2 章） |
+| `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | ログインと署名付き URL。`npm run db:status` の値 |
+| `WEB_ALLOWED_USER_ID` | ログインを許す Supabase Auth の利用者の `id`。未設定なら全画面が 403（フェイルクローズ） |
 | `META_APP_ID`、`META_APP_SECRET`、`META_GRAPH_API_VERSION` | ワーカーの `.env` と同じ値 |
 | `APP_URL` | `http://localhost:3000`。Meta からの戻り先 `${APP_URL}/api/meta/callback` の元 |
 | `META_TARGET_IG_USER_ID` | 任意。指定すると、候補の数にかかわらず一致する Instagram アカウントのページだけを登録し、一致がなければ登録しない（複数のページを管理しているときの保険） |
