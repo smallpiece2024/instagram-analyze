@@ -269,7 +269,7 @@ npx supabase logout                                # 作業が終わったら
 
 ### 5. GitHub の Secrets と Variables（Settings → Secrets and variables → Actions）
 
-Secrets は Environment **`Production`** に置く（`collect.yml` の `collect` ジョブが `environment: Production` を指定している）。Production 環境に保護ルール（承認者、待ち時間、ブランチの制限）を付けるとスケジュール実行が止まるので付けない。Variables はリポジトリの Variables に置く。
+Secrets は Environment **`Production`** に置く（`collect.yml` の `collect` ジョブが `environment: Production` を指定している）。Production 環境に保護ルール（承認者、待ち時間、ブランチの制限）を付けると毎時の実行が承認待ちで止まるので付けない。Variables はリポジトリの Variables に置く。
 
 | 種類 | 名前 | 値 |
 |---|---|---|
@@ -280,14 +280,57 @@ Secrets は Environment **`Production`** に置く（`collect.yml` の `collect`
 | Secret | `HEALTHCHECKS_PING_URL` | 死活監視 |
 | Variable | `DATABASE_SSL_CA` | CA 証明書の PEM（複数行のまま貼る。崩れたら `\n` のリテラルでもよい） |
 | Variable | `COLLECT_ENABLED` | **切り替えが終わるまで `false`**。`true` で収集が動く。ローカルへ戻すときも `false` |
-| Variable | `COLLECT_KEEPALIVE` | `true`（60 日の無効化対策。試験や停止のときは `false`） |
 | Variable | `WORKER_SIMULATE_ALERT` | 普段は未設定。通知の経路の確認で一時的に `true` |
 
-Variables はステップを展開すると平文で見えるので、公開されてよい値だけを置く。失敗メールは「ワークフローを作った人」に届く（cron を編集した人に移る）。GitHub の通知設定で「失敗したときだけ」にしておく。
+Variables はステップを展開すると平文で見えるので、公開されてよい値だけを置く。`COLLECT_KEEPALIVE` は使わなくなった（GitHub の schedule をやめたため）。登録済みなら削除する。失敗メールは起動した人（下のトークンの持ち主）に届く。GitHub の通知設定で「失敗したときだけ」にしておく。
+
+### 5.1 毎時の起動（クラウドの Supabase の pg_cron から）
+
+GitHub の schedule は 2026-10-02 に約 33 回中 1 回しか動かなかった（GitHub 側の問題。`doc/design/r2-cloud.md` 5.8 章）。そこで `collect.yml` には schedule を付けず、クラウドの Supabase の pg_cron が毎時 17 分（UTC）に GitHub の API で `workflow_dispatch` を呼ぶ。ジョブはマイグレーション `20261003000000_r2_collect_dispatch.sql` が作るので、ここで入れるのは GitHub のトークンだけ。
+
+1. **GitHub**（ユーザーの Settings → Developer settings → Personal access tokens → Fine-grained tokens）でトークンを作る。gh 用の既存のトークンとは分ける（漏れたときに片方だけ失効できるように）。
+
+   | 項目 | 値 |
+   |---|---|
+   | Token name | `instagram-analyze collect dispatch` |
+   | Resource owner | 組織 `smallpiece2024` |
+   | Expiration | 選べる範囲で長く。期限の日付を控える（9 の運用） |
+   | Repository access | Only select repositories → `instagram-analyze` |
+   | Repository permissions | **Actions: Read and write** だけ（Metadata: Read は自動で付く） |
+
+   組織が承認を必須にしていれば、組織の Settings → Personal access tokens の承認待ちから承認する。
+
+2. **手元の PC** からクラウドの Supabase にマイグレーションを適用する（2 と同じ `npx supabase db push`）。
+
+3. **クラウドの Supabase**（ダッシュボードの Vault の画面。Integrations の中にある）で秘密を 1 つ追加する。SQL エディタの `vault.create_secret` は使わない（クエリの履歴にトークンが残る）。登録でエラーが出たら、失敗した文がトークンごとログに残ったおそれがあるので、そのトークンを GitHub で失効させて作り直す。**手元の Supabase の Vault には入れない**（宛先は本番の `collect.yml` なので、入れると本番が毎時二重に起動される）。
+
+   | 項目 | 値 |
+   |---|---|
+   | Name | `collect-dispatch-token` |
+   | Secret | 1 で作ったトークン |
+   | Description | `collect.yml の workflow_dispatch 用（Actions: write）` |
+
+4. **クラウドの Supabase**（SQL エディタ）で 1 回だけ手で起動し、GitHub の応答を見る。`COLLECT_ENABLED` が `false` の間は、起動しても `collect` ジョブは skip になる。
+
+   ```sql
+   select private.dispatch_collect();   -- 200 か 204 が返れば成功。null はトークンが未登録。
+                                        -- 失敗は例外で status=401（トークン）、403／404（権限か宛先）、422（入力）
+   ```
+
+   **GitHub** の Actions タブに `collect` の実行（イベントは `workflow_dispatch`）が出ることも確かめる。手で起動するのは毎時 17 分の前後を避ける（待機できる実行は 1 本だけで、重なると待っていた方が取り消される）。
+
+5. **GitHub**（リポジトリの Settings → Environments → `Production`）で、起動できるブランチを `main` に限る。dispatch の API は任意のブランチを指定できるので、限らないと `main` 以外のコードが本番の Secrets 付きで走りうる。
+
+   | 項目 | 値 |
+   |---|---|
+   | Deployment branches and tags | Selected branches and tags → `main` |
+   | Required reviewers、Wait timer | 付けない（毎時の実行が止まる） |
+
+   あわせて、組織 `smallpiece2024` の Base permissions が Read 以下であること（書き込み権のある人は誰でも起動できる）と、`main` に force push を禁じるブランチ保護があることを確かめる。
 
 ### 6. 切り替え（深夜に、連続して行う）
 
-事前に 1〜5 を済ませ、サムネイルの 1 回目のコピー（`rclone` でローカルの S3 互換エンドポイントから本番の `thumbnails` へ。S3 キーはダッシュボードで作り、終わったら消す）と、空の本番 DB への流し込みのリハーサル（下の 3〜4 を行い、件数を見て `truncate`）をしておく。
+事前に 1〜5.1 を済ませ、サムネイルの 1 回目のコピー（`rclone` でローカルの S3 互換エンドポイントから本番の `thumbnails` へ。S3 キーはダッシュボードで作り、終わったら消す）と、空の本番 DB への流し込みのリハーサル（下の 3〜4 を行い、件数を見て `truncate`）をしておく。
 
 ```bash
 npm run worker:down                                                   # 1. ローカルの常駐を止める
@@ -298,14 +341,14 @@ rm .local/r2-migration.sql                                            #    終�
 # 5. サムネイルの差分コピー（rclone の 2 回目）→ S3 キーと rclone の設定を削除
 # 6. 本番の /connect で Meta に接続（トークンを Vault に登録。accounts は 4 で入っているので更新になる）
 # 7. GitHub の Variables で COLLECT_ENABLED=true → Actions の collect を「Run workflow」で 1 回 → job_runs と画面で確認
-# 8. 次の毎時 17 分（UTC）のスケジュール実行を T0 とし、7 日間の確認を始める。Healthchecks に ping が届くことを見る
+# 8. 次の毎時 17 分（UTC）に pg_cron が起動した実行を T0 とし、7 日間の確認を始める。Healthchecks に ping が届くことを見る
 ```
 
 Vault（トークン）と `private.credentials` は移さない（鍵がプロジェクトごと）。`job_state`（バックフィルの進み）は移る。
 
 ### 7. ローカルへ戻す（本番がうまく動かないとき）
 
-1. GitHub の Variables で `COLLECT_ENABLED=false`（`collect` ジョブが skip になる）。
+1. GitHub の Variables で `COLLECT_ENABLED=false`（`collect` ジョブが skip になる。pg_cron の起動は続くが、走っても skip）。
 2. ローカルの DB は 7 日間の確認が終わるまで `db reset` しない。
 3. `npm run worker:up`。欠けた日次は `npm run worker:job -- account-daily --days N`。
 
@@ -317,7 +360,9 @@ Vault（トークン）と `private.credentials` は移さない（鍵がプロ�
 
 - トークンのデータアクセス期限が 14 日を切ると daily の `check-alerts` が毎日メールを出す。本番の `/connect` で接続し直す。
 - 月 1 回、Supabase の Usage（DB、Storage、egress）と Vercel の Usage を見る。
-- 55 日目にワークフローの状態が `active` か確認する（`gh api repos/<owner>/<repo>/actions/workflows/collect.yml --jq .state`）。
+- 起動用のトークン（5.1）の期限の前に、GitHub で同じ設定のトークンを作り直し（または Regenerate し）、クラウドの Supabase の Vault で既存の `collect-dispatch-token` の値を編集して差し替える（同じ名前で追加しない）。期限が切れると起動が止まり、Healthchecks のメールで分かる。
+- 起動が止まったときは、クラウドの Supabase の SQL エディタで `select status, return_message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'collect-dispatch') order by start_time desc limit 5;` を見る（失敗は `status=…` 付きで 30 日残る）。
+- JST 05:17 の回の起動が失敗すると、その日の daily は抜ける。気づいたら GitHub の Actions で `collect` を `run_daily` 付きで手動実行する。
 - 本番に手で SQL を流すときは `psql -h … -U …` を都度指定し、パスワードを URL や履歴に残さない。本番の接続文字列をローカルの `.env` に書かない。
 
 ## 開発用コマンド

@@ -49,7 +49,7 @@
 |---|---|---|
 | DB、Auth、Storage | Supabase CLI（Docker） | Supabase Cloud の Free プロジェクト（Q1） |
 | 画面 | `next dev -H 127.0.0.1` | Vercel Hobby。本番デプロイのみ |
-| 収集ワーカー | compose の常駐コンテナ（`schedule`） | GitHub Actions の `schedule`。1 本のワークフローで `run-hourly` を毎時、JST 05:17 の回だけ `run-daily` → `run-hourly` |
+| 収集ワーカー | compose の常駐コンテナ（`schedule`） | GitHub Actions。起動はクラウドの Supabase の pg_cron からの `workflow_dispatch`（5.8 章。当初は GitHub の `schedule`）。1 本のワークフローで `run-hourly` を毎時、JST 05:17 の回だけ `run-daily` → `run-hourly` |
 | ログイン | なし（ループバックのみ） | Supabase Auth（メール＋パスワード、利用者 1 人） |
 | 通知 | なし | GitHub Actions の失敗メール（ジョブの失敗と `check-alerts`）＋ 死活監視の未着メール（スケジュールの停止） |
 
@@ -82,7 +82,7 @@ Supabase の文書（13 章 S1）は GitHub Actions と Vercel を「IPv4 のみ
 
 ### 2.3 一時停止の対策（C3）
 
-Free プランは「過去 7 日間に十分な利用者の DB 活動がない」プロジェクトを一時停止する。文書は「1 日に数回の要求で足りる」「約 1 週間前に警告メール」とする（13 章 S3）。ワーカーは毎時 DB を読み書きするので満たす見込み（判定はプーラー経由の `postgres` の接続とクエリも含む。13 章 P8）。ただし GitHub の 60 日の無効化（5.4 章）で収集が止まると DB 活動も止まり一時停止に連鎖する。5.4 章の keepalive は C3 の前提でもある。7 日間の確認で警告メールが来ないことを確かめ、C3 を閉じる。
+Free プランは「過去 7 日間に十分な利用者の DB 活動がない」プロジェクトを一時停止する。文書は「1 日に数回の要求で足りる」「約 1 週間前に警告メール」とする（13 章 S3）。ワーカーは毎時 DB を読み書きするので満たす見込み（判定はプーラー経由の `postgres` の接続とクエリも含む。13 章 P8）。ただし GitHub の 60 日の無効化（5.4 章）で収集が止まると DB 活動も止まり一時停止に連鎖する。5.4 章の keepalive は C3 の前提でもある（2026-10-03 に起動を pg_cron へ移したので、この連鎖はなくなった。5.8 章）。7 日間の確認で警告メールが来ないことを確かめ、C3 を閉じる。
 
 ### 2.4 マイグレーションの適用
 
@@ -314,7 +314,7 @@ drop role web_app;
 
 | 項目 | 内容 |
 |---|---|
-| トリガー | `schedule: ['17 * * * *']`（1 行）と `workflow_dispatch`（入力 `simulate_alert` と `run_daily`: boolean、既定 false）。他のトリガーは付けない。0.2 の 2 行の cron（`17 0-19,21-23` と `17 20`）は、2026-10-02 に 5 回連続で実行が記録されなかったため、書き方の疑いを消す目的で 1 行に戻した |
+| トリガー | **2026-10-03 から `workflow_dispatch` だけ**（pg_cron が毎時 17 分に起動。5.8 章。この表の残りの `schedule`、`keepalive`、`slot` の時刻判定は 5.8 章で置き換えた）。当初は `schedule: ['17 * * * *']`（1 行）と `workflow_dispatch`（入力 `simulate_alert` と `run_daily`: boolean、既定 false）。他のトリガーは付けない。0.2 の 2 行の cron（`17 0-19,21-23` と `17 20`）は、2026-10-02 に 5 回連続で実行が記録されなかったため、書き方の疑いを消す目的で 1 行に戻した |
 | ジョブ `collect` | 最初の `slot` ステップが実行時の UTC の時を見て、20 時台（JST 05 時台）か `run_daily=true` なら `daily=true` を出力する。`run-daily`（`daily=true` のときだけ）→ `run-hourly` → `check-alerts --scope daily\|hourly` → 死活監視へ ping。daily と hourly を同じジョブで順に動かすので重ならない。GitHub の遅延で 21 時台にずれた回は daily を飛ばす（`account_daily` の 4 日の窓が翌日埋める。`profile_daily` はその日が欠ける）。`timeout-minutes: 30`、`permissions: { contents: read }`、`outputs.daily` |
 | ジョブ `keepalive` | `needs: collect`、`if: ${{ !cancelled() && needs.collect.result != 'skipped' && needs.collect.outputs.daily == 'true' && vars.COLLECT_KEEPALIVE == 'true' }}`、`permissions: { actions: write }`（5.4 章） |
 | Secrets の置き場 | GitHub の Environment `Production`（ユーザーがそこに作った。2026-10-02）。`collect` ジョブに `environment: Production` を指定して参照する。環境の保護ルールは付けない（付けるとスケジュール実行が承認待ちで止まる）。Variables はリポジトリの Variables |
@@ -405,13 +405,15 @@ evaluateAlerts(input: AlertInput, now: Date, scope: 'hourly' | 'daily', simulate
 | ジョブの `failed`（Meta の 5xx など 1 回の失敗を含む） | `run-hourly`／`run-daily` の終了コード 1 | GitHub の失敗メール |
 | トークンの残り 14 日未満、認証情報の異常 | daily の `check-alerts` | GitHub の失敗メール（1 日 1 通。hourly では出さない） |
 | `stories` の 2 回連続失敗、3 回連続見送り | hourly の `check-alerts` | GitHub の失敗メール（続く間は毎時） |
-| スケジュールが動いていない（無効化、落ち、キャンセル、ランナー不調） | 死活監視の ping が 3 時間（猶予）届かない | Healthchecks のメール |
+| 起動されていない（pg_cron の停止、トークンの期限切れ、GitHub の拒否、キャンセル、ランナー不調。5.8 章） | 死活監視の ping が 3 時間（猶予）届かない | Healthchecks のメール |
 | Supabase の一時停止の予告 | Supabase | Supabase のメール（C3） |
 
-- GitHub の失敗メールの宛先は「ワークフローを最初に作った利用者」で、cron を編集した人、再有効化した人に移る（13 章 G3）。**ワークフローのファイルはユーザー本人のアカウントでコミットするか、作成後にユーザーが cron を一度編集する**（Q10）。GitHub の通知設定で「失敗したときだけ」にする。
+- GitHub の失敗メールの宛先は「ワークフローを最初に作った利用者」で、cron を編集した人、再有効化した人に移る（13 章 G3）。**ワークフローのファイルはユーザー本人のアカウントでコミットするか、作成後にユーザーが cron を一度編集する**（Q10）。GitHub の通知設定で「失敗したときだけ」にする。2026-10-03 からは dispatch なので、宛先は起動したトークンの持ち主（ユーザー）になる（5.8 章）。
 - 一時的な失敗でメールが増えるなら、7 日間の頻度を見て `continue-on-error` と「2 回連続」の判定に寄せる（12 章）。
 
 ### 5.4 スケジュールの延命（NF-REL-05）
+
+> **2026-10-03 に廃止**: 起動を pg_cron に移して `schedule` を外したので（5.8 章）、60 日の無効化の対象（スケジュール実行）ではなくなった。`keepalive` ジョブと `COLLECT_KEEPALIVE` は削除した。以下は経緯として残す。
 
 公開リポジトリでは「60 日間リポジトリに活動がない」とスケジュール実行が無効になる（13 章 G1、G2）。無効になると失敗メールも出ない。
 
@@ -452,26 +454,54 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 - `verify-api` コマンド（ローカル専用の検証）は `connectDb` に CA を渡していない。クラウドに向けて使う必要が出たら足す。
 - レビュー（セキュリティ・品質）を反映（2026-10-02）: ワークフローはジョブの `env.SIMULATE`（`inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true'`）を 1 か所で評価し、`daily`／`hourly` のスキップと `check-alerts` の両方で参照する（repo Variable の経路でも収集を飛ばす）。`::add-mask::` はホスト名、ユーザー名に加えて project ref 単体と `SUPABASE_URL` のホストもマスクする。アクションの SHA は `git ls-remote --tags` で GitHub から直接取った値（2026-10-02）。`check-alerts` の `reason` は該当なしのときだけ（`no_accounts`: 対象なし、`no_history`: 履歴不足）。`data_access_expires_at` が null で `valid` のときも警告する（`days_left=unknown`。フェイルクローズ）。`stories_skipped` は hourly と daily の回の両方で判定する。`token_check` は `fb_page_id` が null のアカウントで `WARN reason=fb_page_id_missing` を出す（`profile_id` の検査が効かないことを知らせる。ID は出さない）。
 
+### 5.8 毎時の起動を Supabase の pg_cron に移す（2026-10-03）
+
+**経緯**: `collect.yml` の `schedule` は、2026-10-02 の 11:17〜16:17 JST に 6 回連続で記録されなかった。切り分け用に 15 分ごとの `schedule-probe.yml` を足したところ、main に入ってから約 33 回動くはずが 23:08 JST の 1 回だけで、`collect.yml` も 22:52 JST の 1 回だけだった。G1 の条件（既定のブランチ、UTC、5 分以上、60 日の無効化、実行者）はすべて満たしていた。GitHub のコミュニティにも 2026-07〜10 に同じ症状の報告があり（G5）、分をずらしても直らず、外部から `workflow_dispatch` を呼ぶのが有効だったという。GitHub 側の問題と判断し、probe は削除した。外部の cron サービスを増やさず（ユーザーの方針）、既に使っているクラウドの Supabase の pg_cron と http 拡張機能で起動する（当初は pg_net で書いたが、レビューで pg_net のキューの表を PUBLIC が読めると分かり、http に変えた。下の「pg_net を使わない理由」）。GitHub の `schedule` は残さない（遅れて動くと二重になり、どちらが起動したか分かりにくい。ユーザーの決定）。
+
+```
+pg_cron（毎時 17 分 UTC）→ private.dispatch_collect() → extensions.http の POST（同期。2xx 以外は例外）
+  → GitHub REST の POST /repos/smallpiece2024/instagram-analyze/actions/workflows/collect.yml/dispatches
+    （ref=main、inputs.run_daily='true'|'false'）→ collect.yml の collect ジョブ
+```
+
+| 項目 | 内容 |
+|---|---|
+| マイグレーション | `20261003000000_r2_collect_dispatch.sql`。`pg_cron`（`pg_catalog`。すでにあれば作らない。あるところに `create extension if not exists` を流すと Supabase の後処理が「dependent privileges exist」で失敗した。P15）と `http`（`extensions`）を有効化、関数 `private.dispatch_collect()`、ジョブ `collect-dispatch`（`17 * * * *`）と `cron-history-purge`（`47 3 * * *`。`cron.job_run_details` の 30 日より古い行を `coalesce(end_time, start_time)` で消す。pg_cron は自動では消さない。S10） |
+| `private.dispatch_collect()` | `security invoker`（既定）、`set search_path = ''`、戻り値は GitHub の状態コード。Vault の `collect-dispatch-token` を読み、なければ `raise log` して `null`（ローカルと、トークン登録前の本番はこの状態。起動しない）。値が `^github_pat_[A-Za-z0-9_]+$`・255 文字以下でなければ例外（貼り付けの改行がヘッダーに入らないように。値は出さない）。宛先の URL は関数に固定（設定の誤りで別のホストへ送らないため。`postgres` の権限を持つ相手は関数ごと書き換えられるので、その防御にはならない）。ヘッダーは `Accept: application/vnd.github+json`、`Authorization: Bearer`、`X-GitHub-Api-Version: 2022-11-28`、`User-Agent`（ないと拒否される。G7）。タイムアウト 15 秒（`CURLOPT_TIMEOUT`）。2xx 以外は `status` と本文の先頭 300 文字で例外（GitHub のエラーの本文にトークンは含まれない）。実行権は `public`、`anon`、`authenticated`、`service_role` から取り消す（ジョブは所有者の `postgres` で動く） |
+| pg_net を使わない理由 | pg_net は要求を `net.http_request_queue` に積んでから送る。その表、`net._http_response`、`net` スキーマの usage は PUBLIC に付いており（付与者 `supabase_admin`。`postgres` から revoke しても効かない。P15）、`web_app` から送信前の `Authorization` ヘッダーを読めた（ローカルで確認。SQL レビュー）。さらに `web_app` が DB から任意の宛先へ HTTP を出せるようになる。http 拡張機能は同期で送り、要求を表に残さない。`http` の関数も PUBLIC が実行できるが、`extensions` スキーマの usage は `anon`／`authenticated`／`service_role` にしかなく、`web_app` は呼べない（結合テストで確認）。`anon`／`authenticated` は Data API からしか使われず、`extensions` は公開していない |
+| daily の判定 | 起動側で決める。`now()` の UTC の時が 20（JST 05 時台）なら `run_daily='true'`。ワークフローの `slot` ステップは入力だけを見る（キューで待って時がずれても判定が変わらない。従来の「21 時台にずれたら daily を飛ばす」はなくなる）。入力は文字列で渡す。**既知の制約**: daily は 20:17 UTC の 1 回きりで、その回の起動が失敗する（GitHub の 5xx、トークンの期限切れ、DB の保守）か、待機中に取り消される（次の行）と、その日の daily は抜ける。`account_daily` は 4 日の窓が翌日埋め、`profile_daily` はその日が欠ける。気づいたら `run_daily=true` で手動起動する（R3 で「その UTC 日の daily が未完了なら次の回で行う」を検討） |
+| `collect.yml` | `schedule` を外し、トリガーは `workflow_dispatch` だけ。`keepalive` ジョブと `outputs.daily` を外す（5.4 章）。`COLLECT_ENABLED` の門と `concurrency` はそのまま。`concurrency` で待てるのは 1 本だけで、新しい実行が来ると待っていた古い実行は取り消される（`cancel-in-progress: false` でも同じ）。毎時の実行が 1 時間を超えたときと、手動の起動が毎時の起動と重なったときに起こる。手動で起動するのは毎時 17 分の前後を避ける |
+| Environment `Production` | Deployment branches and tags を **`main` だけ**にする（承認者は付けない）。dispatch の API は `ref` に任意のブランチを指定できるので、制限がないと、トークンの持ち主や書き込み権のある人が `main` 以外のコードを本番の Secrets 付きで走らせられる（セキュリティレビュー）。あわせて組織の Base permissions を Read 以下にし、`main` に force push 禁止の保護を付けることを勧める |
+| トークン | Fine-grained PAT。Resource owner は組織 `smallpiece2024`、対象は `instagram-analyze` だけ、権限は **Actions: Read and write** だけ（G6）。gh 用の既存のトークンとは分ける。置き場はクラウドの Supabase の Vault（名前 `collect-dispatch-token`）。登録はダッシュボードの Vault の画面で行い、SQL エディタの `vault.create_secret` は使わない（クエリの履歴に残る）。期限の前に、既存の秘密の値を編集して差し替える（同じ名前で追加すると重複で失敗し、失敗した文がトークンごと Postgres のログに残るおそれがある。未確認。登録でエラーが出たらそのトークンを失効させて作り直す） |
+| 失敗の検知 | 同期で送り、2xx 以外は例外なので、`cron.job_run_details` に `failed` と `status=…` が 30 日残る。再試行しない。起動の抜け（DB の停止、トークンの期限切れ・失効、GitHub の拒否）は、`collect` ジョブの ping が来ないので Healthchecks（5.5 章）が拾う。調べるときは `cron.job_run_details` |
+| 通知の宛先 | dispatch の実行の通知は起動した人（トークンの持ち主 = ユーザー）に届く（G3）。Q10 の「cron を一度編集する」は不要になった |
+| 一時停止（C3） | pg_cron 自身の実行も DB 活動だが、判定は従来どおり毎時のワーカーの読み書きで満たす。GitHub の 60 日の無効化から一時停止に連鎖する経路はなくなった |
+| ローカル | 同じマイグレーションでジョブが作られるが、Vault にトークンがないので毎時 `null` を返すだけ。**ローカルの Vault に `collect-dispatch-token` を入れない**（宛先は本番の `collect.yml` に固定なので、入れると本番が毎時二重に起動され、待機中の実行が取り消される）。`seed.sql` にも入れない |
+| ロールバック | 起動を止めるだけなら `select cron.alter_job((select jobid from cron.job where jobname = 'collect-dispatch'), active := false);`、収集を止めるなら従来どおり `COLLECT_ENABLED=false`。方式ごと戻すなら新しいマイグレーションとして `cron.unschedule('collect-dispatch')`、`cron.unschedule('cron-history-purge')`、`drop function private.dispatch_collect()`、`drop extension http` を書き（手で戻すとローカルの `db reset` と本番がずれる）、`collect.yml` に `schedule` を戻す。pg_cron は残してよい |
+
+ローカルで確認したこと（2026-10-03）: `migration up --local` で適用でき、同じ内容をもう一度流しても通る。`cron.job` に 2 つのジョブ（所有者 `postgres`、`active`）ができる。トークンがなければ `null`、形の違う値なら例外。偽の `github_pat_…` で呼ぶと GitHub まで届き、`status=401 body={"message": "Bad credentials", …}` の例外になる（トランザクションを戻し、Vault に残っていないことを確認）。`web_app`、`anon`、`authenticated`、`service_role` は実行できない。`web_app` は `extensions.http_get` と `cron` のスキーマも使えない。
+
 ## 6. 秘密の一覧と漏洩時の対応（NF-SEC-04）
 
 置き場の基準: **GitHub Variables と Vercel の通常の環境変数は「公開ログや画面に出てもよい値」だけ**（Variables はステップの展開で平文になる。5.1 章）。「漏れても無害」ではなく「公開されてよい」で判断する。
 
 | 秘密 | 置き場 | 漏れたときの影響 | 取り消し |
 |---|---|---|---|
-| DB パスワード（`postgres`） | GitHub Secrets `DATABASE_URL`、手元の PC（`db push`、移行） | DB の全読み書き。Vault の復号を含む（→ Meta のトークン） | ダッシュボードで DB パスワードをリセット → Secrets を更新。Meta のトークンも `/connect` で取り直す |
+| DB パスワード（`postgres`） | GitHub Secrets `DATABASE_URL`、手元の PC（`db push`、移行） | DB の全読み書き。Vault の復号を含む（→ Meta のトークン、起動用の GitHub トークン）。`private.dispatch_collect()` や pg_cron のジョブを書き換えて任意の宛先へ送れる | ダッシュボードで DB パスワードをリセット → Secrets を更新。Meta のトークンも `/connect` で取り直し、起動用の GitHub トークンも作り直す。`cron.job` と関数の定義を確かめる |
 | `web_app` のパスワード | Vercel `DATABASE_URL`（区分は Secret） | 画面用テーブルの読み出し、`accounts`／`credentials` の更新（`token_secret_id` は不可）、アカウントの追加（上限 10 件。ワーカーに収集させられる）、`store_token` での上書き（読めない） | `psql` で `\password web_app` → Vercel を更新 |
 | サービスロールキー | GitHub Secrets | REST（公開スキーマなし）、Storage、Auth 管理の全操作 | ダッシュボードでローテーション（新しい API キーなら個別に失効。U2） |
 | `SUPABASE_URL`（project ref を含む） | GitHub Secrets（Variables にしない。NF-SEC-07） | エンドポイントの特定 | 変えられない（プロジェクト作り直し） |
 | `META_APP_ID` | GitHub Secrets、Vercel（Config でよいが GitHub の Variables にはしない） | アプリの特定 | 変えられない |
 | `META_APP_SECRET` | GitHub Secrets、Vercel（Secret） | `debug_token` の実行、アプリの偽装、`appsecret_proof` の生成 | Meta アプリの設定で再生成 → 両方を更新 |
 | Healthchecks の ping URL | GitHub Secrets | 偽の ping で停止を隠せる | Healthchecks で URL を再生成 |
+| 起動用の GitHub トークン（`collect-dispatch-token`。5.8 章） | クラウドの Supabase の Vault | このリポジトリの Actions の操作。既存の任意の ref で本番の Secrets 付きで起動できる（Environment `Production` を `main` に限るまで）。`run_daily` を付けて繰り返し起動し Meta の呼び出しの上限を使い切らせる。無効化や取り消しで収集を止める。実行ログを消して痕跡を隠す。デバッグログ付きで再実行する（公開リポジトリなのでログも公開）。Variables、Secrets、コードは変えられない | GitHub で失効させる → 作り直して Vault の値を差し替える |
 | Supabase Auth の利用者のパスワード | 本人 | 画面の閲覧と接続操作 | ダッシュボードでパスワード変更、セッション失効 |
 | 移行用の S3 互換キー（7 章） | 手元の PC（`rclone.conf` など） | Storage の全操作 | 移行後にダッシュボードで削除、`rclone` の設定も削除 |
 | `supabase login` のトークン | 手元の PC | アカウントの全プロジェクトの管理 | `supabase logout` |
 | `pg_dump` の出力（取得データを含む） | `.local/`（Git 管理外） | 取得データとユーザー名の流出 | 流し込み後に削除 |
 | 4 アカウント（GitHub、Vercel、Supabase、Meta 開発者）の資格情報 | 本人 | すべて（ワークフローの書き換えで Secrets を読める、再デプロイで env を吐ける） | 2 要素認証を必須にし、パスワードを変更、セッション失効 |
 
-公開されてよいもの（GitHub Variables、Vercel の通常の環境変数）: `DATABASE_SSL_CA`（公開 CA）、`COLLECT_ENABLED`、`COLLECT_KEEPALIVE`、`WORKER_SIMULATE_ALERT`、`APP_URL`、`WEB_ALLOWED_USER_ID`（uuid。本人以外には無意味）、`NEXT_PUBLIC_*`、`META_GRAPH_API_VERSION`。
+公開されてよいもの（GitHub Variables、Vercel の通常の環境変数）: `DATABASE_SSL_CA`（公開 CA）、`COLLECT_ENABLED`、`WORKER_SIMULATE_ALERT`（`COLLECT_KEEPALIVE` は 5.8 章で廃止）、`APP_URL`、`WEB_ALLOWED_USER_ID`（uuid。本人以外には無意味）、`NEXT_PUBLIC_*`、`META_GRAPH_API_VERSION`。
 
 GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`META_APP_ID`、`META_APP_SECRET`、`HEALTHCHECKS_PING_URL`。`META_ACCESS_TOKEN` は置かない（Vault にある）。
 
@@ -483,9 +513,9 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 | # | 手順 |
 |---|---|
-| 1 | 2 章の Supabase の設定（**着手条件**: サインアップ無効、匿名サインイン無効、Data API の公開スキーマから `public` を外す。ブラウザに出る publishable key で第三者が `authenticated` の JWT を得られないようにする）、SSL 強制、利用者の作成。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
+| 1 | 2 章の Supabase の設定（**着手条件**: サインアップ無効、匿名サインイン無効、Data API の公開スキーマから `public` を外す。ブラウザに出る publishable key で第三者が `authenticated` の JWT を得られないようにする）、SSL 強制、利用者の作成。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。2026-10-03 に R2 の 2 本目 `r2_collect_dispatch` を追加。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
 | 2 | Vercel に段 1 の環境変数を入れて `main` をデプロイ。未ログインで `/` → `/login`、本人でログイン → 3 画面が「設定が不足」、別の利用者（一時的に作る）でログイン → 403 → その利用者を削除。確認できたら段 2 の変数を入れて再デプロイ → 3 画面が「データなし」で出る |
-| 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`、`COLLECT_KEEPALIVE=true`。`COLLECT_ENABLED` はまだ `false` のまま）の登録 |
+| 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`。`COLLECT_ENABLED` はまだ `false` のまま）の登録。起動用のトークンを作ってクラウドの Supabase の Vault に入れ、`select private.dispatch_collect()` を 1 回手で呼んで 2xx（200 か 204）が返ることを確かめる（5.8 章。README の 5.1）。Environment `Production` を `main` だけに限る |
 | 4 | サムネイルの 1 回目のコピー（不変なので先にできる）: ダッシュボードで S3 互換キーを生成し、`rclone` でローカルの S3 互換エンドポイント（`supabase status` の S3 キー）から Cloud の `thumbnails` バケットへ |
 | 5 | データ移行のリハーサル: 7.2 の手順 3〜4 を空の本番 DB に対して行い、件数を確かめてから `truncate`（`metric_definitions` 以外）。`pg_dump` の出力は `.local/` に置き、終わったら削除 |
 
@@ -500,11 +530,11 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | 5 | サムネイルの差分コピー（`rclone` の 2 回目）→ S3 互換キーを削除、`rclone` の設定を削除 | Vault と `private.credentials` は移さない（Vault は鍵がプロジェクトごと） |
 | 6 | 本番の `/connect` で Meta に接続（Vault に登録） | `accounts` の行は 4 で入っているので `ig_user_id` で一致して更新 |
 | 7 | repo Variable `COLLECT_ENABLED=true` にする → `workflow_dispatch` で `collect.yml` を 1 回（hourly）→ `job_runs` と画面で確認。daily 相当は翌朝のスケジュールに任せる | 初回は `check-alerts` が `no_history` を出す |
-| 8 | 次の毎時 17 分のスケジュール実行を **T0** とし、7 日間の確認（10.2 章）を始める。Healthchecks のチェック詳細で ping の到着を確認 | |
+| 8 | 次の毎時 17 分に pg_cron が起動した実行を **T0** とし、7 日間の確認（10.2 章）を始める。Healthchecks のチェック詳細で ping の到着を確認 | |
 
 ### 7.3 ロールバック（本番がうまく動かないとき）
 
-1. repo Variable `COLLECT_ENABLED` を `false` にする（`collect` ジョブが skip になる。ワークフローを無効化しないので keepalive との順序の問題はない）。
+1. repo Variable `COLLECT_ENABLED` を `false` にする（`collect` ジョブが skip になる。pg_cron の起動は続くが、走っても skip。止めたければ 5.8 章のロールバック）。
 2. ローカルの DB は 7 日間の確認が終わるまで `db reset` しない（そのまま戻せる）。
 3. `npm run worker:up` でローカルの常駐に戻す。欠けた日次は `npm run worker:job -- account-daily --days N`（README の表）。
 4. 本番側のトークン（Vault）はそのままでよい（同じページトークンがローカルにもある）。本番を捨てるならダッシュボードでプロジェクトを一時停止する。
@@ -558,7 +588,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 ### 10.2 7 日間の実機確認（R2 の完了条件）
 
-計測の起点 **T0** は 7.2 章の手順 8（最初のスケジュール実行）。通知の試験（10.3 章）は T0 の前に済ませ、7 日間は収集を止めない。
+計測の起点 **T0** は 7.2 章の手順 8（pg_cron が最初に起動した実行）。通知の試験（10.3 章）は T0 の前に済ませ、7 日間は収集を止めない。
 
 | 完了条件 | 項目 | 確かめ方（期待値） |
 |---|---|---|
@@ -568,7 +598,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | 同 | 遅延と所要 | `gh run list --workflow collect.yml --json createdAt,startedAt,updatedAt,conclusion --limit 200` で「17 分 → createdAt」「createdAt → startedAt」「所要」の 3 つの分布と conclusion の内訳。遅れが常態的に 10 分を超えるなら分をずらす |
 | 同 | `check-alerts` | 各実行のログに `alerts=0` か `alert=` が 1 回ずつある |
 | 同 | Supabase | 一時停止の警告メールが来ない（C3）。Usage（DB、Storage、egress）とテーブル別 `pg_total_relation_size` を 1 日目と 7 日目に記録 |
-| 同 | keepalive | daily の後に `gh api repos/<owner>/<repo>/actions/workflows/collect.yml --jq .state` が `active`（U4 前半） |
+| 同 | 起動（5.8 章） | `cron.job_run_details` の `collect-dispatch` が 7 日で 168 行すべて `succeeded`（`failed` があれば `return_message` の `status=` を記録）。daily は JST 05:17 の回だけ（`gh run list` の実行の入力か、`token_check` の `started_at`） |
 | ログインしないと見られない | 本番 | 未ログインで `/`、`/jobs`、`/media`、`/connect` が `/login` へ（curl で 303 と `Location`）。`POST /api/meta/login` が 303（`/login`）。`GET /api/meta/callback?code=x&state=y` が登録せず `/login` へ。本人でログイン → 3 画面が本番データで出る、サムネイルがセッションの署名付き URL で出る |
 | 同 | 本人以外 | 7.1 章の手順 2 で済ませた記録を添える（本番で再度やるなら試験用の利用者を同じ手順で削除） |
 | 同 | フェイルクローズ | `WEB_ALLOWED_USER_ID` 未設定 → 403 はローカルで確認（10.1 章と段階 C の受け入れ。本番ではやらない） |
@@ -582,7 +612,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | 経路 | 手順 | 期待 |
 |---|---|---|
 | GitHub のメール（dispatch） | `workflow_dispatch` で `simulate_alert=true` | `check-alerts` が `alert=simulated` で失敗し、起動した本人にメール |
-| GitHub のメール（schedule） | repo Variable `WORKER_SIMULATE_ALERT=true` を置き、次の 17 分の実行が失敗するのを待って外す | 「cron を最後に編集した人」にメールが届く（宛先の規則の確認。13 章 G3） |
+| GitHub のメール（pg_cron の起動） | repo Variable `WORKER_SIMULATE_ALERT=true` を置き、次の 17 分の実行が失敗するのを待って外す | トークンの持ち主（ユーザー）にメールが届く（宛先の規則の確認。13 章 G3） |
 | Healthchecks | チェックの詳細で ping の到着ログを見る。メールの経路は使い捨てのチェック（period 1 分、grace 1 分）を 1 回 ping して 2 分待つ | 収集を止めずに未着メールを確認 |
 | Supabase | 警告メールは意図的には起こせない | 7 日間で来ないことを記録 |
 
@@ -617,7 +647,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 - サムネイルの再取得の手段（移行でコピーに失敗したときのため）。
 - 画面の作り直し（R2.5 のデザイン）時に `/login` の見た目も合わせる。
 - 一時的な失敗（Meta の 5xx）でメールが増えるなら、`continue-on-error` と「2 回連続」の判定に寄せる。
-- GitHub の 60 日の無効化対策の結果（55 日目に `state` を確認）を記録する。
+- ~~GitHub の 60 日の無効化対策の結果（55 日目に `state` を確認）を記録する。~~ 起動を pg_cron に移したので不要（5.8 章）。代わりに起動用のトークンの期限を `progress.md` に控える。
 - Ubuntu 24.04 の ffmpeg（6 系）と bookworm（5 系）でカット検出の結果が変わるかを R4 で確かめる。
 - TOTP の導入（Q7）。
 
@@ -656,6 +686,13 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | P11 | スキーマ単位の `alter default privileges … revoke execute on functions from public` は、組み込みの既定（新しい関数は PUBLIC が実行可）を打ち消せない。既定に足す方向にしか効かない | ローカルで確認（`create function` 後の `proacl` に `=X` が残る） |
 | P12 | `postgres` は `alter role … nosuperuser` と `nobypassrls` を実行できない（`create role` では既定値として指定できる） | ローカルで確認 |
 | P13 | `postgres` は `storage.objects` と `storage.buckets` に行を入れられる（結合テストはトランザクション内で入れて捨てる） | ローカルで確認 |
+| P14 | ローカルの Supabase（Postgres 17.6）で `pg_cron` 1.6.4、`http` 1.6、`pg_net` 0.20.4 が使える（どれも未導入だった）。`cron.timezone` は `GMT`、`cron.database_name` は `postgres`。`cron` スキーマの usage は `web_app`／`anon`／`authenticated`／`service_role` にない。`extensions` スキーマの usage は `anon`／`authenticated`／`service_role` にあり `web_app` にない。`http` の関数は所有者 `supabase_admin` で PUBLIC が実行可（確認日 2026-10-03） | ローカルで `pg_available_extensions`、`show`、`has_schema_privilege`、`pg_proc.proacl` |
+| P15 | pg_net の `net.http_request_queue` と `net._http_response` は PUBLIC に `arwdDxtm`、`net` スキーマの usage も PUBLIC（付与者 `supabase_admin`）。`postgres` から revoke しても「no privileges could be revoked」で効かない。`net.http_request_queue` には送信前の要求がヘッダーごと積まれる。`pg_cron` がすでにある DB で `create extension if not exists pg_cron` を流すと「dependent privileges exist」で失敗する | ローカルで確認（2026-10-03。SQL レビューと親） |
+| S9 | pg_net は非同期で、要求はトランザクションのコミット後に送られる。応答は `net._http_response` に既定で 6 時間残る。API は beta。POST は JSON の本文だけ（採用しなかった。P15） | https://supabase.com/docs/guides/database/extensions/pg_net （確認日 2026-10-03） |
+| S10 | pg_cron は `cron.job_run_details` を自動では消さない（大きくなるとアップグレードの妨げになる）。同時に動かすジョブは 8 つまでを推奨。秘密は Vault に置くことを推奨 | https://supabase.com/docs/guides/platform/upgrading 、 https://supabase.com/docs/guides/cron 、 https://supabase.com/docs/guides/functions/schedule-functions （確認日 2026-10-03） |
+| G5 | 2026-07〜10 に「schedule の実行が作られず、`workflow_dispatch` は動く」という報告が複数ある。分をずらしても直らず、GitHub の社員の回答はない。有効だったのは外部の cron から `workflow_dispatch` を呼ぶこと | https://github.com/orgs/community/discussions/206019 、 https://github.com/orgs/community/discussions/202034 （確認日 2026-10-03） |
+| G6 | `POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches` は Fine-grained トークンの Repository permissions「Actions」の write で呼べる。本文は `ref`（必須）と `inputs`（最大 25） | https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens 、 https://docs.github.com/en/rest/actions/workflows （確認日 2026-10-03） |
+| G7 | REST API は `User-Agent` がない要求を拒否する。`Accept: application/vnd.github+json` と `X-GitHub-Api-Version` を推奨 | https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api （確認日 2026-10-03） |
 
 実機で確認済み（2026-10-02 夕方）: U1 `web_app` ロールでプーラーのトランザクションモードに接続できる（Vercel の本番から 3 画面が空の状態で表示された）。U5 Vercel は Root Directory `apps/web` と「Include source files outside of the Root Directory」でルートの lockfile を使ってビルドできた。U7 プーラーの証明書は `prod-ca-2021.crt` で `verify-full` に通る（`DATABASE_SSL_CA` を入れた状態で接続できた）。Vercel Hobby でも組織所有のリポジトリと Git 連携できた（V3 の制限に当たらなかった。Q12 は対応不要）。
 

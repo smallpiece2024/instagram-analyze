@@ -125,6 +125,15 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
     expect(await sqlstate(() => web`select * from vault.secrets limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
     expect(await sqlstate(() => web`select * from vault.decrypted_secrets limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
     expect(await sqlstate(() => web`select vault.create_secret('x', 'ig-token-should-fail')`)).toBe(INSUFFICIENT_PRIVILEGE);
+    // 収集の起動（GitHub のトークンを Vault から読む。R2 設計 5.8 章）は pg_cron の所有者だけ
+    expect(await sqlstate(() => web`select private.dispatch_collect()`)).toBe(INSUFFICIENT_PRIVILEGE);
+    // DB から外へ HTTP を出す経路（http 拡張機能）と pg_cron のジョブにも触れない。pg_net は入れない
+    // （net の表は PUBLIC が読み書きでき、キューに Authorization ヘッダーが残るため）
+    expect(await sqlstate(() => web`select extensions.http_get('https://example.com')`)).toBe(INSUFFICIENT_PRIVILEGE);
+    expect(await sqlstate(() => web`select * from cron.job`)).toBe(INSUFFICIENT_PRIVILEGE);
+    expect(await sqlstate(() => web`select cron.schedule('x', '* * * * *', 'select 1')`)).toBe(INSUFFICIENT_PRIVILEGE);
+    const [pgNet] = await admin<{ n: number }[]>`select count(*)::int as n from pg_extension where extname = 'pg_net'`;
+    expect(pgNet?.n).toBe(0);
     expect(await sqlstate(() => web`select * from public.raw_api_responses limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
     expect(await sqlstate(() => web`select * from public.job_state limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
     expect(await sqlstate(() => web`select * from private.web_users limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
@@ -225,6 +234,7 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
       }
       expect(await sqlstate(asRole(role, `select private.store_token('${accountId}'::uuid, 'x')`))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select * from private.web_users"))).toBe(INSUFFICIENT_PRIVILEGE);
+      expect(await sqlstate(asRole(role, "select private.dispatch_collect()"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select public.metric_value('{}'::jsonb, array['a'])"))).toBe(INSUFFICIENT_PRIVILEGE);
     }
     expect(await sqlstate(asRole("anon", "select private.is_web_user()"))).toBe(INSUFFICIENT_PRIVILEGE);
