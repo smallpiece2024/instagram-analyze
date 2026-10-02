@@ -93,4 +93,9 @@ R2.5（画面設計）で決めた分析画面のデザイントークン。2026
   --header-bg: var(--color-nav-bg);
   --header-text: var(--color-nav-text);
 }
+
+/* PC 幅だけカードの余白を広げる（2026-10-02） */
+@media (min-width: 701px) {
+  :root { --card-pad: 22px; }
+}
 ```

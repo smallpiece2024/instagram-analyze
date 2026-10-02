@@ -4,7 +4,7 @@ window.LAB_DATA = (function () {
   // 投稿 24 件。type: feed / carousel / reel。pv（プロフィール訪問）と follows はリールでは取れないので null。
   // reel の len は秒、watch は平均視聴時間（秒）、skip はスキップ率、cuts は大きな画面変化の回数、text3 は冒頭 3 秒に文字があるか。
   var posts = [
-    { id: 1,  type: "reel",     at: "2026-09-30T10:05", title: "新豆の焙煎、火入れの瞬間",             reach: 4820,  views: 7230,  likes: 312, comments: 18, saves: 141, shares: 64,  pv: null, follows: null, len: 28, watch: 11.4, skip: 0.31, cuts: 9,  text3: true,  hue: 24 },
+    { id: 1,  type: "reel",     at: "2026-09-30T10:05", title: "新豆の焙煎、火入れの瞬間",             reach: 10200, views: 15300,  likes: 312, comments: 18, saves: 141, shares: 64,  pv: null, follows: null, len: 28, watch: 11.4, skip: 0.31, cuts: 9,  text3: true,  hue: 24 },
     { id: 2,  type: "carousel", at: "2026-09-28T19:30", title: "秋のブレンド、3 つの飲み比べ",           reach: 1980,  views: 2410,  likes: 176, comments: 9,  saves: 88,  shares: 12,  pv: 41,   follows: 6,    hue: 38 },
     { id: 3,  type: "feed",     at: "2026-09-27T12:00", title: "本日のドリップ、エチオピア",             reach: 1120,  views: 1260,  likes: 98,  comments: 4,  saves: 21,  shares: 3,   pv: 12,   follows: 1,    hue: 200 },
     { id: 4,  type: "reel",     at: "2026-09-25T18:00", title: "ハンドピックの地味な 1 時間を 15 秒で",   reach: 9640,  views: 15200, likes: 540, comments: 31, saves: 362, shares: 180, pv: null, follows: null, len: 15, watch: 8.9,  skip: 0.22, cuts: 6,  text3: true,  hue: 90 },
@@ -44,11 +44,11 @@ window.LAB_DATA = (function () {
 
   // 投稿詳細の見本（id 1 のリール）。伸び方と、同じ種類（リール）の中央値・四分位。
   var growth = {
-    steps: ["1h", "3h", "6h", "24h", "3d", "7d"],
-    reach: [310, 980, 1720, 3650, 4420, 4820],
-    medianReel: [180, 520, 980, 2600, 3900, 4400],
-    p75Reel: [260, 760, 1400, 3500, 5100, 5800],
-    p25Reel: [110, 330, 620, 1700, 2500, 2900]
+    steps: ["1h", "3h", "6h", "24h", "3d", "7d", "14d", "30d", "60d", "90d"],
+    reach: [420, 1220, 2280, 6050, 9070, 10200, null, null, null, null],
+    medianReel: [210, 600, 1130, 3000, 4500, 5100, 5600, 6000, 6300, 6400],
+    p75Reel: [300, 880, 1610, 4030, 5880, 6700, 7400, 7900, 8300, 8450],
+    p25Reel: [130, 380, 720, 1960, 2880, 3350, 3700, 3950, 4150, 4250]
   };
   // カット（ミリ秒）と画面の文字の区間。
   var reelTimeline = {
