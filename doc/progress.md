@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 |---|---|
 | 最終更新 | 2026-10-02 |
-| 現在地 | **R1 の収集ワーカーは常駐中（3 日間の実機確認の 1 日目。中間結果は 4.2 章。投稿に依存する確認は保留）。Facebook Login の接続は実機で成功し、登録と `token-check` まで確認済み（2026-10-02。4.3 章）。ユーザーの選択で R2（クラウド稼働）の設計に着手（2026-10-02。5 章）。R2.5 は R2 と並行可で未着手** |
+| 現在地 | **R1 の収集ワーカーは常駐中（3 日間の実機確認の 1 日目。中間結果は 4.2 章。投稿に依存する確認は保留）。Facebook Login の接続は実機で成功し、登録と `token-check` まで確認済み（2026-10-02。4.3 章）。R2（クラウド稼働）の設計書 `doc/design/r2-cloud.md` は版 0.2（4 本のレビューを反映済み）。次は 11 章の確認事項 Q1〜Q11 の回答をもらい、段階 A（DB のマイグレーション）から実装に入る（5 章）。R2.5 は R2 と並行可で未着手** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -175,7 +175,8 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 要件定義 4.3 章（F-SYS-10〜15）と 6.3 章。完了条件は「クラウドで 7 日間、人手を介さず収集が続く。ログインしないと画面を見られない。収集停止の通知が届くことを確認した」。
 
 - **着手の経緯（2026-10-02）**: 投稿のタイミングは本人が決められず、PC が止まっている間に投稿があるとストーリーズと投稿直後のデータが失われるため、R2.5（画面設計）より先に 24 時間収集を優先することをユーザーが選んだ。R2.5 は R2 と並行してよい（未着手）
-- **進め方**: 設計書 `doc/design/r2-cloud.md` を `backend-architect` が起草 → `security-engineer`、`devops-architect`、`postgres-sql-reviewer`、`quality-engineer` が並列にレビュー → 差し戻しを反映 → 確認事項（Q）をユーザーに決めてもらう → 段階に分けて実装（同じ作業ツリーでファイルを分担）→ 7 日間の実機確認
+- **進め方**: 設計書 `doc/design/r2-cloud.md` → `security-engineer`、`devops-architect`、`postgres-sql-reviewer`、`quality-engineer` が並列にレビュー → 差し戻しを反映 → 確認事項（Q）をユーザーに決めてもらう → 段階 A（DB）→ B（ワーカー）と C（Web）を並列 → D（運用）→ 7 日間の実機確認
+- **2026-10-02: 設計書 0.2 まで完了**。0.1 は親（このセッション）が直接起草した。最初に `backend-architect` に起草を任せたが、外部文書 15 本を `curl` と `grep` で掘り続けて文脈が 46 万トークンに膨らみ、40 分で 1 行も書けずに停止させた（原因と対策は CLAUDE.md「サブエージェントへの依頼の決まり」と `.claude/agents/*.md`「読む量と進め方」に反映）。外部の事実は親が抜粋ベースで集めて 13 章に記録した。レビュー 4 本（計 74 件、各 5〜9 分、9〜11 万トークン）を 0.2 に反映済み。**次は 11 章の Q1〜Q11 をユーザーに決めてもらい、段階 A（マイグレーション）から実装に入る**
 - **ユーザーにお願いすること（設計の確認事項が決まってから）**: Supabase Cloud のプロジェクト作成、Vercel のプロジェクト作成と GitHub 連携、GitHub Secrets と Vercel の環境変数の登録、Meta アプリの「有効な OAuth リダイレクト URI」に本番の callback を追加、ログイン用の利用者の作成
 - **2026-10-02: Supabase Cloud と Vercel のプロジェクトはユーザーが作成済み**（設計の確定前。Vercel の Root Directory は `apps/web`）。プロジェクトの ref、本番 URL、DB パスワード、鍵はリポジトリに書かず、ローカルの `.env`／`apps/web/.env.local`（Git 管理外）、GitHub Secrets、Vercel の環境変数にだけ置く。ログイン（F-SYS-13）を実装するまで Vercel に本番 DB の接続文字列と鍵を入れない（画面が誰にでも見えるため）
 - **切り替えの順序（R1 の申し送り）**: ローカルの常駐を `npm run worker:down` で止めてから、データ移行 → トークンの再登録 → GitHub Actions の有効化。ローカルと Cloud は DB が別なので、二重収集はロックでは防げない
