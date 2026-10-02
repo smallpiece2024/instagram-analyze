@@ -1,0 +1,18 @@
+# 一時的な検証用（2026-10-02）。collect.yml のスケジュール実行が記録されない原因が、このリポジトリ（組織）の設定にあるのか、
+# collect.yml の中身にあるのかを切り分ける。15 分ごとに echo するだけ。結論が出たら削除する。
+name: schedule-probe
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "schedule probe at $(date -u +%Y-%m-%dT%H:%M:%SZ) event=${{ github.event_name }}"
