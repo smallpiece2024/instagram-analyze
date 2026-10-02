@@ -1,16 +1,14 @@
-# 収集ワーカー（R2 設計 5.1 章）。
-# - 毎時 17 分（UTC）に run-hourly。実行時の UTC の時が 20（JST 05 時台）の回だけ run-daily → run-hourly。
-#   毎時 0 分は GitHub 全体の混雑で遅延・欠落しうるので 17 分にずらす。cron は 1 行だけにする（複数行や範囲の書き方で
-#   スケジュールが動かない疑いを残さないため。2026-10-02 に 2 行の cron で 5 回連続で実行が記録されなかった）。
+# 収集ワーカー（R2 設計 5.1 章、5.8 章）。
+# - 起動は Supabase の pg_cron が毎時 17 分（UTC）に workflow_dispatch で行う（supabase/migrations/20261003000000_r2_collect_dispatch.sql）。
+#   GitHub の schedule は 2026-10-02 に約 33 回中 1 回しか動かなかったので使わない。
+# - run_daily=true の回（pg_cron が UTC 20 時台 = JST 05 時台に付ける）だけ run-daily → run-hourly。ほかは run-hourly。
 # - 最後に check-alerts（人が見るべき状態なら終了コード 1 → GitHub の失敗メール）と死活監視への ping。
 # - 秘密（Secrets）は必要なステップの env にだけ渡す。Variables はログでマスクされないので公開してよい値だけ置く。
 # - アクションはコミット SHA で固定する（横に版）。更新は dependabot（.github/dependabot.yml）。
 name: collect
 
 on:
-  schedule:
-    # 毎時 17 分（UTC）。daily を含めるかは、実行時の UTC の時が 20（JST 05 時台）かで決める（slot ステップ）
-    - cron: '17 * * * *'
+  # schedule は付けない（上の理由）。pg_cron と手動の両方がこの入口を使う
   workflow_dispatch:
     inputs:
       simulate_alert:
@@ -18,7 +16,7 @@ on:
         type: boolean
         default: false
       run_daily:
-        description: 'この実行で run-daily も行う（時刻にかかわらず。切り替え直後や取りこぼしの補い用）'
+        description: 'この実行で run-daily も行う（pg_cron は JST 05 時台の回に付ける。手動では取りこぼしの補い用）'
         type: boolean
         default: false
 
@@ -35,28 +33,25 @@ jobs:
     if: ${{ vars.COLLECT_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Secrets は GitHub の Environment「Production」に置いている（Repository secrets ではない）。保護ルール（承認者など）は付けない
+    # Secrets は GitHub の Environment「Production」に置いている（Repository secrets ではない）。承認者は付けず、起動できるブランチを main に限る（R2 設計 5.8 章）
     environment: Production
     permissions:
       contents: read
-    outputs:
-      daily: ${{ steps.slot.outputs.daily }}
     env:
       WORKER_LOG_LEVEL: info
-      # 通知の経路の確認（R2 設計 5.2 章）。dispatch の入力か repo Variable。schedule では inputs が空なので Variable だけが効く。
+      # 通知の経路の確認（R2 設計 5.2 章）。dispatch の入力か repo Variable（pg_cron は simulate_alert を送らないので Variable だけが効く）。
       # 1 か所で評価し、収集を飛ばす判定（daily、hourly）と check-alerts の両方で参照する
       SIMULATE: ${{ inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true' }}
     steps:
-      # daily（token-check → profile-daily → account-daily → media-sync --full）を含める回か。UTC 20 時台 = JST 05 時台。
-      # GitHub の遅延で 21 時台にずれた回は daily を飛ばす（翌日の回で 4 日の窓が埋める）。手動は run_daily で強制できる
+      # daily（token-check → profile-daily → account-daily → media-sync --full）を含める回か。
+      # 決めるのは起動側（pg_cron が起動時の UTC の時で決める）。キューで待って時がずれても判定は変わらない
       - id: slot
         name: decide daily slot
         run: |
-          hour=$(date -u +%H)
           daily=false
-          if [ "$hour" = "20" ] || [ "$RUN_DAILY" = "true" ]; then daily=true; fi
+          if [ "$RUN_DAILY" = "true" ]; then daily=true; fi
           echo "daily=$daily" >> "$GITHUB_OUTPUT"
-          echo "utc_hour=$hour daily=$daily"
+          echo "utc_hour=$(date -u +%H) daily=$daily"
         env:
           RUN_DAILY: ${{ inputs.run_daily || 'false' }}
 
@@ -142,16 +137,4 @@ jobs:
         env:
           HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
 
-  # 公開リポジトリは 60 日間活動がないとスケジュールが無効になる（R2 設計 5.4 章）。daily の回に再有効化の API を呼ぶ。
-  # repo Variable COLLECT_KEEPALIVE=true のときだけ（意図的に無効化したワークフローを勝手に戻さない）
-  keepalive:
-    needs: collect
-    if: ${{ !cancelled() && needs.collect.result != 'skipped' && needs.collect.outputs.daily == 'true' && vars.COLLECT_KEEPALIVE == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/collect.yml/enable"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# keepalive ジョブ（60 日間活動がないとスケジュールが無効になる対策）は、schedule をやめたので外した（R2 設計 5.4 章、5.8 章）
