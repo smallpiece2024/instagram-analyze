@@ -269,6 +269,8 @@ npx supabase logout                                # 作業が終わったら
 
 ### 5. GitHub の Secrets と Variables（Settings → Secrets and variables → Actions）
 
+Secrets は Environment **`Production`** に置く（`collect.yml` の `collect` ジョブが `environment: Production` を指定している）。Production 環境に保護ルール（承認者、待ち時間、ブランチの制限）を付けるとスケジュール実行が止まるので付けない。Variables はリポジトリの Variables に置く。
+
 | 種類 | 名前 | 値 |
 |---|---|---|
 | Secret | `DATABASE_URL` | セッションモード、`postgres.<project-ref>`（Vault の復号を含む全権。漏れたら DB パスワードをリセット） |
