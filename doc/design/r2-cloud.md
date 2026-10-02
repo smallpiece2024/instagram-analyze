@@ -316,7 +316,8 @@ drop role web_app;
 |---|---|
 | トリガー | `schedule: ['17 0-19,21-23 * * *', '17 20 * * *']` と `workflow_dispatch`（入力 `simulate_alert`: boolean、既定 false）。他のトリガーは付けない |
 | ジョブ `collect` | `run-daily`（`github.event.schedule == '17 20 * * *'` のときだけ。JST 05:17）→ `run-hourly` → `check-alerts` → 死活監視へ ping。daily と hourly を同じジョブで順に動かすので重ならない（R1 の `schedule` コマンドと同じ形）。`timeout-minutes: 30`、`permissions: { contents: read }` |
-| ジョブ `keepalive` | `needs: collect`、`if: ${{ !cancelled() && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}`、`permissions: { actions: write }`（5.4 章） |
+| ジョブ `keepalive` | `needs: collect`、`if: ${{ !cancelled() && needs.collect.result != 'skipped' && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}`、`permissions: { actions: write }`（5.4 章） |
+| 門 | `collect` ジョブは repo Variable **`COLLECT_ENABLED == 'true'`** のときだけ動く（`if:` でジョブごと skip。失敗メールにならない）。ワークフローのファイルが `main` に入った時点でスケジュールは有効になるので、Secrets を登録して切り替え（7.2 章）が済むまで `false`（未設定）にしておく。ローカルへ戻すとき（7.3 章）も `false` にするだけでよい |
 | `concurrency` | `group: instagram-analyze-collect`、`cancel-in-progress: false`。1 本なので「実行中 1 ＋ 待ち 1」で足りる（GitHub の遅延が 30 分を超えて 3 つ目が来たときだけ待ちがキャンセルされる。10.2 章で `cancelled` を数える） |
 | 分 | 毎時 0 分は GitHub 全体の混雑でキューが遅れ、混みすぎると落とされる（13 章 G1）。17 分にずらす。遅延は要件 5.2 章の方式（取得時刻から経過時間を計算）で吸収 |
 
@@ -469,7 +470,7 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 | `pg_dump` の出力（取得データを含む） | `.local/`（Git 管理外） | 取得データとユーザー名の流出 | 流し込み後に削除 |
 | 4 アカウント（GitHub、Vercel、Supabase、Meta 開発者）の資格情報 | 本人 | すべて（ワークフローの書き換えで Secrets を読める、再デプロイで env を吐ける） | 2 要素認証を必須にし、パスワードを変更、セッション失効 |
 
-公開されてよいもの（GitHub Variables、Vercel の通常の環境変数）: `DATABASE_SSL_CA`（公開 CA）、`COLLECT_KEEPALIVE`、`WORKER_SIMULATE_ALERT`、`APP_URL`、`WEB_ALLOWED_USER_ID`（uuid。本人以外には無意味）、`NEXT_PUBLIC_*`、`META_GRAPH_API_VERSION`。
+公開されてよいもの（GitHub Variables、Vercel の通常の環境変数）: `DATABASE_SSL_CA`（公開 CA）、`COLLECT_ENABLED`、`COLLECT_KEEPALIVE`、`WORKER_SIMULATE_ALERT`、`APP_URL`、`WEB_ALLOWED_USER_ID`（uuid。本人以外には無意味）、`NEXT_PUBLIC_*`、`META_GRAPH_API_VERSION`。
 
 GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`META_APP_ID`、`META_APP_SECRET`、`HEALTHCHECKS_PING_URL`。`META_ACCESS_TOKEN` は置かない（Vault にある）。
 
@@ -483,7 +484,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 |---|---|
 | 1 | 2 章の Supabase の設定（**着手条件**: サインアップ無効、匿名サインイン無効、Data API の公開スキーマから `public` を外す。ブラウザに出る publishable key で第三者が `authenticated` の JWT を得られないようにする）、SSL 強制、利用者の作成。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
 | 2 | Vercel に段 1 の環境変数を入れて `main` をデプロイ。未ログインで `/` → `/login`、本人でログイン → 3 画面が「設定が不足」、別の利用者（一時的に作る）でログイン → 403 → その利用者を削除。確認できたら段 2 の変数を入れて再デプロイ → 3 画面が「データなし」で出る |
-| 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`、`COLLECT_KEEPALIVE=true`）の登録 |
+| 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`、`COLLECT_KEEPALIVE=true`。`COLLECT_ENABLED` はまだ `false` のまま）の登録 |
 | 4 | サムネイルの 1 回目のコピー（不変なので先にできる）: ダッシュボードで S3 互換キーを生成し、`rclone` でローカルの S3 互換エンドポイント（`supabase status` の S3 キー）から Cloud の `thumbnails` バケットへ |
 | 5 | データ移行のリハーサル: 7.2 の手順 3〜4 を空の本番 DB に対して行い、件数を確かめてから `truncate`（`metric_definitions` 以外）。`pg_dump` の出力は `.local/` に置き、終わったら削除 |
 
@@ -497,12 +498,12 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | 4 | `psql -h aws-<n>-<region>.pooler.supabase.com -p 5432 -U postgres.<project-ref> -d postgres "sslmode=verify-full sslrootcert=<CA のパス>" -v ON_ERROR_STOP=1 --single-transaction -f .local/r2-migration.sql` | パスワードは対話入力か `pgpass.conf`（URL に入れない。履歴に残さない）。終わったら `.local/r2-migration.sql` を削除 |
 | 5 | サムネイルの差分コピー（`rclone` の 2 回目）→ S3 互換キーを削除、`rclone` の設定を削除 | Vault と `private.credentials` は移さない（Vault は鍵がプロジェクトごと） |
 | 6 | 本番の `/connect` で Meta に接続（Vault に登録） | `accounts` の行は 4 で入っているので `ig_user_id` で一致して更新 |
-| 7 | `workflow_dispatch` で `collect.yml` を 1 回（hourly）→ `job_runs` と画面で確認 → もう 1 回 `simulate_alert=false` のまま daily 相当は翌朝のスケジュールに任せる | 初回は `check-alerts` が `no_history` を出す |
+| 7 | repo Variable `COLLECT_ENABLED=true` にする → `workflow_dispatch` で `collect.yml` を 1 回（hourly）→ `job_runs` と画面で確認。daily 相当は翌朝のスケジュールに任せる | 初回は `check-alerts` が `no_history` を出す |
 | 8 | 次の毎時 17 分のスケジュール実行を **T0** とし、7 日間の確認（10.2 章）を始める。Healthchecks のチェック詳細で ping の到着を確認 | |
 
 ### 7.3 ロールバック（本番がうまく動かないとき）
 
-1. repo Variable `COLLECT_KEEPALIVE` を `false` にしてから、`collect.yml` を無効化する（順序を逆にすると daily の回で再有効化される）。
+1. repo Variable `COLLECT_ENABLED` を `false` にする（`collect` ジョブが skip になる。ワークフローを無効化しないので keepalive との順序の問題はない）。
 2. ローカルの DB は 7 日間の確認が終わるまで `db reset` しない（そのまま戻せる）。
 3. `npm run worker:up` でローカルの常駐に戻す。欠けた日次は `npm run worker:job -- account-daily --days N`（README の表）。
 4. 本番側のトークン（Vault）はそのままでよい（同じページトークンがローカルにもある）。本番を捨てるならダッシュボードでプロジェクトを一時停止する。

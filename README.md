@@ -206,6 +206,116 @@ npm run worker:verify-api
 
 ストーリーズの検証は、公開中（投稿から 24 時間以内）のストーリーズがあるときだけ行われる。
 
+## クラウド稼働（R2）
+
+設計と理由は `doc/design/r2-cloud.md`。構成は Supabase Cloud（Free）＋ Vercel（Hobby）＋ GitHub Actions（公開リポジトリ）。ローカル環境は開発用に残すが、切り替え後はローカルの常駐（`npm run worker:up`）を使わない（二重収集になる）。プロジェクトの ref、本番の URL、鍵はリポジトリに書かない。
+
+### 1. Supabase Cloud の設定（ダッシュボード）
+
+| 場所 | 設定 |
+|---|---|
+| Authentication → Sign In / Providers | 「Allow new users to sign up」をオフ。匿名サインインはオフのまま。パスワードの要件を 8 文字以上に |
+| Authentication → Users | 利用者を 1 人作る（メール確認済みで作成）。その `id`（uuid）を控える（Vercel の `WEB_ALLOWED_USER_ID` と `private.web_users` に使う） |
+| Authentication → URL Configuration | Site URL を `https://<app>.vercel.app` |
+| Database → Settings → SSL Configuration | 「Enforce SSL on incoming connections」をオン。CA 証明書（`prod-ca-2021.crt`）をダウンロードする（GitHub Variables と Vercel の `DATABASE_SSL_CA` に PEM の本文を入れる） |
+| Data API → Settings | 「Exposed schemas」から `public` を外す（この構成は REST を使わない） |
+| Connect | セッションモード（`:5432`、ワーカーと手元の psql 用）とトランザクションモード（`:6543`、Vercel 用）の接続文字列を控える。直接接続は IPv6 なので使わない |
+
+### 2. マイグレーションの適用（手元の PC から）
+
+```bash
+npx supabase link --project-ref <project-ref>     # supabase/.temp/ に保存（Git 管理外）
+npx supabase db push                              # --include-seed を付けない。db reset --linked も使わない（seed.sql の公知のパスワードが本番に入る）
+npx supabase migration list
+```
+
+続けて psql（セッションモード）で、`web_app` のパスワードと Storage を読める利用者を入れる。パスワードを SQL 文やコマンドラインに書かない（履歴とサーバーログに残さない）。
+
+```bash
+psql -h aws-<n>-ap-northeast-1.pooler.supabase.com -p 5432 -U postgres.<project-ref> -d postgres "sslmode=verify-full sslrootcert=<CA 証明書のパス>"
+```
+
+```sql
+\password web_app                                  -- 強いパスワード（Vercel の DATABASE_URL に使う）
+insert into private.web_users (user_id, note) values ('<利用者の id>', '本人');
+\q
+```
+
+`web_app` でトランザクションモードに接続できることを確かめてから Vercel に入れる。
+
+```bash
+psql -h aws-<n>-ap-northeast-1.pooler.supabase.com -p 6543 -U web_app.<project-ref> -d postgres "sslmode=verify-full sslrootcert=<CA>" -c "select current_user, current_setting('statement_timeout')"
+npx supabase logout                                # 作業が終わったら
+```
+
+### 3. Vercel（環境変数は 2 段で入れる）
+
+設定: Root Directory `apps/web`、Node.js 24.x、「Include source files outside of the Root Directory」をオン、Settings → Git の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（プレビューを作らない）。
+
+| 段 | 変数（Production） |
+|---|---|
+| 1 | `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`APP_URL`（`https://<app>.vercel.app`）、`WEB_ALLOWED_USER_ID` |
+| 2 | `DATABASE_URL`（トランザクションモード、`web_app`。Sensitive）、`DATABASE_POOL_MODE=transaction`、`DATABASE_SSL_CA`、`META_APP_ID`、`META_APP_SECRET`（Sensitive）、`META_GRAPH_API_VERSION=v25.0` |
+
+段 1 だけでデプロイし、未ログインで `/` が `/login` に飛ぶこと、本人でログインできること、別の利用者（一時的に作って消す）が 403 になることを確かめてから段 2 を入れて再デプロイする。`SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY` は Vercel に置かない（サムネイルはログインした本人のセッションで署名する）。
+
+### 4. Meta アプリ、Healthchecks
+
+- Meta for Developers → Facebook ログイン → 設定 →「有効な OAuth リダイレクト URI」に `https://<app>.vercel.app/api/meta/callback` を追加する。
+- `appsecret_proof` は常に付ける実装になっている。アプリ設定の「App Secret が必要」をオンにするのはワーカーと Web の両方が本番で動いてから。オンにすると Graph API エクスプローラと `verify-api` もプルーフなしでは動かない。
+- Healthchecks.io でチェックを 1 つ作る（Period 1 時間、Grace 3 時間、通知はメール）。ping URL を GitHub Secrets の `HEALTHCHECKS_PING_URL` に入れる。
+
+### 5. GitHub の Secrets と Variables（Settings → Secrets and variables → Actions）
+
+| 種類 | 名前 | 値 |
+|---|---|---|
+| Secret | `DATABASE_URL` | セッションモード、`postgres.<project-ref>`（Vault の復号を含む全権。漏れたら DB パスワードをリセット） |
+| Secret | `SUPABASE_URL` | `https://<project-ref>.supabase.co`（ref を公開ログに出さないため Secret） |
+| Secret | `SUPABASE_SERVICE_ROLE_KEY` | サムネイルのアップロード用 |
+| Secret | `META_APP_ID`、`META_APP_SECRET` | Meta アプリ |
+| Secret | `HEALTHCHECKS_PING_URL` | 死活監視 |
+| Variable | `DATABASE_SSL_CA` | CA 証明書の PEM（複数行のまま貼る。崩れたら `\n` のリテラルでもよい） |
+| Variable | `COLLECT_ENABLED` | **切り替えが終わるまで `false`**。`true` で収集が動く。ローカルへ戻すときも `false` |
+| Variable | `COLLECT_KEEPALIVE` | `true`（60 日の無効化対策。試験や停止のときは `false`） |
+| Variable | `WORKER_SIMULATE_ALERT` | 普段は未設定。通知の経路の確認で一時的に `true` |
+
+Variables はステップを展開すると平文で見えるので、公開されてよい値だけを置く。失敗メールは「ワークフローを作った人」に届く（cron を編集した人に移る）。GitHub の通知設定で「失敗したときだけ」にしておく。
+
+### 6. 切り替え（深夜に、連続して行う）
+
+事前に 1〜5 を済ませ、サムネイルの 1 回目のコピー（`rclone` でローカルの S3 互換エンドポイントから本番の `thumbnails` へ。S3 キーはダッシュボードで作り、終わったら消す）と、空の本番 DB への流し込みのリハーサル（下の 3〜4 を行い、件数を見て `truncate`）をしておく。
+
+```bash
+npm run worker:down                                                   # 1. ローカルの常駐を止める
+docker exec supabase_db_instagram-analyze psql -U postgres -d postgres -c "update public.job_runs set status = 'failed', finished_at = now(), error = 'aborted: migration' where status = 'running';"   # 2. 実行中だった記録の整理
+docker exec supabase_db_instagram-analyze pg_dump -U postgres -d postgres --data-only --inserts --on-conflict-do-nothing --schema=public --exclude-table-data=public.metric_definitions > .local/r2-migration.sql   # 3. 取得データを含むので .local に
+psql -h aws-<n>-ap-northeast-1.pooler.supabase.com -p 5432 -U postgres.<project-ref> -d postgres "sslmode=verify-full sslrootcert=<CA>" -v ON_ERROR_STOP=1 --single-transaction -f .local/r2-migration.sql   # 4. 流し込み（パスワードは対話入力）
+rm .local/r2-migration.sql                                            #    終わったら消す
+# 5. サムネイルの差分コピー（rclone の 2 回目）→ S3 キーと rclone の設定を削除
+# 6. 本番の /connect で Meta に接続（トークンを Vault に登録。accounts は 4 で入っているので更新になる）
+# 7. GitHub の Variables で COLLECT_ENABLED=true → Actions の collect を「Run workflow」で 1 回 → job_runs と画面で確認
+# 8. 次の毎時 17 分（UTC）のスケジュール実行を T0 とし、7 日間の確認を始める。Healthchecks に ping が届くことを見る
+```
+
+Vault（トークン）と `private.credentials` は移さない（鍵がプロジェクトごと）。`job_state`（バックフィルの進み）は移る。
+
+### 7. ローカルへ戻す（本番がうまく動かないとき）
+
+1. GitHub の Variables で `COLLECT_ENABLED=false`（`collect` ジョブが skip になる）。
+2. ローカルの DB は 7 日間の確認が終わるまで `db reset` しない。
+3. `npm run worker:up`。欠けた日次は `npm run worker:job -- account-daily --days N`。
+
+### 8. 7 日間の確認と通知の試験
+
+項目と期待値は `doc/design/r2-cloud.md` の 10.2 章と 10.3 章。要点: `media_snapshot` の `success`／`partial` が 7 日で 168 行、隣り合う実行の間隔が 2 時間未満、`cancelled` の実行 0、`check-alerts` の行が毎回ある、Supabase の一時停止の警告メールが来ない、未ログインで全画面が `/login` へ、GitHub のログ（`gh run view <id> --log`）にトークン・`://`・10 桁の数字・ユーザー名・ref がない。通知の試験（`workflow_dispatch` の `simulate_alert`、Variable の `WORKER_SIMULATE_ALERT`、Healthchecks の使い捨てチェック）は T0 の前に行う。
+
+### 9. 運用
+
+- トークンのデータアクセス期限が 14 日を切ると daily の `check-alerts` が毎日メールを出す。本番の `/connect` で接続し直す。
+- 月 1 回、Supabase の Usage（DB、Storage、egress）と Vercel の Usage を見る。
+- 55 日目にワークフローの状態が `active` か確認する（`gh api repos/<owner>/<repo>/actions/workflows/collect.yml --jq .state`）。
+- 本番に手で SQL を流すときは `psql -h … -U …` を都度指定し、パスワードを URL や履歴に残さない。本番の接続文字列をローカルの `.env` に書かない。
+
 ## 開発用コマンド
 
 | コマンド | 内容 |
