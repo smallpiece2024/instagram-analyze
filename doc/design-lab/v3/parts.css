@@ -117,7 +117,7 @@
 .chart-label--muted { fill: var(--color-text-muted); }
 .chart-label--b { font-weight: 700; }
 .chart-ref { stroke: var(--chart-ref); stroke-dasharray: 4 3; stroke-width: 1.5; fill: none; }
-.chart-band { fill: var(--chart-ref); opacity: .12; }
+.chart-band { fill: color-mix(in oklab, #3aa6dd 22%, var(--color-surface)); }
 .chart-marker { stroke: var(--chart-marker); stroke-width: 1; }
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-dot { stroke: var(--color-surface); stroke-width: 1.5; }
@@ -126,13 +126,13 @@
 .heat-cell--none { fill: var(--color-surface-alt); }
 
 /* --- ファネル（横棒） --- */
-.funnel { display: grid; gap: 10px; }
-.funnel__row { display: grid; grid-template-columns: 8em 1fr auto; gap: 10px; align-items: center; font-size: var(--font-size-sm); }
+.funnel { display: grid; grid-template-columns: 8em 1fr auto; gap: 10px; }
+.funnel__row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; gap: 10px; align-items: center; font-size: var(--font-size-sm); }
 .funnel__bar { height: 22px; background: var(--color-surface-alt); border-radius: var(--radius); overflow: hidden; position: relative; }
 .funnel__bar i { display: block; height: 100%; background: var(--color-primary); border-radius: 0 var(--radius) var(--radius) 0; min-width: 3px; }
 .funnel__val { font-family: var(--font-num, inherit); font-weight: 700; }
 .funnel__rate { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-left: 6px; }
-@media (max-width: 700px) { .funnel__row { grid-template-columns: 6em 1fr auto; } }
+@media (max-width: 700px) { .funnel { grid-template-columns: 6em 1fr auto; } }
 
 /* --- 進捗（トークン期限） --- */
 .progress { height: 8px; background: var(--color-surface-alt); border-radius: var(--radius-pill); overflow: hidden; }
@@ -168,3 +168,10 @@
 .toolbar .tools { display: flex; gap: var(--space); flex-wrap: wrap; }
 .table code { font-family: var(--font-num, inherit); font-size: var(--font-size-xs); background: var(--color-surface-alt); padding: 1px 6px; border-radius: var(--radius); }
 .dl dd .status { vertical-align: middle; }
+
+/* パンくずリスト。ページ見出しの上に置く。区切りは本文と同じ大きさの山形の線 */
+.crumbs ol { display: flex; flex-wrap: wrap; align-items: center; list-style: none; margin: 0 0 calc(var(--space) * 1.5); padding: 0; font-size: var(--font-size-sm); }
+.crumbs li { display: inline-flex; align-items: center; }
+.crumbs li + li::before { content: ""; width: 7px; height: 7px; margin: 0 10px 0 6px; border-top: 1.5px solid var(--color-text-muted); border-right: 1.5px solid var(--color-text-muted); transform: rotate(45deg); }
+.crumbs a { color: var(--color-link); text-decoration: underline; text-underline-offset: 3px; }
+.crumbs [aria-current="page"] { color: var(--color-text); }

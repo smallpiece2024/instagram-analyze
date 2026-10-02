@@ -23,6 +23,12 @@
     var arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "±";
     return '<span class="delta" data-dir="' + dir + '">' + arrow + " " + (r > 0 ? "+" : "") + (r * 100).toFixed(1) + "%</span>";
   }
+  function deltaPt(cur, prev) {
+    var d = (cur - prev) * 100;
+    var dir = Math.abs(d) < 0.05 ? "flat" : d > 0 ? "up" : "down";
+    var arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "±";
+    return '<span class="delta" data-dir="' + dir + '">' + arrow + " " + (d > 0 ? "+" : "") + d.toFixed(1) + " pt</span>";
+  }
   function tag(type) { return '<span class="tag" data-type="' + type + '"><i></i>' + TYPE[type].label + "</span>"; }
   function thumb(p, cls) { return '<span class="thumb' + (cls ? " " + cls : "") + '" data-type="' + p.type + '" style="--hue:' + p.hue + '">' + (p.type === "reel" ? "▶" : p.type === "carousel" ? "▣" : "") + "</span>"; }
   function card(title, body, o) {
@@ -31,8 +37,8 @@
       (title ? '<div class="card__head"><h2>' + title + "</h2>" + (o.sub ? '<span class="card__sub">' + o.sub + "</span>" : "") + "</div>" : "") +
       body + (o.foot ? '<div class="card__foot">' + o.foot + "</div>" : "") + "</section>";
   }
-  function kpi(label, value, deltaHtml, denom, unit) {
-    return '<div class="card kpi"><div class="kpi__label">' + label + '</div><div class="kpi__value">' + value + (unit ? "<small>" + unit + "</small>" : "") + "</div>" +
+  function kpi(label, value, deltaHtml, denom, unit, hint) {
+    return '<div class="card kpi"><div class="kpi__label"' + (hint ? ' title="' + esc(hint) + '" style="cursor:help;text-decoration:underline dotted"' : "") + '>' + label + '</div><div class="kpi__value">' + value + (unit ? "<small>" + unit + "</small>" : "") + "</div>" +
       '<div class="kpi__delta">' + (deltaHtml || "") + (denom ? '<span class="kpi__denom">' + denom + "</span>" : "") + "</div></div>";
   }
   function legend(items) {
@@ -54,7 +60,7 @@
 
   // 折れ線。series: [{ values, color, label, dashed, dots, endLabel }]、labels: x のラベル、markers: 縦線を引く index、band: [下側[], 上側[]]
   function lineChart(o) {
-    var w = o.w, h = o.h || 200, m = { t: 16, r: 14, b: 26, l: 44 };
+    var w = o.w, h = o.h || 200, m = { t: 16, r: o.align ? 8 : 14, b: 26, l: 44 };
     var iw = w - m.l - m.r, ih = h - m.t - m.b;
     var all = [];
     o.series.forEach(function (s) { all = all.concat(s.values.filter(function (v) { return v != null; })); });
@@ -62,16 +68,17 @@
     var min = o.min != null ? o.min : 0;
     var max = o.max || niceMax(Math.max.apply(null, all) * 1.08);
     var N = o.labels.length;
-    var x = function (i) { return m.l + (N > 1 ? iw * i / (N - 1) : iw / 2); };
+    var x = o.align ? function (i) { return m.l + iw / N * i + iw / N / 2; } : function (i) { return m.l + (N > 1 ? iw * i / (N - 1) : iw / 2); };
     var y = function (v) { return m.t + ih - ih * (v - min) / (max - min); };
     var s = svgOpen(w, h) + '<g class="chart-grid">';
     ticks(max - min, 4).forEach(function (t) { var yy = y(t + min); s += '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + yy + '" y2="' + yy + '"/>'; });
     s += '</g><g class="chart-axis">';
-    ticks(max - min, 4).forEach(function (t) { s += '<text x="' + (m.l - 6) + '" y="' + (y(t + min) + 4) + '" text-anchor="end">' + fmtAxis(t + min) + "</text>"; });
-    var step = Math.max(1, Math.ceil(N / Math.max(2, Math.floor(iw / 56))));
-    o.labels.forEach(function (l, i) { if (i % step === 0 || (N <= 8 && i === N - 1)) s += '<text x="' + x(i) + '" y="' + (h - 6) + '" text-anchor="middle">' + l + "</text>"; });
+    ticks(max - min, 4).forEach(function (t) { s += '<text x="' + (m.l - 6) + '" y="' + (y(t + min) + 4) + '" text-anchor="end">' + (o.yFmt ? o.yFmt(t + min) : fmtAxis(t + min)) + "</text>"; });
+    var step = Math.max(1, Math.ceil(N / Math.max(2, Math.floor(iw / (o.align ? 44 : 56)))));
+    o.labels.forEach(function (l, i) { if (i % step === 0 || (!o.align && N <= 8 && i === N - 1)) s += '<text x="' + x(i) + '" y="' + (h - 6) + '" text-anchor="middle">' + l + "</text>"; });
     s += "</g>";
     (o.markers || []).forEach(function (i) { s += '<line class="chart-marker" x1="' + x(i) + '" x2="' + x(i) + '" y1="' + m.t + '" y2="' + (m.t + ih) + '"/>'; });
+    if (o.align) (o.markers || []).forEach(function (i) { s += '<path d="M' + x(i).toFixed(1) + " " + (m.t + ih + 2) + 'l-3 5h6z" fill="var(--chart-marker)"/>'; });
     if (o.band) {
       var up = o.band[1].map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); });
       var lo = o.band[0].map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).reverse();
@@ -100,7 +107,7 @@
       s += '<g class="chart-grid">';
       ticks(max, 4).forEach(function (t) { s += '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>'; });
       s += '</g><g class="chart-axis">';
-      ticks(max, 4).forEach(function (t) { s += '<text x="' + (m.l - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + fmtAxis(t) + "</text>"; });
+      ticks(max, 4).forEach(function (t) { s += '<text x="' + (m.l - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + (o.fmt ? o.fmt(t) : fmtAxis(t)) + "</text>"; });
       s += "</g>";
     } else {
       s += '<g class="chart-axis"><line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + (m.t + ih) + '" y2="' + (m.t + ih) + '"/></g>';
@@ -116,9 +123,9 @@
       var x = m.l + slot * i + (slot - bw) / 2, hgt = ih * v / max;
       var col = o.colors ? o.colors[i] : o.color;
       var dim = o.dim && o.dim.indexOf(i) >= 0;
-      if (v > 0) s += '<path d="' + barV(x, y(v), bw, hgt, 4) + '" fill="' + col + '"' + (dim ? ' opacity=".35"' : "") + "><title>" + o.labels[i] + ": " + (o.fmt ? o.fmt(o.values[i]) : n(o.values[i])) + "</title></path>";
+      if (v > 0) s += '<path d="' + barV(x, y(v), bw, hgt, 4) + '" fill="' + col + '"' + (dim ? ' opacity=".35"' : "") + "><title>" + (o.tips ? o.tips[i] : o.labels[i] + ": " + (o.fmt ? o.fmt(o.values[i]) : n(o.values[i]))) + "</title></path>";
       else if (o.values[i] == null) s += '<text class="chart-label chart-label--muted" x="' + (x + bw / 2).toFixed(1) + '" y="' + (m.t + ih - 6) + '" text-anchor="middle">—</text>';
-      if (o.valueLabels === "all" || (o.valueLabels && o.valueLabels.indexOf(i) >= 0)) s += '<text class="chart-label" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y(v) - 5).toFixed(1) + '" text-anchor="middle">' + (o.fmt ? o.fmt(o.values[i]) : n(o.values[i])) + "</text>";
+      if (o.valueLabels === "all" || (o.valueLabels && o.valueLabels.indexOf(i) >= 0)) s += '<text class="chart-label' + (o.boldLabels ? " chart-label--b" : "") + '" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y(v) - 5).toFixed(1) + '" text-anchor="middle">' + (o.fmt ? o.fmt(o.values[i]) : n(o.values[i])) + "</text>";
     });
     (o.markers || []).forEach(function (i) { s += '<path d="M' + (m.l + slot * i + slot / 2).toFixed(1) + " " + (m.t + ih + 2) + 'l-3 5h6z" fill="var(--chart-marker)"/>'; });
     return s + "</svg>";
@@ -195,7 +202,7 @@
   function cutTimeline(o) {
     var w = o.w, m = { l: 6, r: 6 }, iw = w - m.l - m.r, len = o.lenMs;
     var x = function (ms) { return m.l + iw * ms / len; };
-    var rulerY = 14, sceneY = 26, sceneH = 18, textY = 62, textH = 14, h = textY + textH + 26;
+    var rulerY = 14, sceneY = 26, sceneH = 18, textY = 52, textH = 14, h = textY + textH + 26;
     var s = svgOpen(w, h) + '<g class="chart-axis">';
     for (var t = 0; t <= len; t += 5000) s += '<line x1="' + x(t).toFixed(1) + '" x2="' + x(t).toFixed(1) + '" y1="' + (rulerY - 4) + '" y2="' + rulerY + '"/><text x="' + x(t).toFixed(1) + '" y="' + (rulerY - 6) + '" text-anchor="middle">' + (t / 1000) + "s</text>";
     s += '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + rulerY + '" y2="' + rulerY + '"/></g>';
@@ -205,7 +212,7 @@
       s += '<rect x="' + a.toFixed(1) + '" y="' + sceneY + '" width="' + Math.max(0, b - a - 2).toFixed(1) + '" height="' + sceneH + '" rx="3" fill="' + o.color + '" opacity="' + (i % 2 ? ".55" : ".85") + '"><title>シーン ' + (i + 1) + ": " + ((cuts[i + 1] - cuts[i]) / 1000).toFixed(1) + " 秒</title></rect>";
     }
     o.cuts.forEach(function (c, i) { if (i) s += '<path d="M' + x(c).toFixed(1) + " " + (sceneY - 2) + 'l-3 -5h6z" fill="var(--color-text)"/>'; });
-    s += '<text class="chart-label chart-label--muted" x="' + m.l + '" y="' + (sceneY + sceneH + 12) + '">大きな画面変化 ' + (o.cuts.length - 1) + " 回・平均シーン長 " + (len / 1000 / o.cuts.length).toFixed(1) + " 秒</text>";
+    
     o.texts.forEach(function (tx, i) {
       var a = x(tx.start), b = x(tx.end);
       var ly = textY + textH + 12 + (i % 2) * 12;
@@ -244,31 +251,29 @@
     var head = pageHead("概要", D.period.label + "（" + D.period.from + " 〜 " + D.period.to + "）・最終更新 " + dtFull(D.updatedAt),
       '<span class="select">過去 30 日</span><span class="select">前の 30 日と比較</span><span class="btn btn--ghost">CSV</span>');
     var kpis = '<div class="kpis">' +
-      kpi("リーチ", n(K.reach.cur), delta(K.reach.cur, K.reach.prev), "前期 " + n(K.reach.prev)) +
-      kpi("閲覧数", n(K.views.cur), delta(K.views.cur, K.views.prev), "前期 " + n(K.views.prev)) +
-      kpi("フォロワー純増", "+" + n(K.followerGain.cur), delta(K.followerGain.cur, K.followerGain.prev), "現在 " + n(D.account.followers)) +
-      kpi("エンゲージメント率", pct(K.engagementRate.cur, 2), delta(K.engagementRate.cur, K.engagementRate.prev), "分母: リーチ") +
-      kpi("保存率", pct(K.saveRate.cur, 2), delta(K.saveRate.cur, K.saveRate.prev), "分母: リーチ・目安 2〜3%") +
-      kpi("プロフィール訪問（参考）", n(K.profileVisits.cur), delta(K.profileVisits.cur, K.profileVisits.prev), "フィードとストーリーズの投稿単位の合計") +
+      kpi("リーチ", n(K.reach.cur), delta(K.reach.cur, K.reach.prev), "前期 " + n(K.reach.prev), null, "リーチ = 期間中に投稿やストーリーズを見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）") +
+      kpi("閲覧数", n(K.views.cur), delta(K.views.cur, K.views.prev), "前期 " + n(K.views.prev), null, "閲覧数 = 投稿やストーリーズが表示された回数。同じ人が何度見ても数える（2025-04-21 から views に統一）") +
+      kpi("フォロワー純増", "+" + n(K.followerGain.cur), delta(K.followerGain.cur, K.followerGain.prev), "現在 " + n(D.account.followers), null, "フォロワー純増 = 期間中にフォローされた数 − フォローを外された数") +
+      kpi("エンゲージメント率", pct(K.engagementRate.cur, 2), deltaPt(K.engagementRate.cur, K.engagementRate.prev), "分母: リーチ", null, "エンゲージメント率 = (いいね + コメント + 保存 + シェア) ÷ リーチ") +
+      kpi("保存率", pct(K.saveRate.cur, 2), deltaPt(K.saveRate.cur, K.saveRate.prev), "分母: リーチ・目安 2〜3%", null, "保存率 = 保存 ÷ リーチ") +
+      kpi("プロフィール訪問（参考）", n(K.profileVisits.cur), delta(K.profileVisits.cur, K.profileVisits.prev), "フィードとストーリーズの投稿単位の合計", null, "プロフィール訪問（参考） = フィードとストーリーズの投稿からプロフィールに来た数の合計。リールからの訪問とアカウント全体の訪問は API で取れないため含まない") +
       "</div>";
     var w8 = ctx.cw(8), w4 = ctx.cw(4);
     var reachMax = D.daily.reach.indexOf(Math.max.apply(null, D.daily.reach));
-    var trend = card("日次推移",
-      legend([{ label: "リーチ（日次）", color: "var(--chart-1)" }, { label: "▲ 投稿日", kind: "line", color: "transparent" }]) +
-      '<div class="chart">' + vbars({ w: w8, h: 170, values: D.daily.reach, labels: labels, color: "var(--chart-1)", markers: postIdx, valueLabels: [reachMax] }) + "</div>" +
-      '<p class="small muted">フォロワー数</p><div class="chart">' + lineChart({ w: w8, h: 130, labels: labels, min: 1800, max: 2000, markers: postIdx, series: [{ values: D.daily.followers, color: "var(--chart-1)", label: "フォロワー数", endLabel: n(D.account.followers) }] }) + "</div>",
-      { sub: "日付は米国太平洋時間の区切り", foot: "▲ は投稿のあった日（日本時間）。" });
-    var fun = card("ファネル", funnel(D.funnel), { sub: "期間の合計", foot: "アカウント単位のプロフィール訪問は API にないため、ファネルには入れていない。" });
+    var trend = card("リーチとフォロワー数の日次推移",
+      '<p class="small muted">リーチ</p><div class="chart">' + vbars({ w: w8, h: 170, values: D.daily.reach, labels: labels, color: "var(--chart-1)", markers: postIdx, valueLabels: [reachMax], boldLabels: true }) + "</div>" +
+      '<p class="small muted" style="margin-top:24px">フォロワー数</p><div class="chart">' + lineChart({ w: w8, h: 130, align: true, labels: labels, min: 1800, max: 2000, markers: postIdx, series: [{ values: D.daily.followers, color: "var(--chart-1)", label: "フォロワー数", endLabel: n(D.account.followers) }] }) + "</div>",
+      { foot: '<span style="color:var(--chart-marker)">▲</span> は投稿のあった日' });
     var rows = [
       { label: "投稿数", parts: D.byType.map(function (t) { return { type: t.type, value: t.posts }; }) },
       { label: "リーチ", parts: D.byType.map(function (t) { return { type: t.type, value: t.reach }; }) },
       { label: "保存", parts: D.byType.filter(function (t) { return t.type !== "story"; }).map(function (t) { return { type: t.type, value: t.saves }; }) }
     ];
     var types = card("投稿の種類の内訳", typeLegend() + '<div class="chart">' + stacked100({ w: w4, rows: rows }) + "</div>" +
-      '<div class="table-wrap"><table class="table"><thead><tr><th>種類</th><th class="num">投稿</th><th class="num">リーチ</th><th class="num">保存</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table class="table"><thead><tr><th>種類</th><th class="num">投稿</th><th class="num" title="リーチ = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）" style="cursor:help;text-decoration:underline dotted">リーチ</th><th class="num" title="保存 = 保存された数" style="cursor:help;text-decoration:underline dotted">保存</th></tr></thead><tbody>' +
       D.byType.map(function (t) { return "<tr><td>" + tag(t.type) + '</td><td class="num">' + n(t.posts) + '</td><td class="num">' + n(t.reach) + '</td><td class="num">' + (t.type === "story" ? "—" : n(t.saves)) + "</td></tr>"; }).join("") +
       "</tbody></table></div>", { foot: "ストーリーズの保存は API にない。" });
-    return head + kpis + '<div class="grid"><div class="col-8">' + trend + '</div><div class="col-4 stack">' + fun + types + "</div></div>" + note(PT_NOTE);
+    return head + kpis + '<div class="grid"><div class="col-8">' + trend + '</div><div class="col-4 stack">' + types + "</div></div>" + note(PT_NOTE);
   };
 
   // ---------- 起動 ----------
@@ -311,124 +316,345 @@
   var D = window.LAB_DATA, P = window.LAB_P, S = P.SCREENS;
   var n = P.n, pct = P.pct, esc = P.esc, tag = P.tag, card = P.card, note = P.note, legend = P.legend;
   function hash() { return (typeof location !== "undefined" && location.hash) || ""; }
+  // 投稿したときのフォロワー数（見本用の近似。現在の数から投稿日までの日数で減らす）
+  function folAt(p) { var days = (Date.parse("2026-10-01") - Date.parse(p.at.slice(0, 10))) / 864e5; return Math.round(1948 - days * 2.4); }
+  function reachRate(p) { return p.reach / folAt(p); }
   function er(p) { return (p.likes + p.comments + p.saves + p.shares) / p.reach; }
   function q75(arr) { var a = arr.slice().sort(function (x, y) { return x - y; }); return a[Math.min(a.length - 1, Math.floor(a.length * 0.75))]; }
+  function q25(arr) { var a = arr.slice().sort(function (x, y) { return x - y; }); return a[Math.floor(a.length * 0.25)]; }
+  // 投稿詳細の上のカード（量の指標）。値の下に、同じ種類の投稿の中央値と 25〜75% の範囲を添える。取れない項目は「—」。
+  function qtyTiles(p, peers) {
+    var HS = ' style="cursor:help;text-decoration:underline dotted"';
+    var items = [
+      ["リーチ", "reach", n, "リーチ = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）"],
+      ["閲覧数", "views", n, "閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える"],
+      ["いいね", "likes", n, "いいね = いいねされた数"],
+      ["保存", "saves", n, "保存 = 保存された数"],
+      ["シェア", "shares", n, "シェア = シェアされた数"],
+      ["プロフィール訪問", "pv", n, "プロフィール訪問 = この投稿からプロフィールに来た数。リールは API で取れない（—）"],
+      ["フォロー", "follows", n, "フォロー = この投稿からフォローした数。リールは API で取れない（—）"],
+      ["平均視聴時間", "watch", P.sec, "平均視聴時間 = 1 回の再生あたりの平均の視聴時間。リールだけ取れる"]
+    ];
+    return items.map(function (it) {
+      var v = p[it[1]], f = it[2];
+      var vals = peers.map(function (t) { return t[it[1]]; }).filter(function (x) { return x != null; });
+      var SM = '<small style="display:block;color:var(--color-text-muted);font-size:var(--font-size-xs)">';
+      var cmp = vals.length ? SM + "中央値: " + f(P.median(vals)) + "</small>" + SM + "25〜75%: " + f(q25(vals)) + "〜" + f(q75(vals)) + "</small>" : SM + "中央値: —</small>" + SM + "25〜75%: —</small>";
+      return '<div><span title="' + esc(it[3] + "。下の小さな数字は、同じ種類の投稿の中央値と 25〜75% の範囲") + '"' + HS.replace('style="', 'style="display:block;margin-bottom:6px;') + ">" + it[0] + "</span><b style=\"margin-bottom:6px\">" + (v == null ? '<span class="dim">—</span>' : f(v)) + "</b>" + cmp + "</div>";
+    }).join("");
+  }
   function table(head, rows, foot) { return '<div class="table-wrap"><table class="table"><thead><tr>' + head + "</tr></thead><tbody>" + rows + "</tbody>" + (foot ? "<tfoot>" + foot + "</tfoot>" : "") + "</table></div>"; }
 
   // ---------- 投稿一覧 ----------
   S["media-list"] = function (ctx) {
     var posts = D.posts;
-    var head = P.pageHead("投稿一覧", "全 " + n(D.account.mediaCount) + " 件のうち直近 " + posts.length + " 件・最終更新 " + P.dtFull(D.updatedAt), '<span class="btn btn--ghost">CSV</span>');
-    var filters = '<div class="chips"><span class="chip" aria-pressed="true">すべて</span><span class="chip">フィード</span><span class="chip">カルーセル</span><span class="chip">リール</span><span class="chip">コラボ・ブーストを除く</span></div>';
+    var head = P.pageHead("投稿一覧", "全 " + n(D.account.mediaCount) + " 件・最終更新 " + P.dtFull(D.updatedAt), '<span class="btn btn--ghost">CSV</span>');
+    var filters = '';
     var sorts = '<div class="tools"><span class="select">並べ替え: 投稿日時（新しい順）</span><span class="select">期間: 過去 90 日</span></div>';
-    var th = '<th></th><th>投稿</th><th>種類</th><th aria-sort="descending">投稿日時</th><th class="num">リーチ</th><th class="num hide-m">閲覧数</th><th class="num hide-m">いいね</th><th class="num">保存</th><th class="num">保存率</th><th class="num">シェア率</th><th class="num">ER</th><th class="num hide-m">プロフ訪問</th>';
+    var th = '<th></th><th>投稿</th><th>種類</th><th aria-sort="descending">投稿日時</th><th class="num">リーチ</th><th class="num hide-m" title="閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える" style="cursor:help;text-decoration:underline dotted">閲覧数</th><th class="num hide-m" title="いいね = いいねされた数" style="cursor:help;text-decoration:underline dotted">いいね</th><th class="num">保存</th><th class="num" title="保存率 = 保存 ÷ リーチ" style="cursor:help;text-decoration:underline dotted">保存率</th><th class="num" title="シェア率 = シェア ÷ リーチ" style="cursor:help;text-decoration:underline dotted">シェア率</th><th class="num" title="ER（エンゲージメント率） = (いいね + コメント + 保存 + シェア) ÷ リーチ" style="cursor:help;text-decoration:underline dotted">ER</th><th class="num hide-m" title="プロフ訪問 = この投稿からプロフィールに来た数。リールは API で取れない（—）" style="cursor:help;text-decoration:underline dotted">プロフ訪問</th>';
     var rows = posts.map(function (p) {
-      return "<tr><td>" + P.thumb(p) + '</td><td class="title"><a href="media-detail.html' + hash() + '">' + esc(p.title) + "</a></td><td>" + tag(p.type) + '</td><td class="nowrap small">' + P.dt(p.at) + '</td><td class="num">' + n(p.reach) +
+      return "<tr><td><a href=\"media-detail.html" + hash() + "\">" + P.thumb(p) + '</a></td><td class="title"><a href="media-detail.html' + hash() + '">' + esc(p.title) + "</a></td><td>" + tag(p.type) + '</td><td class="nowrap small">' + P.dt(p.at) + '</td><td class="num">' + n(p.reach) +
         '</td><td class="num hide-m">' + n(p.views) + '</td><td class="num hide-m">' + n(p.likes) + '</td><td class="num">' + n(p.saves) + '</td><td class="num">' + pct(p.saves / p.reach) + '</td><td class="num">' + pct(p.shares / p.reach) + '</td><td class="num">' + pct(er(p)) +
         '</td><td class="num hide-m">' + (p.pv == null ? '<span class="dim">—</span>' : n(p.pv)) + "</td></tr>";
     }).join("");
     var cards = '<div class="only-m media-cards">' + posts.map(function (p) {
-      return '<div class="media-card">' + P.thumb(p) + '<div><div class="media-card__meta">' + tag(p.type) + "<span>" + P.dt(p.at) + '</span></div><div class="media-card__title">' + esc(p.title) + '</div><div class="media-card__nums"><div><b>' + n(p.reach) + "</b><span>リーチ</span></div><div><b>" + n(p.saves) + "</b><span>保存</span></div><div><b>" + pct(p.saves / p.reach) + "</b><span>保存率</span></div><div><b>" + pct(er(p)) + "</b><span>ER</span></div></div></div></div>";
+      return '<div class="media-card"><a href="media-detail.html' + hash() + '">' + P.thumb(p) + '</a><div><div class="media-card__meta">' + tag(p.type) + "<span>" + P.dt(p.at) + '</span></div><div class="media-card__title"><a href="media-detail.html' + hash() + '">' + esc(p.title) + '</a></div><div class="media-card__nums"><div><b>' + n(p.reach) + "</b><span title=\"リーチ = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）\" style=\"cursor:help;text-decoration:underline dotted\">リーチ</span></div><div><b>" + n(p.saves) + "</b><span>保存</span></div><div><b>" + pct(p.saves / p.reach) + "</b><span>保存率</span></div><div><b>" + pct(er(p)) + "</b><span>ER</span></div></div></div></div>";
     }).join("") + "</div>";
-    return head + '<div class="toolbar">' + filters + sorts + "</div>" + card(null, '<div class="only-d">' + table(th, rows) + "</div>" + cards, { foot: "率の分母はリーチ。ER = (いいね＋コメント＋保存＋シェア) ÷ リーチ。プロフィール訪問はリールでは取れない（—）。並べ替えと絞り込みは見た目だけ。" });
+    return head + '<div class="toolbar">' + filters + sorts + "</div>" + card(null, '<div class="only-d">' + table(th, rows) + "</div>" + cards) + '<nav class="pager" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;margin-top:calc(var(--space) * 2)"><span class="btn btn--ghost" style="opacity:.4">‹ 前へ</span><span class="btn" aria-current="page">1</span><span class="btn btn--ghost">2</span><span class="btn btn--ghost">3</span><span class="muted">…</span><span class="btn btn--ghost">24</span><span class="btn btn--ghost">次へ ›</span><span class="small muted" style="width:100%;text-align:center">1〜50 件目（全 1,186 件）</span></nav>';
   };
 
   // ---------- 投稿詳細 ----------
   S["media-detail"] = function (ctx) {
     var p = D.posts[0], G = D.growth, T = D.reelTimeline;
     var reels = D.posts.filter(function (t) { return t.type === "reel"; });
-    var head = P.pageHead("投稿詳細", '<a href="media-list.html' + hash() + '">投稿一覧</a> › ' + esc(p.title));
+    var head = '<nav class="crumbs" aria-label="パンくずリスト"><ol><li><a href="media-list.html' + hash() + '">投稿一覧</a></li><li aria-current="page">' + esc(p.title) + "</li></ol></nav>" + P.pageHead("投稿詳細", "");
     var top = card(null, '<div class="detail-head">' + P.thumb(p, "thumb--lg") + '<div class="detail-head__body"><div class="media-card__meta">' + tag(p.type) + "<span>" + P.dtFull(p.at) + " 投稿</span><span>長さ " + p.len + " 秒</span><span>最終更新 " + P.dtFull(D.updatedAt) + "</span></div><h2>" + esc(p.title) + '</h2><p class="caption">今朝入った新豆を焙煎。火入れの瞬間と、1 ハゼまでの音を 28 秒で。（架空のキャプション）</p>' +
-      '<div class="metrics-row"><div><b>' + n(p.reach) + "</b><span>リーチ</span></div><div><b>" + n(p.views) + "</b><span>閲覧数</span></div><div><b>" + n(p.likes) + "</b><span>いいね（" + pct(p.likes / p.reach) + "）</span></div><div><b>" + n(p.saves) + "</b><span>保存（" + pct(p.saves / p.reach) + "）</span></div><div><b>" + n(p.shares) + "</b><span>シェア（" + pct(p.shares / p.reach) + "）</span></div><div><b>" + P.sec(p.watch) + "</b><span>平均視聴時間</span></div><div><b>" + pct(p.watch / p.len, 0) + "</b><span>視聴維持率</span></div><div><b>" + pct(p.skip, 0) + "</b><span>スキップ率</span></div></div></div></div>",
-      { foot: "リールは API でプロフィール訪問とフォローが取れないため、視聴系の指標を表示する。" });
+      "</div></div>",
+      {});
     var w6 = ctx.cw(6);
-    var growth = card("投稿後の伸び方（リーチ）",
-      legend([{ label: "この投稿", color: P.chartColor("reel") }, { label: "リールの中央値", kind: "dash" }, { label: "25〜75% の範囲", color: "color-mix(in oklab, var(--chart-ref) 25%, var(--color-surface))" }]) +
-      '<div class="chart">' + P.lineChart({ w: w6, h: 220, labels: G.steps, band: [G.p25Reel, G.p75Reel], bandLabel: "リールの 25〜75%", series: [{ values: G.medianReel, dashed: true, label: "リールの中央値" }, { values: G.reach, color: P.chartColor("reel"), label: "この投稿", dots: true, endLabel: n(G.reach[5]) }] }) + "</div>",
-      { sub: "同じ種類（リール " + reels.length + " 件）との比較", foot: "7 日時点で中央値の " + (G.reach[5] / G.medianReel[5]).toFixed(2) + " 倍。横軸は収集の時点（1h〜7d。90 日まで続く）。" });
-    function cmpRow(label, mine, f, lowerIsBetter) {
-      var med = P.median(reels.map(f)), hi = q75(reels.map(f));
-      var good = lowerIsBetter ? mine <= med : mine >= med;
-      return "<tr><td>" + label + '</td><td class="num"><b>' + pct(mine) + '</b></td><td class="num">' + pct(med) + '</td><td class="num">' + pct(hi) + '</td><td><span class="delta" data-dir="' + (good ? "up" : "down") + '">' + (good ? "中央値以上" : "中央値未満") + "</span></td></tr>";
+    var growth = card("リーチの伸び方",
+      legend([{ label: "この投稿", color: P.chartColor("reel") }, { label: "中央値", kind: "dash" }, { label: "25〜75% の範囲", color: "color-mix(in oklab, #3aa6dd 22%, var(--color-surface))" }]) +
+      '<div class="metrics-row" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 var(--gap)"><div><span style="display:block">中央値に対する倍率</span><b>' + (G.reach[5] / G.medianReel[5]).toFixed(1) + ' 倍</b></div><div><span style="display:block">全体の順位</span><b>上位 ' + Math.max(1, Math.round(reels.filter(function (t) { return t.reach >= p.reach; }).length / reels.length * 100)) + '%</b></div></div>' +
+      '<div class="chart">' + P.lineChart({ w: ctx.cw(12), h: 220, labels: G.steps, band: [G.p25Reel, G.p75Reel], bandLabel: "25〜75%", series: [{ values: G.medianReel, dashed: true, label: "中央値" }, { values: G.reach, color: P.chartColor("reel"), label: "この投稿", dots: true, endLabel: n(G.reach[5]) }] }) + "</div>",
+      {});
+    // 質の指標を、行ごとの目盛の帯グラフで比べる。線は最小〜最大、帯は 25〜75%、縦線は中央値、点はこの投稿。右ほどよい側（スキップ率は向きを逆にする）。
+    var DEF = {
+      "リーチ": "リーチ = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）",
+      "閲覧数": "閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える",
+      "いいね": "いいね = いいねされた数",
+      "保存": "保存 = 保存された数",
+      "シェア": "シェア = シェアされた数",
+      "プロフィール訪問": "プロフィール訪問 = この投稿からプロフィールに来た数。リールは API で取れない",
+      "フォロー": "フォロー = この投稿からフォローした数。リールは API で取れない",
+      "平均視聴時間": "平均視聴時間 = 1 回の再生あたりの平均の視聴時間。リールだけ取れる",
+      "リーチ率": "リーチ率 = 7 日時点のリーチ ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値",
+      "保存率": "保存率 = 保存 ÷ リーチ",
+      "シェア率": "シェア率 = シェア ÷ リーチ",
+      "いいね率": "いいね率 = いいね ÷ リーチ",
+      "ER": "ER（エンゲージメント率） = (いいね + コメント + 保存 + シェア) ÷ リーチ",
+      "視聴維持率": "視聴維持率 = 平均視聴時間 ÷ 動画の長さ。リールだけ取れる",
+      "スキップ率": "スキップ率 = 再生の最初の 3 秒以内に次へ進まれた割合。低いほどよい。リールだけ取れる"
+    };
+    function nameCell(label) { return '<span class="small" title="' + esc(DEF[label] || "") + '" style="cursor:help;text-decoration:underline dotted">' + label + "</span>"; }
+    function cmpRow(label, mine, f, lowerIsBetter, fmt) {
+      var pct = fmt || P.pct;
+      var vals = reels.map(f).filter(function (v) { return v != null && !isNaN(v); });
+      if (mine == null || !vals.length) return '<div style="display:grid;grid-column:1 / -1;grid-template-columns:subgrid;align-items:center;padding:4px 0">' + nameCell(label) + '<b class="num dim" style="text-align:right">—</b><span class="small" style="color:var(--color-text-muted);opacity:.7">（この種類では取れない）</span></div>';
+      var med = P.median(vals), lo = q25(vals), hi = q75(vals);
+      var mn = Math.min.apply(null, vals.concat([mine])), mx = Math.max.apply(null, vals.concat([mine]));
+      var W = Math.max(140, w6 - 210), H = 28, pad = 8;
+      var x = function (v) { var r = (v - mn) / ((mx - mn) || 1); if (lowerIsBetter) r = 1 - r; return (pad + r * (W - pad * 2)).toFixed(1); };
+      var a = x(lo), b = x(hi), left = Math.min(a, b), wid = Math.abs(b - a);
+      var tip = esc("下位 25%: " + pct(lo) + "\n中央値: " + pct(med) + "\n上位 25%: " + pct(hi));
+      var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + tip + '"><title>' + tip + "</title>" +
+        '<line x1="' + x(mn) + '" x2="' + x(mx) + '" y1="14" y2="14" stroke="var(--chart-grid)" stroke-width="2"/>' +
+        '<rect x="' + left + '" y="7" width="' + wid.toFixed(1) + '" height="14" rx="3" fill="color-mix(in oklab, #3aa6dd 22%, var(--color-surface))"/>' +
+        '<line x1="' + x(med) + '" x2="' + x(med) + '" y1="4" y2="24" class="chart-ref"/>' +
+        '<circle cx="' + x(mine) + '" cy="14" r="5" fill="' + P.chartColor("reel") + '" stroke="var(--color-surface)" stroke-width="2"/></svg>';
+      return '<div style="display:grid;grid-column:1 / -1;grid-template-columns:subgrid;align-items:center;padding:4px 0">' + nameCell(label) + '<b class="num" style="text-align:right">' + pct(mine) + "</b>" + svg + "</div>";
     }
-    var cmp = card("同じ種類との比較", table("<th>指標</th><th class=\"num\">この投稿</th><th class=\"num\">中央値</th><th class=\"num\">上位 25%</th><th></th>",
+    var GH = function (s) { return '<p class="small muted" style="margin:12px 0 2px;font-weight:700">' + s + "</p>"; };
+    var LEG = legend([{ label: "この投稿", color: P.chartColor("reel") }, { label: "中央値", kind: "dash" }, { label: "25〜75% の範囲", color: "color-mix(in oklab, #3aa6dd 22%, var(--color-surface))" }]);
+    var qtyCard = card("量の指標", LEG + '<div style="display:grid;grid-template-columns:max-content max-content 1fr;column-gap:12px">' + 
+      cmpRow("リーチ", p.reach, function (t) { return t.reach; }, false, n) +
+      cmpRow("閲覧数", p.views, function (t) { return t.views; }, false, n) +
+      cmpRow("いいね", p.likes, function (t) { return t.likes; }, false, n) +
+      cmpRow("保存", p.saves, function (t) { return t.saves; }, false, n) +
+      cmpRow("シェア", p.shares, function (t) { return t.shares; }, false, n) +
+      cmpRow("プロフィール訪問", p.pv, function (t) { return t.pv; }, false, n) +
+      cmpRow("フォロー", p.follows, function (t) { return t.follows; }, false, n) +
+      cmpRow("平均視聴時間", p.watch, function (t) { return t.watch; }, false, P.sec) + "</div>");
+    var qualCard = card("質の指標", LEG + '<div style="display:grid;grid-template-columns:max-content max-content 1fr;column-gap:12px">' + 
+      cmpRow("リーチ率", reachRate(p), reachRate, false, function (v) { return P.pct(v, 0); }) +
       cmpRow("保存率", p.saves / p.reach, function (t) { return t.saves / t.reach; }) +
       cmpRow("シェア率", p.shares / p.reach, function (t) { return t.shares / t.reach; }) +
       cmpRow("いいね率", p.likes / p.reach, function (t) { return t.likes / t.reach; }) +
       cmpRow("ER", er(p), er) +
       cmpRow("視聴維持率", p.watch / p.len, function (t) { return t.watch / t.len; }) +
-      cmpRow("スキップ率", p.skip, function (t) { return t.skip; }, true)),
-      { sub: "リール " + reels.length + " 件・率の分母はリーチ", foot: "平均ではなく中央値と上位 25% で比べる（一部のバズ投稿に引っ張られないため）。スキップ率は低いほどよい。" });
+      cmpRow("スキップ率", p.skip, function (t) { return t.skip; }, true) + "</div>",
+      { foot: "右ほどよい。スキップ率は低いほどよいので、向きを逆にしている。" });
     var textTotal = T.texts.reduce(function (a, t) { return a + (t.end - t.start); }, 0);
+    var HS3 = ' style="display:block;cursor:help;text-decoration:underline dotted"';
+    var vt = function (label, value, hint) { return '<div><span title="' + esc(hint) + '"' + HS3 + ">" + label + "</span><b>" + value + "</b></div>"; };
+    var chars = T.texts.reduce(function (a, t) { return a + t.text.replace(/s/g, "").length; }, 0);
+    var videoStats = '<div class="metrics-row" style="margin:0 0 var(--gap)">' +
+      vt("動画の長さ", (T.lenMs / 1000).toFixed(1) + " 秒", "動画の長さ = 動画の全体の秒数") +
+      vt("画面変化", (T.cuts.length - 1) + " 回", "画面変化 = 画面が大きく切り替わった回数。編集上のカットと一致しないことがある（フェードやズームにも反応する）") +
+      vt("平均シーン長", (T.lenMs / 1000 / T.cuts.length).toFixed(1) + " 秒", "平均シーン長 = 動画の長さ ÷ シーンの数") +
+      vt("最初の文字まで", (T.texts[0].start / 1000).toFixed(1) + " 秒", "最初の文字まで = 動画の始まりから、画面に最初の文字が出るまでの秒数") +
+      vt("冒頭 3 秒の文字", T.texts[0].start < 3000 ? "あり" : "なし", "冒頭 3 秒の文字 = 動画の最初の 3 秒に、画面の文字が出ているか") +
+      vt("文字の数", T.texts.length + " 件", "文字の数 = 画面に出た文字のまとまりの数") +
+      vt("総文字数", chars + " 文字", "総文字数 = 画面に出た文字の合計の文字数（空白を除く）") +
+      vt("文字の表示割合", pct(textTotal / T.lenMs, 0), "文字の表示割合 = 画面に文字が出ている時間 ÷ 動画の長さ") + "</div>";
     var tl = card("カットと画面の文字のタイムライン",
-      legend([{ label: "シーン（交互に濃淡）", color: P.chartColor("reel") }, { label: "画面の文字の表示区間", color: "var(--color-text)" }]) +
-      '<div class="chart">' + P.cutTimeline({ w: ctx.cw(12), lenMs: T.lenMs, cuts: T.cuts, texts: T.texts, color: P.chartColor("reel") }) + "</div>" +
+      videoStats + legend([{ label: "シーン（交互に濃淡）", color: P.chartColor("reel") }, { label: "画面の文字の表示区間", color: "var(--color-text)" }]) +
+      '<div class="chart" style="margin-bottom:var(--gap)">' + P.cutTimeline({ w: ctx.cw(12), lenMs: T.lenMs, cuts: T.cuts, texts: T.texts, color: P.chartColor("reel") }) + "</div>" +
       table("<th>文字</th><th class=\"num\">開始</th><th class=\"num\">終了</th><th>位置</th>", T.texts.map(function (t) { return "<tr><td>" + esc(t.text) + '</td><td class="num">' + (t.start / 1000).toFixed(1) + ' 秒</td><td class="num">' + (t.end / 1000).toFixed(1) + " 秒</td><td>" + t.pos + "</td></tr>"; }).join("")),
-      { sub: "R4（カット）と R4.1（文字）で追加", foot: "最初の文字まで " + (T.texts[0].start / 1000).toFixed(1) + " 秒・冒頭 3 秒に文字あり・文字が表示されている時間の割合 " + pct(textTotal / T.lenMs, 0) + "・「大きな画面変化」は編集上のカットと一致しないことがある（フェードやズームにも反応する）。" });
-    return head + top + '<div class="grid"><div class="col-6">' + growth + '</div><div class="col-6">' + cmp + '</div><div class="col-12">' + tl + "</div></div>";
+      {});
+    return head + top + '<div class="grid"><div class="col-6">' + qtyCard + '</div><div class="col-6">' + qualCard + '</div><div class="col-12">' + growth + '</div><div class="col-12">' + tl + "</div></div>";
   };
 
   // ---------- リール分析 ----------
   S.reels = function (ctx) {
-    var reels = D.posts.filter(function (t) { return t.type === "reel"; });
-    var c3 = P.chartColor("reel");
-    var head = P.pageHead("リール分析", "リール " + reels.length + " 件（過去 90 日）・動画特徴量とインサイトの掛け合わせ", '<span class="select">期間: 過去 90 日</span><span class="select">縦軸: 視聴維持率</span>');
-    var w6 = ctx.cw(6), w4 = ctx.cw(4), w8 = ctx.cw(8);
-    var sc = card("長さと視聴維持率", '<div class="chart">' + P.scatter({ w: w6, h: 240, color: c3, xLabel: "動画の長さ（秒）", yLabel: "視聴維持率", xFmt: function (v) { return v + "s"; }, yFmt: function (v) { return pct(v, 0); },
-      points: reels.map(function (r) { return { x: r.len, y: r.watch / r.len, label: r.title + "（" + r.len + " 秒、" + pct(r.watch / r.len, 0) + "）", hi: r.id === 12 || r.id === 15 }; }) }) + "</div>",
-      { sub: "視聴維持率 = 平均視聴時間 ÷ 動画の長さ（長さは R4 で自前取得）", foot: "点にホバーで投稿名。短いほど維持率は高いが、件数が少ないうちは傾向として読まない。" });
-    var buckets = [["0〜15 秒", 0, 15], ["15〜30 秒", 15, 30], ["30〜60 秒", 30, 60], ["60 秒超", 60, 1e9]];
-    var bk = buckets.map(function (b) { var g = reels.filter(function (r) { return r.len > b[1] && r.len <= b[2]; }); return { label: b[0], n: g.length, ret: g.length ? P.median(g.map(function (r) { return r.watch / r.len; })) : null, skip: g.length ? P.median(g.map(function (r) { return r.skip; })) : null, reach: g.length ? P.median(g.map(function (r) { return r.reach; })) : null }; });
-    var dim = []; bk.forEach(function (b, i) { if (b.n < 2) dim.push(i); });
-    var bucketCard = card("長さの区分ごとの中央値", '<div class="chart">' + P.vbars({ w: w6, h: 200, values: bk.map(function (b) { return b.ret; }), labels: bk.map(function (b) { return b.label; }), color: c3, valueLabels: "all", fmt: function (v) { return pct(v, 0); }, nLabels: bk.map(function (b) { return b.n; }), dim: dim, max: 1 }) + "</div>" +
-      table("<th>区分</th><th class=\"num\">件数</th><th class=\"num\">視聴維持率</th><th class=\"num\">スキップ率</th><th class=\"num\">リーチ</th>", bk.map(function (b) { return '<tr class="' + (b.n < 2 ? "dim" : "") + '"><td>' + b.label + '</td><td class="num">' + b.n + '</td><td class="num">' + pct(b.ret, 0) + '</td><td class="num">' + pct(b.skip, 0) + '</td><td class="num">' + n(b.reach) + "</td></tr>"; }).join("")),
-      { sub: "縦棒は視聴維持率の中央値", foot: "件数が 2 件未満の区分は薄く表示する。" });
-    var bins = [["〜5", 0, 5], ["6〜10", 6, 10], ["11〜15", 11, 15], ["16〜", 16, 1e9]];
-    var cnt = bins.map(function (b) { return reels.filter(function (r) { return r.cuts >= b[1] && r.cuts <= b[2]; }).length; });
-    var cutsCard = card("大きな画面変化の回数の分布", '<div class="chart">' + P.vbars({ w: w4, h: 170, values: cnt, labels: bins.map(function (b) { return b[0] + " 回"; }), color: c3, valueLabels: "all", noAxis: true, fmt: function (v) { return v + " 件"; } }) + "</div>",
-      { sub: "ffmpeg のシーン検出", foot: "フェード、ズーム、激しい動きにも反応するため「大きな画面変化の回数」と呼ぶ。" });
-    var withT = reels.filter(function (r) { return r.text3; }), noT = reels.filter(function (r) { return !r.text3; });
-    function med(g, f) { return g.length ? P.median(g.map(f)) : null; }
-    var textCard = card("冒頭 3 秒の文字の有無", '<div class="grid"><div class="col-4"><div class="chart">' + P.vbars({ w: Math.max(200, Math.floor((w8 - 32) / 3)), h: 170, values: [med(withT, function (r) { return r.skip; }), med(noT, function (r) { return r.skip; })], labels: ["文字あり", "文字なし"], color: c3, valueLabels: "all", fmt: function (v) { return pct(v, 0); }, nLabels: [withT.length, noT.length], max: 0.5 }) + '</div><p class="xs muted">スキップ率の中央値</p></div><div class="col-8">' +
-      table("<th>冒頭 3 秒の文字</th><th class=\"num\">件数</th><th class=\"num\">スキップ率</th><th class=\"num\">視聴維持率</th><th class=\"num\">保存率</th><th class=\"num\">リーチ</th>",
-        [["あり", withT], ["なし", noT]].map(function (g) { return "<tr><td>" + g[0] + '</td><td class="num">' + g[1].length + '</td><td class="num">' + pct(med(g[1], function (r) { return r.skip; }), 0) + '</td><td class="num">' + pct(med(g[1], function (r) { return r.watch / r.len; }), 0) + '</td><td class="num">' + pct(med(g[1], function (r) { return r.saves / r.reach; })) + '</td><td class="num">' + n(med(g[1], function (r) { return r.reach; })) + "</td></tr>"; }).join("")) + "</div></div>",
-      { sub: "R4.1 で追加", foot: "「冒頭 3 秒に文字があるリールはスキップ率が低いか」を確かめる表。中央値で比べる。" });
-    return head + '<div class="grid"><div class="col-6">' + sc + '</div><div class="col-6">' + bucketCard + '</div><div class="col-4">' + cutsCard + '</div><div class="col-8">' + textCard + "</div></div>" + note("件数が少ないうちは統計的な結論を出せない。区分ごとの件数を必ず表示し、少ない区分は目立たない表示にする（要件 4.5 章）。");
+    // 見本用の架空のリール 28 件（20〜50 件程度の段階の見た目を確かめるため）。乱数は固定の種で毎回同じ値になる。
+    var seed = 7; function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+    var hours = [7, 8, 12, 12, 18, 19, 20, 21, 21, 22];
+    var R = [];
+    for (var i = 0; i < 28; i++) {
+      var len = Math.round(8 + rnd() * 62), scene = 1.2 + rnd() * 4.5, cuts = Math.max(1, Math.round(len / scene) - 1);
+      var text3 = rnd() < 0.6, first = text3 ? 0.2 + rnd() * 2.6 : 3.2 + rnd() * 5, chars = Math.round(rnd() * 80), cap = Math.round(20 + rnd() * 260);
+      var daysAgo = 175 - i * 6, fol = Math.round(1950 - daysAgo * 2.4);
+      var rate = 1.7 * Math.exp(-0.22 * (len / (cuts + 1) - 2.5)) * (text3 ? 1.3 : 1) * Math.exp((rnd() - 0.5) * 0.9);
+      var d = new Date(Date.UTC(2026, 9, 1) - daysAgo * 864e5), hr = hours[Math.floor(rnd() * hours.length)];
+      R.push({ id: 100 + i, type: "reel", hue: Math.round(rnd() * 360), title: "架空のリール " + (i + 1), date: d.toISOString().slice(0, 10), wday: d.getUTCDay(), hour: hr,
+        len: len, cuts: cuts, scene: len / (cuts + 1), text3: text3, first: first, chars: chars, cap: cap, fol: fol, rate: rate, reach: Math.round(rate * fol),
+        ret: Math.min(0.9, Math.max(0.15, 0.62 - 0.005 * len + (rnd() - 0.5) * 0.2 + rate * 0.03)), skip: Math.min(0.7, Math.max(0.1, 0.42 - (text3 ? 0.08 : 0) - rate * 0.03 + (rnd() - 0.5) * 0.12)),
+        share: Math.max(0.001, 0.002 + rate * 0.004 + (rnd() - 0.5) * 0.004), save: Math.max(0.002, 0.01 + rate * 0.006 + (rnd() - 0.5) * 0.01) });
+    }
+    var c3 = P.chartColor("reel"), HS = ' style="cursor:help;text-decoration:underline dotted"';
+    var RATE_HINT = "リーチ率 = 7 日時点のリーチ ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値";
+    var rp = function (v) { return pct(v, 0); };
+    var head = P.pageHead("リール分析", "リール " + R.length + " 件（過去 180 日）・目的変数: <span title=\"" + esc(RATE_HINT) + "\"" + HS + ">リーチ率</span>", '<span class="select">期間: 過去 180 日</span>');
+    var wq = ctx.cw(4), w3 = ctx.cw(3), w12 = ctx.cw(12);
+
+    // 1. 要因と目的変数の関係（順位相関とその幅）
+    function ranks(a) { var idx = a.map(function (v, i) { return [v, i]; }).sort(function (x, y) { return x[0] - y[0]; }), r = []; for (var i = 0; i < idx.length;) { var j = i; while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++; for (var k = i; k <= j; k++) r[idx[k][1]] = (i + j) / 2 + 1; i = j + 1; } return r; }
+    function spearman(xs, ys) { var rx = ranks(xs), ry = ranks(ys), n = xs.length, mx = (n + 1) / 2, a = 0, b = 0, c = 0; for (var i = 0; i < n; i++) { a += (rx[i] - mx) * (ry[i] - mx); b += (rx[i] - mx) * (rx[i] - mx); c += (ry[i] - mx) * (ry[i] - mx); } return b && c ? a / Math.sqrt(b * c) : 0; }
+    function ci(f) { var xs = R.map(f), ys = R.map(function (r) { return r.rate; }), bs = []; for (var b = 0; b < 300; b++) { var sx = [], sy = []; for (var i = 0; i < R.length; i++) { var k = Math.floor(rnd() * R.length); sx.push(xs[k]); sy.push(ys[k]); } bs.push(spearman(sx, sy)); } bs.sort(function (x, y) { return x - y; }); return { r: spearman(xs, ys), lo: bs[7], hi: bs[292] }; }
+    var VARS = [
+      ["動画の長さ", function (r) { return r.len; }, "動画の長さ = 動画の全体の秒数"],
+      ["画面変化の回数", function (r) { return r.cuts; }, "画面変化の回数 = 画面が大きく切り替わった回数"],
+      ["平均シーン長", function (r) { return r.scene; }, "平均シーン長 = 動画の長さ ÷ シーンの数"],
+      ["最初の文字まで", function (r) { return r.first; }, "最初の文字まで = 画面に最初の文字が出るまでの秒数"],
+      ["冒頭 3 秒の文字", function (r) { return r.text3 ? 1 : 0; }, "冒頭 3 秒の文字 = 最初の 3 秒に画面の文字があるか（あり = 1、なし = 0）"],
+      ["総文字数", function (r) { return r.chars; }, "総文字数 = 画面に出た文字の合計の文字数"],
+      ["キャプションの長さ", function (r) { return r.cap; }, "キャプションの長さ = キャプションの文字数"],
+      ["投稿の時刻", function (r) { return r.hour; }, "投稿の時刻 = 投稿した時刻（日本時間の時）"]
+    ];
+    var cor = VARS.map(function (v) { var c = ci(v[1]); c.label = v[0]; c.hint = v[2]; return c; }).sort(function (a, b) { return Math.abs(b.r) - Math.abs(a.r); });
+    var FW = Math.max(160, w12 - 260);
+    function fx(v) { return (8 + (v + 1) / 2 * (FW - 16)).toFixed(1); }
+    var forest = '<div style="display:grid;grid-template-columns:max-content max-content 1fr;column-gap:12px">' +
+      '<span></span><span></span><svg width="' + FW + '" height="16" viewBox="0 0 ' + FW + ' 16"><g class="chart-axis">' + [-1, -0.5, 0, 0.5, 1].map(function (t) { return '<text x="' + fx(t) + '" y="12" text-anchor="middle">' + t + "</text>"; }).join("") + "</g></svg>" +
+      cor.map(function (c) {
+        var clear = c.lo > 0 || c.hi < 0, col = clear ? "var(--color-primary)" : "var(--chart-axis)";
+        var tip = esc("順位相関: " + c.r.toFixed(2) + "\n幅（95%）: " + c.lo.toFixed(2) + "〜" + c.hi.toFixed(2) + (clear ? "" : "\n幅が 0 をまたぐので、まだわからない"));
+        return '<div style="display:grid;grid-column:1 / -1;grid-template-columns:subgrid;align-items:center;padding:4px 0"><span class="small" title="' + esc(c.hint) + '"' + HS + ">" + c.label + '</span><b class="num" style="text-align:right' + (clear ? "" : ";opacity:.55") + '">' + (c.r > 0 ? "+" : "") + c.r.toFixed(2) + "</b>" +
+          '<svg width="' + FW + '" height="22" viewBox="0 0 ' + FW + ' 22" role="img" aria-label="' + tip + '"><title>' + tip + "</title>" +
+          '<line x1="' + fx(0) + '" x2="' + fx(0) + '" y1="0" y2="22" class="chart-ref"/>' +
+          '<line x1="' + fx(c.lo) + '" x2="' + fx(c.hi) + '" y1="11" y2="11" stroke="' + col + '" stroke-width="3" stroke-linecap="round"' + (clear ? "" : ' opacity=".55"') + "/>" +
+          '<circle cx="' + fx(c.r) + '" cy="11" r="5" fill="' + col + '" stroke="var(--color-surface)" stroke-width="2"/></svg></div>';
+      }).join("") + "</div>";
+    var corCard = card("リーチ率と結び付いている要因", legend([{ label: "順位相関", color: "var(--color-primary)" }, { label: "幅が 0 をまたぐ（まだわからない）", color: "var(--chart-axis)" }]) + forest,
+      { foot: "右（+）ほど、その値が大きいリールほどリーチ率が高い。左（−）ほど、その値が小さいリールほどリーチ率が高い。" });
+
+    // 2. リーチ率の上位と下位の比べ
+    var sorted = R.slice().sort(function (a, b) { return b.rate - a.rate; }), q = Math.max(1, Math.round(R.length / 4));
+    var top = sorted.slice(0, q), bot = sorted.slice(-q);
+    function md(g, f) { return P.median(g.map(f)); }
+    function meanOf(g, f) { return g.reduce(function (a, r) { return a + f(r); }, 0) / g.length; }
+    var CMP = [
+      ["リーチ率", function (r) { return r.rate; }, rp, RATE_HINT],
+      ["動画の長さ", function (r) { return r.len; }, function (v) { return v.toFixed(0) + " 秒"; }, VARS[0][2]],
+      ["画面変化の回数", function (r) { return r.cuts; }, function (v) { return v.toFixed(0) + " 回"; }, VARS[1][2]],
+      ["平均シーン長", function (r) { return r.scene; }, function (v) { return v.toFixed(1) + " 秒"; }, VARS[2][2]],
+      ["最初の文字まで", function (r) { return r.first; }, function (v) { return v.toFixed(1) + " 秒"; }, VARS[3][2]],
+      ["冒頭 3 秒の文字", function (r) { return r.text3 ? 1 : 0; }, function (v) { return pct(v, 0) + " があり"; }, VARS[4][2]],
+      ["総文字数", function (r) { return r.chars; }, function (v) { return v.toFixed(0) + " 文字"; }, VARS[5][2]],
+      ["キャプションの長さ", function (r) { return r.cap; }, function (v) { return v.toFixed(0) + " 文字"; }, VARS[6][2]]
+    ];
+    var thumbs = function (g) { return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0">' + g.map(function (r) { return '<span title="' + esc(r.title + "（リーチ率 " + rp(r.rate) + "）") + '">' + P.thumb(r) + "</span>"; }).join("") + "</div>"; };
+    var tbCard = card("リーチ率の上位と下位",
+      '<div class="grid" style="margin-bottom:var(--gap)"><div class="col-6"><p class="small muted">上位 25%（' + q + " 件）</p>" + thumbs(top) + '</div><div class="col-6"><p class="small muted">下位 25%（' + q + " 件）</p>" + thumbs(bot) + "</div></div>" +
+      table("<th>項目</th><th class=\"num\">上位 25%</th><th class=\"num\">下位 25%</th>", CMP.map(function (c) {
+        var f = c[0] === "冒頭 3 秒の文字" ? meanOf : md;
+        return '<tr><td><span title="' + esc(c[3]) + '"' + HS + ">" + c[0] + '</span></td><td class="num">' + c[2](f(top, c[1])) + '</td><td class="num">' + c[2](f(bot, c[1])) + "</td></tr>";
+      }).join("")), {});
+
+    // 3. 数値の要因とリーチ率の散布図
+    var medRate = P.median(R.map(function (r) { return r.rate; }));
+    var sc = function (label, f, fmt, w) { return '<div class="col-4"><p class="small muted">' + label + '</p><div class="chart">' + P.scatter({ w: w, h: 190, color: c3, xLabel: label, yLabel: "リーチ率", xFmt: fmt, yFmt: rp, refY: medRate,
+      points: R.map(function (r) { return { x: f(r), y: r.rate, label: r.title + "（" + label + " " + fmt(f(r)) + "、リーチ率 " + rp(r.rate) + "）" }; }) }) + "</div></div>"; };
+    var secF = function (v) { return Math.round(v) + "s"; }, numF = function (v) { return Math.round(v); };
+    var scCard = card("数値の要因とリーチ率", '<div class="grid">' +
+      sc("動画の長さ", function (r) { return r.len; }, secF, wq) + sc("画面変化の回数", function (r) { return r.cuts; }, numF, wq) + sc("平均シーン長", function (r) { return r.scene; }, function (v) { return v.toFixed(1) + "s"; }, wq) +
+      sc("最初の文字まで", function (r) { return r.first; }, function (v) { return v.toFixed(1) + "s"; }, wq) + sc("総文字数", function (r) { return r.chars; }, numF, wq) + sc("キャプションの長さ", function (r) { return r.cap; }, numF, wq) + "</div>",
+      { foot: "点線はリーチ率の中央値。" });
+
+    // 4. 区分の要因とリーチ率
+    function grp(label, groups) {
+      var vals = groups.map(function (g) { var a = R.filter(g[1]); return { label: g[0], n: a.length, v: a.length ? P.median(a.map(function (r) { return r.rate; })) : null }; });
+      var dim = []; vals.forEach(function (v, i) { if (v.n < 3) dim.push(i); });
+      return '<div class="col-4"><p class="small muted">' + label + '</p><div class="chart">' + P.vbars({ w: wq, h: 180, values: vals.map(function (v) { return v.v; }), labels: vals.map(function (v) { return v.label; }), color: c3, valueLabels: "all", fmt: rp, nLabels: vals.map(function (v) { return v.n; }), dim: dim }) + "</div></div>";
+    }
+    var grpCard = card("区分の要因とリーチ率", '<div class="grid">' +
+      grp("冒頭 3 秒の文字", [["あり", function (r) { return r.text3; }], ["なし", function (r) { return !r.text3; }]]) +
+      grp("投稿の曜日", [["平日", function (r) { return r.wday >= 1 && r.wday <= 5; }], ["土日", function (r) { return r.wday === 0 || r.wday === 6; }]]) +
+      grp("投稿の時間帯", [["朝", function (r) { return r.hour < 11; }], ["昼", function (r) { return r.hour >= 11 && r.hour < 17; }], ["夜", function (r) { return r.hour >= 17; }]]) + "</div>",
+      { foot: "棒はリーチ率の中央値。n は件数で、3 件未満の区分は薄く表示する。" });
+
+    // 5. 途中の指標とリーチ率
+    var sc4 = function (label, f, w) { return '<div class="col-3"><p class="small muted">' + label + '</p><div class="chart">' + P.scatter({ w: w, h: 180, color: c3, xLabel: label, yLabel: "リーチ率", xFmt: function (v) { return pct(v, v < 0.05 ? 1 : 0); }, yFmt: rp, refY: medRate,
+      points: R.map(function (r) { return { x: f(r), y: r.rate, label: r.title + "（" + label + " " + pct(f(r), 1) + "、リーチ率 " + rp(r.rate) + "）" }; }) }) + "</div></div>"; };
+    var midCard = card("視聴と反応の指標とリーチ率", '<div class="grid">' +
+      sc4("視聴維持率", function (r) { return r.ret; }, w3) + sc4("スキップ率", function (r) { return r.skip; }, w3) + sc4("シェア率", function (r) { return r.share; }, w3) + sc4("保存率", function (r) { return r.save; }, w3) + "</div>",
+      { foot: "点線はリーチ率の中央値。" });
+
+    // 6. リーチとリーチ率の推移
+    var labs = R.map(function (r) { return Number(r.date.slice(5, 7)) + "/" + Number(r.date.slice(8, 10)); });
+    var trendCard = card("リーチとリーチ率の推移",
+      '<p class="small muted">7 日時点のリーチ</p><div class="chart">' + P.vbars({ w: w12, h: 160, values: R.map(function (r) { return r.reach; }), labels: labs, color: c3 }) + "</div>" +
+      '<p class="small muted" style="margin-top:24px">リーチ率</p><div class="chart">' + P.lineChart({ w: w12, h: 140, align: true, labels: labs, yFmt: rp, series: [{ values: R.map(function (r) { return r.rate; }), color: c3, label: "リーチ率", dots: true }] }) + "</div>",
+      { foot: "横軸は投稿日。リーチが右肩上がりでもリーチ率が横ばいなら、伸びはフォロワーの増加による。" });
+
+    return head + '<div class="grid"><div class="col-12">' + corCard + '</div><div class="col-12">' + tbCard + '</div><div class="col-12">' + scCard + '</div><div class="col-12">' + grpCard + '</div><div class="col-12">' + midCard + '</div><div class="col-12">' + trendCard + "</div></div>";
   };
 
   // ---------- ストーリーズ ----------
   S.stories = function (ctx) {
-    var day = D.stories[0], c4 = P.chartColor("story");
-    var head = P.pageHead("ストーリーズ", day.date + "（" + day.slides.length + " 枚）・直近 3 日", '<span class="seg"><button aria-pressed="true">9/30</button><button>9/29</button><button>9/28</button></span><span class="select">期間: 過去 7 日</span>');
-    var w6 = ctx.cw(6);
-    var strip = '<div class="story-strip">' + day.slides.map(function (s, i) { return '<span class="thumb" data-type="reel" style="--hue:' + (40 + i * 50) + '">' + (s.kind === "video" ? "▶" : "") + "</span>"; }).join("") + "</div>";
-    var views = day.slides.map(function (s) { return s.views; });
-    var fun = card("1 枚ごとの閲覧数（離脱ファネル）", strip + '<div class="chart">' + P.vbars({ w: w6, h: 200, values: views, labels: day.slides.map(function (s, i) { return (i + 1) + " 枚目"; }), color: c4, valueLabels: "all", maxBar: 40 }) + "</div>",
-      { sub: "閲覧数は 1 枚ごとの合計", foot: "完了率 " + pct(views[views.length - 1] / views[0], 0) + "（最後の 1 枚 ÷ 最初の 1 枚）。" });
+    // 見本用の架空のストーリーズ（過去 30 日）。ほぼ 1 日 1 枚で、ときどき続けて 2〜3 枚出す。乱数は固定の種で毎回同じ値になる。
+    var seed = 11; function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+    var c4 = P.chartColor("story"), HS = ' style="cursor:help;text-decoration:underline dotted"';
+    var th = function (label, text, cls, extra) { return '<th class="' + (cls || "num") + '"' + (extra || "") + (text ? ' title="' + esc(text) + '"' + HS : "") + ">" + label + "</th>"; };
+    var DEF = {
+      views: "閲覧 = そのストーリーズが表示された回数",
+      rate: "閲覧率 = 閲覧 ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値",
+      exitRate: "離脱率 = 離脱 ÷ 閲覧",
+      fwd: "次へ = 次のストーリーズへ進んだ回数",
+      back: "戻る = 前のストーリーズへ戻った回数",
+      swipe: "次のアカウントへ = 次のアカウントのストーリーズへ移った回数",
+      link: "リンク = リンクのスタンプが押された回数",
+      replies: "返信 = ストーリーズへの返信（メッセージ）の数"
+    };
+    var L = [], base = Date.UTC(2026, 8, 2, 12);
+    for (var d = 0; d < 30; d++) {
+      if (rnd() < 0.25) continue;
+      var k = rnd() < 0.15 ? 2 + Math.round(rnd()) : 1, hour = 8 + Math.floor(rnd() * 14);
+      for (var j = 0; j < k; j++) {
+        var at = new Date(base + d * 864e5 + (hour - 12) * 36e5 + j * 4 * 6e4), fol = Math.round(1880 + d * 2.3);
+        var views = Math.round(fol * (0.16 + rnd() * 0.1) * (1 - j * 0.15)), exit = Math.round(views * (0.04 + rnd() * 0.08)), swipe = Math.round(views * (0.03 + rnd() * 0.05)), back = Math.round(views * (0.01 + rnd() * 0.03));
+        L.push({ at: at, fol: fol, kind: rnd() < 0.4 ? "video" : "image", hue: Math.round(rnd() * 360), views: views, exit: exit, swipe: swipe, back: back, fwd: Math.max(0, views - exit - swipe - back), link: rnd() < 0.3 ? Math.round(rnd() * 12) : 0, replies: Math.round(rnd() * 4) });
+      }
+    }
+    L.forEach(function (s) { s.rate = s.views / s.fol; s.exitRate = s.exit / s.views; s.label = (s.at.getUTCMonth() + 1) + "/" + s.at.getUTCDate() + " " + String(s.at.getUTCHours()).padStart(2, "0") + ":" + String(s.at.getUTCMinutes()).padStart(2, "0"); });
+    var newest = L.slice().reverse();
+    var head = P.pageHead("ストーリーズ", "全 " + L.length + " 件（過去 30 日）", '<span class="select">期間: 過去 30 日</span>');
+    var w6 = ctx.cw(6), w12 = ctx.cw(12);
+
+    // 期間全体の指標
+    var vt = function (label, value, text) { return '<div><span title="' + esc(text) + '" style="display:block;cursor:help;text-decoration:underline dotted">' + label + "</span><b>" + value + "</b></div>"; };
+    var sum = function (f) { return L.reduce(function (a, s) { return a + f(s); }, 0); };
+    var stats = card(null, '<div class="metrics-row" style="margin:0">' +
+      vt("件数", L.length + " 件", "件数 = 期間中に出したストーリーズの数") +
+      vt("閲覧率の中央値", pct(P.median(L.map(function (s) { return s.rate; })), 0), DEF.rate) +
+      vt("離脱率の中央値", pct(P.median(L.map(function (s) { return s.exitRate; })), 1), DEF.exitRate) +
+      vt("リンクの合計", n(sum(function (s) { return s.link; })), DEF.link) +
+      vt("返信の合計", n(sum(function (s) { return s.replies; })), DEF.replies) + "</div>");
+
+    // 1. 一覧
+    var listCard = card("ストーリーズの一覧", table("<th></th>" + th("投稿日時", "", "", ' aria-sort="descending"') + "<th>種類</th>" + th("閲覧", DEF.views) + th("閲覧率", DEF.rate) + th("離脱率", DEF.exitRate) + th("次へ", DEF.fwd, "num hide-m") + th("戻る", DEF.back, "num hide-m") + th("次のアカウントへ", DEF.swipe, "num hide-m") + th("リンク", DEF.link) + th("返信", DEF.replies, "num hide-m"),
+      newest.map(function (s) {
+        return '<tr><td><span class="thumb" data-type="story" style="--hue:' + s.hue + '">' + (s.kind === "video" ? "▶" : "") + '</span></td><td class="nowrap small">' + s.label + "</td><td>" + (s.kind === "video" ? "動画" : "画像") + '</td><td class="num">' + n(s.views) + '</td><td class="num">' + pct(s.rate, 0) + '</td><td class="num">' + pct(s.exitRate, 1) +
+          '</td><td class="num hide-m">' + n(s.fwd) + '</td><td class="num hide-m">' + n(s.back) + '</td><td class="num hide-m">' + n(s.swipe) + '</td><td class="num">' + n(s.link) + '</td><td class="num hide-m">' + n(s.replies) + "</td></tr>";
+      }).join("")), {});
+
+    // 2. 閲覧率の推移
+    var labs = L.map(function (s) { return (s.at.getUTCMonth() + 1) + "/" + s.at.getUTCDate(); });
+    var trendCard = card("閲覧率の推移", '<div class="chart">' + P.lineChart({ w: w12, h: 180, align: true, labels: labs, yFmt: function (v) { return pct(v, 0); },
+      series: [{ values: L.map(function (s) { return s.rate; }), color: c4, label: "閲覧率", dots: true }] }) + "</div>", {});
+
+    // 3. 操作の内訳（1 件ごと）
     var ops = [["fwd", "次へ", 90], ["back", "戻る", 65], ["exit", "離脱", 45], ["swipe", "次のアカウントへ", 25]];
     var mix = function (p) { return "color-mix(in oklab, var(--heat) " + p + "%, var(--color-surface))"; };
-    var labelW = 48, bw = w6 - labelW, rowH = 38;
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w6 + " " + (rowH * day.slides.length) + '" width="' + w6 + '" height="' + (rowH * day.slides.length) + '" role="img">';
-    day.slides.forEach(function (s, i) {
-      var total = s.fwd + s.back + s.exit + s.swipe || 1, x = labelW, y = i * rowH + 4;
-      svg += '<text class="chart-label" x="0" y="' + (y + 13) + '">' + (i + 1) + " 枚目</text>";
+    var recent = newest.slice(0, 10), labelW = 78, bw = w6 - labelW, rowH = 30;
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w6 + " " + (rowH * recent.length) + '" width="' + w6 + '" height="' + (rowH * recent.length) + '" role="img">';
+    recent.forEach(function (s, i) {
+      var total = s.fwd + s.back + s.exit + s.swipe || 1, x = labelW, y = i * rowH + 6;
+      svg += '<text class="chart-label" x="0" y="' + (y + 13) + '">' + s.label + "</text>";
       ops.forEach(function (o, oi) {
         var v = s[o[0]], pw = bw * v / total; if (pw <= 0) return;
         var rw = Math.max(0, pw - (oi < ops.length - 1 ? 2 : 0));
-        svg += '<rect x="' + x.toFixed(1) + '" y="' + y + '" width="' + rw.toFixed(1) + '" height="16" rx="' + (oi === ops.length - 1 ? 4 : 0) + '" fill="' + mix(o[2]) + '"><title>' + o[1] + ": " + n(v) + "（" + pct(v / total, 0) + "）</title></rect>";
-        if (rw >= 30) svg += '<text class="chart-label chart-label--muted" x="' + (x + rw / 2).toFixed(1) + '" y="' + (y + 30) + '" text-anchor="middle">' + pct(v / total, 0) + "</text>";
+        svg += '<rect x="' + x.toFixed(1) + '" y="' + y + '" width="' + rw.toFixed(1) + '" height="18" rx="' + (oi === ops.length - 1 ? 4 : 0) + '" fill="' + mix(o[2]) + '"><title>' + s.label + " " + o[1] + ": " + n(v) + "（" + pct(v / total, 0) + "）</title></rect>";
         x += pw;
       });
     });
     svg += "</svg>";
-    var opsCard = card("操作の内訳", legend(ops.map(function (o) { return { label: o[1], color: mix(o[2]) }; })) + '<div class="chart">' + svg + "</div>",
-      { sub: "各枚の操作の合計に対する割合（1 色の濃淡）", foot: "離脱率 = 離脱 ÷ 閲覧数、次のアカウントへの移動率 = 次のアカウントへ ÷ 閲覧数。最後の 1 枚は「次へ」がない。" });
-    var tbl = card("1 枚ごとの数字", table("<th>枚</th><th>種類</th><th class=\"num\">長さ</th><th class=\"num\">閲覧</th><th class=\"num hide-m\">次へ</th><th class=\"num hide-m\">戻る</th><th class=\"num\">離脱</th><th class=\"num\">次のアカウントへ</th><th class=\"num hide-m\">リンク</th><th class=\"num\">離脱率</th>",
-      day.slides.map(function (s, i) { return "<tr><td>" + (i + 1) + "</td><td>" + (s.kind === "video" ? "動画" : "画像") + '</td><td class="num">' + s.len + ' 秒</td><td class="num">' + n(s.views) + '</td><td class="num hide-m">' + n(s.fwd) + '</td><td class="num hide-m">' + n(s.back) + '</td><td class="num">' + n(s.exit) + '</td><td class="num">' + n(s.swipe) + '</td><td class="num hide-m">' + n(s.link) + '</td><td class="num">' + pct(s.exit / s.views) + "</td></tr>"; }).join("")),
-      { foot: "動画の長さは R1 でストーリーズの動画を解析して得る（24 時間で取得できなくなるため）。" });
-    var days = card("日ごとの要約", table("<th>日</th><th class=\"num\">枚数</th><th class=\"num\">最初の閲覧</th><th class=\"num\">最後の閲覧</th><th class=\"num\">完了率</th><th class=\"num\">リンク</th>",
-      D.stories.map(function (d) { var v = d.slides.map(function (s) { return s.views; }); var link = d.slides.reduce(function (a, s) { return a + s.link; }, 0); return "<tr><td>" + P.dateShort(d.date) + '</td><td class="num">' + d.slides.length + '</td><td class="num">' + n(v[0]) + '</td><td class="num">' + n(v[v.length - 1]) + '</td><td class="num">' + pct(v[v.length - 1] / v[0], 0) + '</td><td class="num">' + n(link) + "</td></tr>"; }).join("")));
-    return head + '<div class="grid"><div class="col-6">' + fun + '</div><div class="col-6">' + opsCard + '</div><div class="col-8">' + tbl + '</div><div class="col-4">' + days + "</div></div>";
+    var opsCard = card("操作の内訳（直近 10 件）", legend(ops.map(function (o) { return { label: o[1], color: mix(o[2]) }; })) + '<div class="chart">' + svg + "</div>", {});
+
+    // 4. 離脱ファネル（続けて 2 件以上出したまとまりがあるときだけ）。前の 1 件から 6 時間以上空いたら別のまとまり
+    var groups = [], cur = [];
+    L.forEach(function (s, i) { if (i && s.at - L[i - 1].at >= 6 * 36e5) { groups.push(cur); cur = []; } cur.push(s); }); groups.push(cur);
+    var multi = groups.filter(function (g) { return g.length >= 2; });
+    var funCard;
+    if (multi.length) {
+      var g = multi[multi.length - 1], v0 = g[0].views;
+      funCard = card("離脱ファネル（" + g[0].label + " から続けて " + g.length + " 件）", '<div class="chart">' + P.vbars({ w: w6, h: 200, values: g.map(function (s) { return s.views / v0; }), labels: g.map(function (s, i) { return (i + 1) + " 件目"; }), color: c4, valueLabels: "all", maxBar: 40, max: 1, fmt: function (v) { return pct(v, 0); },
+        tips: g.map(function (s, i) { return (i + 1) + " 件目: " + pct(s.views / v0, 0) + "（閲覧 " + n(s.views) + "）"; }) }) + "</div>", {});
+    } else {
+      funCard = card("離脱ファネル", '<p class="small muted">期間中に、続けて 2 件以上出したストーリーズはありません。</p>', {});
+    }
+
+    return head + stats + '<div class="grid"><div class="col-12">' + listCard + '</div><div class="col-12">' + trendCard + '</div><div class="col-6">' + opsCard + '</div><div class="col-6">' + funCard + "</div></div>";
   };
 
   // ---------- 投稿時刻 ----------

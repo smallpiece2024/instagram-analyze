@@ -81,7 +81,7 @@ svg text { font-family: var(--font-num, inherit); }
 .col-6 { grid-column: span 6; }
 .col-4 { grid-column: span 4; }
 .col-3 { grid-column: span 3; }
-.only-m { display: none; }
+.only-m { display: none !important; }
 @media (max-width: 900px) {
   .col-8, .col-6, .col-4 { grid-column: span 12; }
   .col-3 { grid-column: span 6; }
@@ -89,7 +89,8 @@ svg text { font-family: var(--font-num, inherit); }
   .topbar__in { gap: 0 var(--gap); }
 }
 @media (max-width: 700px) {
-  .only-m { display: block; }
+  .only-m { display: block !important; }
+  .media-cards.only-m { display: grid !important; }
   .only-d { display: none !important; }
   .hide-m { display: none !important; }
   .main { padding: calc(var(--gap) * 0.75); }
