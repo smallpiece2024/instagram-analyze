@@ -223,7 +223,12 @@ npm run worker:verify-api
 
 テーブル設計は `doc/design/r1-db-design.md`、マイグレーションは `supabase/migrations/` にある。ローカルの DB にはユーザーの実データが入るので、ダンプやエクスポートをコミットしない。
 
-R2（`doc/design/r2-cloud.md` 3 章）で Web 用のロール `web_app` を追加した（`20261002005926_r2_web_role.sql`）。パスワードはマイグレーションに書かない。ローカルは `supabase/seed.sql` が `db reset` のたびに公知の値（`web_app_local`）を設定する。`db reset` せずに適用したときは `npm run db:reset` の代わりに `npx supabase migration up --local` のあと `docker exec supabase_db_instagram-analyze psql -U postgres -d postgres -f -` 相当で `seed.sql` を流す。本番（Supabase Cloud）では `seed.sql` は流れず、`psql` の `\password web_app` で別の値を設定する。
+R2（`doc/design/r2-cloud.md` 3 章）で Web 用のロール `web_app` と、サムネイルを読める利用者の表 `private.web_users` を追加した（`20261002005926_r2_web_role.sql`）。
+
+- パスワードはマイグレーションに書かない。ローカルは `supabase/seed.sql` が `db reset` のたびに公知の値（`web_app_local`）を設定し、結合テスト用の利用者（uuid `…0001`）を `private.web_users` に入れる。ローカルの Supabase Auth で作った自分の利用者でサムネイルを見るには、その `auth.users.id` を `private.web_users` に insert する。
+- 実データが入っているローカル DB に `db reset` せずに適用するときは、`npx supabase migration up --local` のあと `docker exec -i supabase_db_instagram-analyze psql -U postgres -d postgres < supabase/seed.sql` で seed を流す。
+- 本番（Supabase Cloud）では `seed.sql` を流さない。**`supabase db push --include-seed` と `supabase db reset --linked` は使わない**（公知のパスワードが本番に入る）。本番は `psql` の `\password web_app` で別の値を設定し、`private.web_users` に本人の uuid を入れる。
+- 関数を足すマイグレーションは `revoke execute on function … from public` を書く（新しい関数は既定で誰でも実行できる。結合テスト `test/db/web-role.test.ts` が棚卸しする）。テーブルを足すときは `web_app` への grant とポリシーを両方書く。
 
 ## Claude Code のサブエージェントとスキル
 
