@@ -23,5 +23,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
+    // 結合テスト（test/db/*）は同じローカル DB を共有し、Vault の件数などを数えるものがあるので、
+    // ファイルを並列に走らせない（全体で 1〜2 秒なので速度への影響はない）
+    fileParallelism: false,
   },
 });

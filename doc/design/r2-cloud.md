@@ -8,7 +8,7 @@
 | 対象 | 要件定義 4.3 章（F-SYS-10〜15）、6.3 章、8.1〜8.3 章、10 章（R2 の完了条件）、11.1 章の C3 |
 | 入力 | `doc/requirements/requirements-definition.md`（版 0.4）、`doc/design/r1-db-design.md`（7 章、7.1 章）、`doc/design/r1-collection-jobs.md`（6.2 章、8.1 章、8.2 章、12 章）、`doc/design/r1-web-screens.md`（1.2 章、2.2 章、3 章、12 章）、`supabase/migrations/`（5 本）、`apps/worker/src/`、`apps/web/src/`、`docker-compose.yml`、`apps/worker/Dockerfile`、Supabase・GitHub・Vercel の文書とローカル DB での確認（13 章） |
 | 範囲外 | 画面の見た目（R2.5、R3）、接続解除の画面（R3。R1 は README の SQL）、生レスポンスの削除ジョブ（12 章）、R4 以降の動画解析のクラウド化（実行環境は共通。ジョブを足すだけ） |
-| 状態 | レビュー反映済み。11 章の Q1〜Q10 は未回答 |
+| 状態 | レビュー反映済み。11 章の Q1〜Q11 は回答済み（2026-10-02）。段階 A から実装中 |
 
 ---
 
@@ -94,6 +94,8 @@ npx supabase logout                               # 作業が終わったら（�
 ```
 
 - `supabase login` は CI で使わない（ローカルの PC からだけ適用する）。`db push` の DB パスワードは対話入力（`SUPABASE_DB_PASSWORD` を使うならシェルの履歴に残さない）。
+- **本番に `supabase db push --include-seed` と `supabase db reset --linked` を使わない**。どちらも `supabase/seed.sql`（ローカル専用の公知のパスワードと試験用の利用者）を本番に流す。万一流したら直後に `\password web_app` で上書きし、`private.web_users` の行を確かめる。
+- `\password web_app` のあと、プーラー経由で `web_app` が接続できることを確かめてから Vercel に環境変数を入れる（U1）: `psql -h aws-<n>-<region>.pooler.supabase.com -p 6543 -U web_app.<project-ref> -d postgres "sslmode=verify-full sslrootcert=<CA>" -c "select current_user, current_setting('statement_timeout')"`。
 - 新しいマイグレーション（3 章）はローカルで `supabase db reset` → 結合テストを通してから push する。
 
 ### 2.5 Auth の設定（ダッシュボード）
@@ -101,7 +103,7 @@ npx supabase logout                               # 作業が終わったら（�
 | 設定 | 値 | 理由 |
 |---|---|---|
 | Allow new users to sign up | **オフ** | 利用者は本人だけ（NF-SEC-02）。オフにすると既存の利用者だけがサインインできる（13 章 S5） |
-| 利用者の作成 | Authentication → Users で 1 人作る（メール確認済み、パスワードは 20 文字以上の乱数） | メール送信を使わない。利用者の `id`（uuid）を Vercel の `WEB_ALLOWED_USER_ID` に入れる（4.3 章） |
+| 利用者の作成 | Authentication → Users で 1 人作る（メール確認済み。パスワードは 8 文字以上。Q3） | メール送信を使わない。利用者の `id`（uuid）を Vercel の `WEB_ALLOWED_USER_ID` に入れる（4.3 章）。Password Requirements で「8 文字以上、文字種の混在」を設定する |
 | Site URL | `https://<app>.vercel.app` | Auth のリダイレクト先の既定 |
 | Redirect URLs | 追加しない | メールのリンクを使わない |
 | 匿名サインイン | オフ（既定のまま） | 匿名の利用者も `authenticated` ロールになり、Storage のポリシー（3.3 章）に影響する |
@@ -178,12 +180,23 @@ alter default privileges for role postgres in schema public revoke all on functi
 
 -- 6. Storage: ログインした本人（匿名でない）だけがサムネイルを読める（3.3 章）
 create policy thumbnails_read on storage.objects for select to authenticated
-  using (bucket_id = 'thumbnails' and coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false);
+  using (bucket_id = 'thumbnails' and (select private.is_web_user()));   -- 3.2.1 章: private.web_users で判定
 ```
 
 - Web の接続処理（`apps/web/src/lib/queries/register-credential.ts`）は `vault.secrets` を `select` している（レビューで判明）。R2 で `select private.store_token($1, $2)` に差し替える。`private.credentials` の upsert はそのまま。
 - `web_app` は `token_secret_id` を更新できるが、`store_token` は `account_id` から名前を引くので、別アカウントの秘密を上書きする経路はない。加えてワーカーの `token_check` に `app_id = META_APP_ID`、`profile_id = accounts.fb_page_id` の確認を足す（現状は未検証。混乱した代理の防止。5.6 章）。
 - トリガー関数（`set_updated_at`、`private.delete_token_secret`）は追加の grant 不要（13 章 P9）。
+
+### 3.2.1 実装で確定・変更したこと（2026-10-02。レビュー 2 本を反映）
+
+- `alter role web_app with login nocreatedb nocreaterole` を無条件に流す（既存のロールの属性を揃える）。`nosuperuser`／`nobypassrls` は非スーパーユーザーの `postgres` が `alter role` で指定できない（13 章 P12）ので `create role` でだけ指定する。
+- `private.credentials` の `update` は列単位（`token_type`、`expires_at`、`data_access_expires_at`、`scopes`、`status`、`last_checked_at`、`last_error`）。`token_secret_id` と `account_id` は書けない。`token_secret_id` は `private.store_token` が同期する（行があれば更新）。
+- `private.store_token`: トークンは 1〜1024 文字の印字可能 ASCII に限る（`22023`）、アカウントがなければ `P0002`、名前で `pg_advisory_xact_lock` を取って同時作成を防ぐ。
+- `accounts` の insert ポリシーは `with check ((select count(*) from public.accounts) < 10)`（資格情報が漏れても収集対象を増やし続けられない）。
+- 関数の PUBLIC の実行権を `revoke execute on all functions in schema public|private from public` で取り消し、`metric_value` は `web_app` に明示。スキーマ単位の `alter default privileges … revoke … from public` は組み込みの既定を打ち消せない（13 章 P11）ので使わず、**関数を足すマイグレーションは `revoke execute … from public` を書く**規約にし、結合テストが棚卸しする。
+- Storage のポリシーは `is_anonymous` ではなく **許可した利用者の表 `private.web_users`** で判定する（セキュリティレビューの指摘。「匿名でない authenticated 全員」が読める状態を避ける）。判定は `security definer` の `private.is_web_user()`（`auth.uid()` が `web_users` にあるか。uid がなければ false）。`authenticated` には `private` スキーマの `usage` と、この関数の `execute` だけを与える（テーブルの権限はない）。データベース設定（`alter database … set`）で uuid を渡す案は `postgres` に権限がなく不可（13 章 P9）。
+- Supabase CLI はマイグレーション 1 本をトランザクションで流す（途中で失敗した statement があると全体が戻る。13 章 P10）。
+- 結合テストは架空のアカウントを `status = 'paused'` で作り（常駐ワーカーに収集させない）、接続先がローカル以外なら止まる。
 
 ### 3.3 Storage の権限
 
@@ -192,23 +205,37 @@ create policy thumbnails_read on storage.objects for select to authenticated
 | サムネイルのアップロード（ワーカー） | サービスロールキーで Storage API | 同じ。鍵は GitHub Secrets。S3 互換キーは影響範囲が Storage に限られる利点があるが、S3 署名の実装か SDK の追加が要るので申し送り（12 章） |
 | 署名付き URL（Web） | サービスロールキー | **ログインした本人のセッション**（`@supabase/ssr` のサーバークライアント、利用者の JWT）で `createSignedUrls`。3.2 章のポリシーで `thumbnails` の `select` だけ通る。Vercel からサービスロールキーをなくせる |
 
-バケットは非公開のまま。`insert`／`update`／`delete` のポリシーは作らない（ワーカーはサービスロールで書く）。`authenticated` は `storage.objects` に表権限を持つので、守りは RLS ポリシーだけ。前提は「サインアップ無効」「匿名サインイン無効」「ポリシーで匿名を除外」の 3 つ。`WEB_ALLOWED_USER_ID` は Storage API には効かないので、10.2 章で作る試験用の利用者は同じ手順の中で必ず削除する。
+バケットは非公開のまま。`insert`／`update`／`delete` のポリシーは作らない（ワーカーはサービスロールで書く）。`authenticated` は `storage.objects` に表権限を持つので、守りは RLS ポリシーだけ。読めるのは `private.web_users` に `auth.users.id` がある利用者だけで、行がなければ誰も読めない（フェイルクローズ）。本番はダッシュボードの SQL エディタで `insert into private.web_users (user_id, note) values ('<uuid>', '本人')` を 1 回流す（7.1 章の手順 1）。Web の `WEB_ALLOWED_USER_ID` と同じ値になる（Web の判定はアプリ側、Storage の判定は DB 側で、置き場が 2 つあることは README に書く）。10.2 章で作る試験用の利用者は `web_users` に入れないので、サムネイルは読めない。
 
-### 3.4 ロールバック
+### 3.4 ロールバック（ローカルで 2 回検証済み）
+
+`drop owned by web_app` は `postgres` が `web_app` の権限を継承していない（PG16 以降の `createrole` は ADMIN だけ）ため通らない見込み。明示的に外す。
 
 ```sql
 drop policy if exists thumbnails_read on storage.objects;
--- public / private の web_app_* ポリシーを drop
-drop owned by web_app;        -- grant をまとめて外す（DB は 1 つ）
-drop role web_app;
+do $$ declare p record; begin
+  for p in select schemaname, tablename, policyname from pg_policies where policyname like 'web_app_%' loop
+    execute format('drop policy %I on %I.%I', p.policyname, p.schemaname, p.tablename);
+  end loop; end $$;
+revoke all on all tables in schema public from web_app;
+revoke all on all functions in schema public from web_app;
+revoke all on private.credentials from web_app;
+revoke execute on function private.store_token(uuid, text) from web_app;
+revoke usage on schema private from web_app;
 drop function if exists private.store_token(uuid, text);
+drop function if exists private.is_web_user();
+drop table if exists private.web_users;
+revoke usage on schema private from authenticated;
+drop role web_app;
 ```
+
+そのあと `supabase migration repair --status reverted 20261002005926`（`--local` か `--linked`）で記録を戻す（戻さないと再 push されない）。anon／authenticated の取り消し（3.2 章の 6）は戻さない（戻す理由がない）。
 
 ### 3.5 ローカルでの検証（段階 A の受け入れ）
 
 - `supabase/seed.sql` に **ローカル専用の公知のパスワード**を置く: `alter role web_app with password 'web_app_local';`（Q9。ローカルの Supabase のサービスロールキーや DB パスワードと同じ扱い。README に「本番では使わない」と明記）。`db reset` のたびに seed が流れるので手動の `alter role` が要らない。
 - 結合テスト用に `TEST_WEB_DATABASE_URL=postgresql://web_app:web_app_local@127.0.0.1:54322/postgres` を足し、`apps/web/test/db/*` はこちらで流す（`register-credential.test.ts` と `queries.test.ts` は現在 `postgres` で動いており本番と権限が違う）。
-- 受け入れ: `web_app` で 6 ビューの `select` が通る。`vault.decrypted_secrets`、`raw_api_responses`、`job_state` の `select` が権限エラー。`job_runs` の `insert` が権限エラー。`private.credentials` の upsert と `private.store_token` で Vault が作成・更新される（`postgres` で `vault.decrypted_secrets` を読んで確認）。`anon` と `authenticated` で `public` のどのテーブル・ビューも権限エラー（RLS ではなく grant で落ちる）。`authenticated` の JWT（ローカル Auth で利用者を作り `signInWithPassword`）で `thumbnails` の署名付き URL が作れ、`anon` と他バケットでは作れない。`is_anonymous=true` の JWT では作れない。
+- 受け入れ: `web_app` で 6 ビューの `select` が通る。`vault.decrypted_secrets`、`raw_api_responses`、`job_state` の `select` が権限エラー。`job_runs` の `insert` が権限エラー。`private.credentials` の upsert と `private.store_token` で Vault が作成・更新される（`postgres` で `vault.decrypted_secrets` を読んで確認）。`anon` と `authenticated` で `public` のどのテーブル・ビューも権限エラー（RLS ではなく grant で落ちる）。`storage.objects` の `select` が、`private.web_users` にある利用者（seed の `…0001`）の JWT で `thumbnails` だけ通り、他の利用者・uid なし・`anon`・他バケットでは通らない（Storage API 経由の署名付き URL は 10.2 章の実機で見る）。`anon`／`authenticated`／PUBLIC への権限が `public`／`private`／`vault` に残っていない（意図した `authenticated → private.is_web_user` を除く）。`postgres` が新しく作るテーブルに `anon`／`authenticated` の権限が付かない。**実装結果（2026-10-02）: 結合テスト 26 件がローカルで通過。**
 
 ---
 
@@ -407,7 +434,7 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 | 秘密 | 置き場 | 漏れたときの影響 | 取り消し |
 |---|---|---|---|
 | DB パスワード（`postgres`） | GitHub Secrets `DATABASE_URL`、手元の PC（`db push`、移行） | DB の全読み書き。Vault の復号を含む（→ Meta のトークン） | ダッシュボードで DB パスワードをリセット → Secrets を更新。Meta のトークンも `/connect` で取り直す |
-| `web_app` のパスワード | Vercel `DATABASE_URL`（Sensitive） | 画面用テーブルの読み出し、`accounts`／`credentials` の更新、`store_token` での上書き（読めない） | `psql` で `\password web_app` → Vercel を更新 |
+| `web_app` のパスワード | Vercel `DATABASE_URL`（Sensitive） | 画面用テーブルの読み出し、`accounts`／`credentials` の更新（`token_secret_id` は不可）、アカウントの追加（上限 10 件。ワーカーに収集させられる）、`store_token` での上書き（読めない） | `psql` で `\password web_app` → Vercel を更新 |
 | サービスロールキー | GitHub Secrets | REST（公開スキーマなし）、Storage、Auth 管理の全操作 | ダッシュボードでローテーション（新しい API キーなら個別に失効。U2） |
 | `SUPABASE_URL`（project ref を含む） | GitHub Secrets（Variables にしない。NF-SEC-07） | エンドポイントの特定 | 変えられない（プロジェクト作り直し） |
 | `META_APP_ID` | GitHub Secrets、Vercel（Sensitive でなくてよいが Variables にはしない） | アプリの特定 | 変えられない |
@@ -431,7 +458,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 | # | 手順 |
 |---|---|
-| 1 | 2 章の Supabase の設定（Auth、SSL 強制、Data API、利用者の作成）。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）。`supabase logout` |
+| 1 | 2 章の Supabase の設定（Auth、SSL 強制、Data API、利用者の作成）。`supabase link` → `db push`（R1 の 5 本 ＋ R2 の 1 本。`--include-seed` を付けない）→ `psql`（セッションモード）で `\password web_app`（パスワードを SQL 文に入れない。履歴とサーバーログに残さない）→ SQL エディタで `insert into private.web_users (user_id, note) values ('<利用者の uuid>', '本人')` → `web_app` でプーラーに接続できることを確認（2.4 章）。`supabase logout` |
 | 2 | Vercel に段 1 の環境変数を入れて `main` をデプロイ。未ログインで `/` → `/login`、本人でログイン → 3 画面が「設定が不足」、別の利用者（一時的に作る）でログイン → 403 → その利用者を削除。確認できたら段 2 の変数を入れて再デプロイ → 3 画面が「データなし」で出る |
 | 3 | 4.4 章（Meta の OAuth リダイレクト URI）、Healthchecks のチェック作成（period 1 時間、grace 3 時間）、GitHub Secrets 6 つと Variables（`DATABASE_SSL_CA`、`COLLECT_KEEPALIVE=true`）の登録 |
 | 4 | サムネイルの 1 回目のコピー（不変なので先にできる）: ダッシュボードで S3 互換キーを生成し、`rclone` でローカルの S3 互換エンドポイント（`supabase status` の S3 キー）から Cloud の `thumbnails` バケットへ |
@@ -540,17 +567,17 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 
 | No | 内容 | 推奨 | 備考 |
 |---|---|---|---|
-| Q1 | Supabase のリージョン | 東京（`ap-northeast-1`） | 作成済みなら変更不可。どこで作ったかを教えてほしい |
-| Q2 | 依存パッケージの追加: `@supabase/supabase-js`、`@supabase/ssr`（Web） | 追加する | ログインに必須。版を固定 |
-| Q3 | ログインの方式 | メール＋パスワード（20 文字以上の乱数） | マジックリンクは組み込み SMTP の上限が小さく毎回のログインに向かない |
-| Q4 | 死活監視 | 案 A: Healthchecks.io（アカウント作成が要る） | 案 B: cron-job.org ＋ `/api/health` |
-| Q5 | ワーカーの実行環境 | Docker を使わず、ランナーに ffmpeg を入れて Node で直接実行 | 代替: 毎回 Docker ビルド、GHCR の公開イメージ |
-| Q6 | `appsecret_proof` を R2 で入れるか | 入れる（DB の資格情報が漏れてもトークン単独では使えない。コストは HMAC 1 つ） | アプリ設定の必須化は両方のデプロイ後 |
-| Q7 | Supabase Auth の TOTP（MFA） | R3 までに入れる（`/login` の総当たりで本人がロックされうるため） | R2 では入れない |
-| Q8 | `web_app` に `raw_api_responses` の `select` を与えるか | 与えない（ビューの依存なしを確認済み） | 将来の生データ閲覧画面では追加のマイグレーション |
-| Q9 | ローカルの `web_app` のパスワードを `seed.sql` に公知の値で置く | 置く（ローカルのサービスロールキーと同じ扱い） | 本番では `\password` で別の値 |
-| Q10 | ワークフローのファイルを誰のアカウントでコミットするか | ユーザー本人のアカウントでコミットする（失敗メールの宛先になる） | 親がコミットするなら、作成後にユーザーが cron を一度編集する |
-| Q11 | Data API の公開スキーマから `public` を外す（2.6 章） | 外す | ブラウザと REST から DB を読まない方針を設定で固定する |
+| Q1 | Supabase のリージョン | 東京（`ap-northeast-1`） | **回答: 東京（`ap-northeast-1`）で作り直した**（最初は `ap-south-1` で作っていた）。プーラーのホストは `aws-<n>-ap-northeast-1.pooler.supabase.com` |
+| Q2 | 依存パッケージの追加: `@supabase/supabase-js`、`@supabase/ssr`（Web） | 追加する | **回答: 追加する** |
+| Q3 | ログインの方式 | メール＋パスワード（20 文字以上の乱数） | **回答: メール＋パスワード、8 文字以上**。推奨より短い分、`/login` の固定遅延と、Supabase 側のパスワード要件（ダッシュボードで 8 文字以上・文字種を設定）、R3 までの TOTP（Q7）で補う |
+| Q4 | 死活監視 | 案 A: Healthchecks.io | **回答: 案 A。アカウント作成済み** |
+| Q5 | ワーカーの実行環境 | Docker を使わず、ランナーに ffmpeg を入れて Node で直接実行 | **回答: 推奨どおり** |
+| Q6 | `appsecret_proof` を R2 で入れるか | 入れる | **回答: 推奨どおり** |
+| Q7 | Supabase Auth の TOTP（MFA） | R3 までに入れる | **回答: 推奨どおり** |
+| Q8 | `web_app` に `raw_api_responses` の `select` を与えるか | 与えない | **回答: 推奨どおり** |
+| Q9 | ローカルの `web_app` のパスワードを `seed.sql` に公知の値で置く | 置く | **回答: 推奨どおり** |
+| Q10 | ワークフローのファイルを誰のアカウントでコミットするか | ユーザー本人のアカウントでコミットする | **回答: 推奨どおり**。このリポジトリのコミットはユーザーの git の身元で作られ push されるので、親が作ったコミットでも作成者はユーザーになる。念のためマージ後にユーザーが cron を一度編集して宛先を確定する |
+| Q11 | Data API の公開スキーマから `public` を外す（2.6 章） | 外す | **回答: 推奨どおり** |
 
 決定済み（レビューで確定。確認は不要）: `check-alerts` は収集の失敗後も走る（`!cancelled()`）。履歴が足りないときは判定しない。`partial`／`skipped` は失敗に数えない（`skipped` の連続は別の alert）。トークン警告は daily だけ。通知の試験は T0 の前に行う。
 
@@ -598,5 +625,10 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | P6 | `public` の全テーブル・ビューに `anon`、`authenticated`、`service_role` の `arwdDxtm` が付いている（Supabase の既定権限） | 同上 |
 | P7 | `pg_dump --data-only --inserts --on-conflict-do-nothing --schema=public --exclude-table-data=public.metric_definitions` は identity 列に `overriding system value` を付け、`setval` を出し、FK 順に並ぶ | ローカルで実行して確認 |
 | P8 | 一時停止の判定は Postgres への接続とクエリで、プーラー経由の `postgres` も含まれる（レビューの見解。S3 の文面と整合） | S3 |
+| P9 | `postgres` ロールは `alter database postgres set <カスタム設定>` を実行できない（permission denied to set parameter） | ローカルで実行して確認 |
+| P10 | Supabase CLI はマイグレーション 1 本をトランザクションで流す（2 文目で失敗したとき、1 文目の `create role` も戻っていた） | ローカルで確認 |
+| P11 | スキーマ単位の `alter default privileges … revoke execute on functions from public` は、組み込みの既定（新しい関数は PUBLIC が実行可）を打ち消せない。既定に足す方向にしか効かない | ローカルで確認（`create function` 後の `proacl` に `=X` が残る） |
+| P12 | `postgres` は `alter role … nosuperuser` と `nobypassrls` を実行できない（`create role` では既定値として指定できる） | ローカルで確認 |
+| P13 | `postgres` は `storage.objects` と `storage.buckets` に行を入れられる（結合テストはトランザクション内で入れて捨てる） | ローカルで確認 |
 
 未確認（実機で確かめる）: U1 `web_app` ロールでプーラーに接続できるか（Supavisor の認証）。U2 新しい API キー（`sb_secret_…`）を Storage のアップロードに使えるか。U3 GitHub-hosted ランナーに ffmpeg が入っているか（なければ apt）。U4 `GITHUB_TOKEN` の `actions: write` で enable API が通るか、通ったとして 60 日の起算が戻るか（55 日目）。U5 Vercel が Root Directory `apps/web` でルートの lockfile を使ってビルドできるか（「Include source files outside of the Root Directory」）。U6 → P1 で肯定（ただし `store_token` 経由にしたので `web_app` への grant は不要）。U7 プーラーの証明書チェーンが `prod-ca-2021.crt` に連なるか。U8 Vercel の Fluid compute の有無と関数の既定の実行時間。

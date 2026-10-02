@@ -211,7 +211,7 @@ npm run worker:verify-api
 | `npm run lint:web` | Web アプリの lint |
 | `npm run build:web` | Web アプリのビルド（出力で 4 ルートが `ƒ (Dynamic)` であることを確かめる） |
 | `npm run typecheck -w web` | Web アプリの型チェック（`next typegen` のあと `tsc`） |
-| `npm run test -w web` | Web アプリの単体テスト。`TEST_DATABASE_URL=...`（ワーカーと同じ）を付けると結合テストも動く |
+| `npm run test -w web` | Web アプリの単体テスト。`TEST_DATABASE_URL=...`（ワーカーと同じ）を付けると結合テストも動く。R2 の Web 用ロールの結合テスト（`test/db/web-role.test.ts`）は、さらに `TEST_WEB_DATABASE_URL=postgresql://web_app:web_app_local@127.0.0.1:54322/postgres` を付けたときだけ動く（パスワードは `supabase/seed.sql` のローカル専用の公知の値） |
 | `npm run test -w worker` | ワーカーの単体テスト。`TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` を付けるとローカル Supabase への結合テストも動く（架空のアカウントを作って消す）。Storage の結合テストが使うサービスロールキーの既定値は Supabase CLI の公知のローカル用の値で、秘密ではない |
 | `npm run typecheck -w worker` | ワーカーの型チェック |
 | `npm run build:worker` | ワーカーのビルド（`apps/worker/dist/`。Docker を使わずに `node apps/worker/dist/index.js` で動かすときに使う） |
@@ -222,6 +222,13 @@ npm run worker:verify-api
 ## DB
 
 テーブル設計は `doc/design/r1-db-design.md`、マイグレーションは `supabase/migrations/` にある。ローカルの DB にはユーザーの実データが入るので、ダンプやエクスポートをコミットしない。
+
+R2（`doc/design/r2-cloud.md` 3 章）で Web 用のロール `web_app` と、サムネイルを読める利用者の表 `private.web_users` を追加した（`20261002005926_r2_web_role.sql`）。
+
+- パスワードはマイグレーションに書かない。ローカルは `supabase/seed.sql` が `db reset` のたびに公知の値（`web_app_local`）を設定し、結合テスト用の利用者（uuid `…0001`）を `private.web_users` に入れる。ローカルの Supabase Auth で作った自分の利用者でサムネイルを見るには、その `auth.users.id` を `private.web_users` に insert する。
+- 実データが入っているローカル DB に `db reset` せずに適用するときは、`npx supabase migration up --local` のあと `docker exec -i supabase_db_instagram-analyze psql -U postgres -d postgres < supabase/seed.sql` で seed を流す。
+- 本番（Supabase Cloud）では `seed.sql` を流さない。**`supabase db push --include-seed` と `supabase db reset --linked` は使わない**（公知のパスワードが本番に入る）。本番は `psql` の `\password web_app` で別の値を設定し、`private.web_users` に本人の uuid を入れる。
+- 関数を足すマイグレーションは `revoke execute on function … from public` を書く（新しい関数は既定で誰でも実行できる。結合テスト `test/db/web-role.test.ts` が棚卸しする）。テーブルを足すときは `web_app` への grant とポリシーを両方書く。
 
 ## Claude Code のサブエージェントとスキル
 
