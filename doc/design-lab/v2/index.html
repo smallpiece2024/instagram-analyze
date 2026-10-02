@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>design-lab v2 | instagram-analyze 画面設計（第 2 ラウンド）</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: #e9e7e3; color: #222; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  figure { margin: 0; }
+  [hidden] { display: none !important; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 14px; background: #2b2b2b; color: #eee; }
+  .bar h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; }
+  .bar select, .bar button, .bar a.btn { font: inherit; padding: 5px 10px; border-radius: 6px; border: 1px solid #555; background: #3a3a3a; color: #eee; cursor: pointer; text-decoration: none; }
+  .bar select { min-width: 200px; }
+  .bar button.active { background: #f2f2f2; color: #222; border-color: #f2f2f2; }
+  .bar .group { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .bar .label { font-size: 12px; color: #aaa; margin-right: 2px; }
+  .bar .hint { margin-left: auto; font-size: 12px; color: #aaa; }
+  .desc { padding: 6px 14px; background: #f7f6f3; border-bottom: 1px solid #ddd; font-size: 13px; }
+  .desc b { margin-right: 8px; }
+  .desc .pal { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 10px; }
+  .desc .pal i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid rgba(0,0,0,.15); }
+  .stage { flex: 1; min-height: 0; overflow: auto; }
+  .compare { display: flex; gap: 16px; padding: 16px; height: 100%; align-items: stretch; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane figcaption { font-size: 12px; color: #444; margin-bottom: 6px; }
+  .pane figcaption b { display: block; font-size: 13px; }
+  .pane figcaption small { color: #777; display: block; line-height: 1.4; }
+  .pane iframe { border: 0; background: #fff; flex: 1; width: 100%; box-shadow: 0 2px 12px rgba(0,0,0,.15); border-radius: 8px; }
+  .pane--mobile { flex: none; width: 390px; }
+  .pane--desktop { flex: 1; }
+  .pane--desktop iframe { max-width: var(--desk, 1280px); margin: 0 auto; }
+  .all { display: flex; gap: 16px; padding: 16px; height: 100%; align-items: stretch; width: max-content; min-width: 100%; }
+  .all .pane--mobile figcaption { width: 390px; }
+  /* 一覧の PC 縮小表示: 1280px の iframe を 0.45 倍で見せる */
+  .all .pane--shrink { flex: none; width: 576px; }
+  .all .pane--shrink .frame { flex: 1; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.15); background: #fff; }
+  .all .pane--shrink iframe { width: 1280px; height: 222%; transform: scale(0.45); transform-origin: 0 0; box-shadow: none; border-radius: 0; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <h1>design-lab v2 ／ instagram-analyze 画面設計（第 2 ラウンド、架空データ）</h1>
+    <div class="group" id="views">
+      <button data-view="one">並べて見る</button>
+      <button data-view="all">10 案一覧</button>
+    </div>
+    <div class="group" id="oneCtl">
+      <button id="prev" title="前の案 (←)">‹</button>
+      <select id="theme" aria-label="案"></select>
+      <button id="next" title="次の案 (→)">›</button>
+      <span class="label">PC 幅</span>
+      <button data-w="1024">1024</button>
+      <button data-w="1280">1280</button>
+    </div>
+    <div class="group" id="allCtl" hidden>
+      <span class="label">一覧の幅</span>
+      <button data-aw="mobile">モバイル</button>
+      <button data-aw="desktop">PC（縮小）</button>
+    </div>
+    <div class="group" id="screens"><span class="label">画面</span></div>
+    <a class="btn" id="open" target="_blank" rel="noopener">新しいタブで開く</a>
+    <span class="hint">キー: 1〜9, 0 で案を選択 ／ ← → で前後</span>
+  </div>
+  <div class="desc"><b id="descName"></b><span id="descNote"></span><span class="pal" id="descPal"></span></div>
+
+  <div class="stage">
+    <div class="compare" id="compare">
+      <figure class="pane pane--mobile">
+        <figcaption>モバイル 390px</figcaption>
+        <iframe id="ifMobile" title="モバイル表示"></iframe>
+      </figure>
+      <figure class="pane pane--desktop">
+        <figcaption id="capDesk">PC</figcaption>
+        <iframe id="ifDesk" title="PC表示"></iframe>
+      </figure>
+    </div>
+    <div class="all" id="all" hidden></div>
+  </div>
+
+  <script src="variants.js"></script>
+  <script>
+  (function () {
+    var VARIANTS = window.LAB_VARIANTS;
+    var SCREENS = [["overview", "概要"], ["media-list", "投稿一覧"], ["media-detail", "投稿詳細"], ["reels", "リール分析"], ["stories", "ストーリーズ"], ["timing", "投稿時刻"], ["connection", "接続と収集ログ"]];
+    var ids = VARIANTS.map(function (v) { return v.id; });
+    var state = { theme: "01", view: "one", width: 1280, screen: "overview", allWidth: "mobile" };
+    try {
+      var saved = JSON.parse(localStorage.getItem("ia-design-lab-v2") || "{}");
+      if (saved && typeof saved === "object") {
+        if (ids.indexOf(saved.theme) >= 0) state.theme = saved.theme;
+        if (saved.view === "all" || saved.view === "one") state.view = saved.view;
+        if ([1024, 1280].indexOf(saved.width) >= 0) state.width = saved.width;
+        if (SCREENS.some(function (s) { return s[0] === saved.screen; })) state.screen = saved.screen;
+        if (saved.allWidth === "mobile" || saved.allWidth === "desktop") state.allWidth = saved.allWidth;
+      }
+    } catch (e) {}
+    var q = location.search;
+    var qt = q.match(/theme=([0-9]{2})/); if (qt && ids.indexOf(qt[1]) >= 0) state.theme = qt[1];
+    var qv = q.match(/view=(all|one)/); if (qv) state.view = qv[1];
+    var qs = q.match(/screen=([a-z-]+)/); if (qs && SCREENS.some(function (s) { return s[0] === qs[1]; })) state.screen = qs[1];
+
+    var $ = function (id) { return document.getElementById(id); };
+    var select = $("theme"), all = $("all"), allBuiltFor = "";
+
+    VARIANTS.forEach(function (v) {
+      var opt = document.createElement("option");
+      opt.value = v.id; opt.textContent = "案" + v.id + "  " + v.name;
+      select.appendChild(opt);
+    });
+    SCREENS.forEach(function (s) {
+      var b = document.createElement("button");
+      b.dataset.screen = s[0]; b.textContent = s[1];
+      b.addEventListener("click", function () { state.screen = s[0]; render(); });
+      $("screens").appendChild(b);
+    });
+
+    function byId(id) { return VARIANTS.filter(function (v) { return v.id === id; })[0]; }
+    function save() { try { localStorage.setItem("ia-design-lab-v2", JSON.stringify(state)); } catch (e) {} }
+    function url(id) { return "screens/" + state.screen + ".html#" + id; }
+    function setSrc(iframe, src) { if (iframe.getAttribute("src") !== src) iframe.src = src; }
+
+    function buildAll() {
+      all.innerHTML = "";
+      VARIANTS.forEach(function (v) {
+        var fig = document.createElement("figure");
+        var shrink = state.allWidth === "desktop";
+        fig.className = "pane " + (shrink ? "pane--shrink" : "pane--mobile");
+        fig.dataset.id = v.id;
+        fig.innerHTML = '<figcaption><b>案' + v.id + " " + v.name + "</b><small></small></figcaption>" +
+          (shrink ? '<div class="frame"><iframe title="案' + v.id + '"></iframe></div>' : '<iframe title="案' + v.id + '"></iframe>');
+        fig.querySelector("small").textContent = v.note;
+        all.appendChild(fig);
+      });
+      allBuiltFor = state.allWidth;
+    }
+
+    function render() {
+      var v = byId(state.theme);
+      select.value = state.theme;
+      $("descName").textContent = "案" + v.id + " " + v.name;
+      $("descNote").textContent = v.note;
+      $("descPal").innerHTML = v.chart.map(function (c) { return '<i style="background:' + c + '" title="' + c + '"></i>'; }).join("") + '<i style="background:' + v.surface + '" title="面 ' + v.surface + '"></i>';
+      $("open").href = url(state.theme);
+      Array.prototype.forEach.call(document.querySelectorAll("#views button"), function (b) { b.classList.toggle("active", b.dataset.view === state.view); });
+      Array.prototype.forEach.call(document.querySelectorAll("#oneCtl [data-w]"), function (b) { b.classList.toggle("active", Number(b.dataset.w) === state.width); });
+      Array.prototype.forEach.call(document.querySelectorAll("#allCtl [data-aw]"), function (b) { b.classList.toggle("active", b.dataset.aw === state.allWidth); });
+      Array.prototype.forEach.call(document.querySelectorAll("#screens button"), function (b) { b.classList.toggle("active", b.dataset.screen === state.screen); });
+      var isAll = state.view === "all";
+      $("oneCtl").hidden = isAll; $("allCtl").hidden = !isAll;
+      $("compare").hidden = isAll; all.hidden = !isAll;
+      if (isAll) {
+        if (allBuiltFor !== state.allWidth) buildAll();
+        Array.prototype.forEach.call(all.children, function (fig) { setSrc(fig.querySelector("iframe"), url(fig.dataset.id)); });
+      } else {
+        setSrc($("ifMobile"), url(state.theme));
+        setSrc($("ifDesk"), url(state.theme));
+        document.documentElement.style.setProperty("--desk", state.width + "px");
+        $("capDesk").textContent = "PC " + state.width + "px";
+      }
+      save();
+    }
+    function step(delta) { var i = ids.indexOf(state.theme); state.theme = ids[(i + delta + ids.length) % ids.length]; render(); }
+
+    select.addEventListener("change", function () { state.theme = select.value; render(); });
+    $("prev").addEventListener("click", function () { step(-1); });
+    $("next").addEventListener("click", function () { step(1); });
+    Array.prototype.forEach.call(document.querySelectorAll("#views button"), function (b) { b.addEventListener("click", function () { state.view = b.dataset.view; render(); }); });
+    Array.prototype.forEach.call(document.querySelectorAll("#oneCtl [data-w]"), function (b) { b.addEventListener("click", function () { state.width = Number(b.dataset.w); render(); }); });
+    Array.prototype.forEach.call(document.querySelectorAll("#allCtl [data-aw]"), function (b) { b.addEventListener("click", function () { state.allWidth = b.dataset.aw; render(); }); });
+    document.addEventListener("keydown", function (e) {
+      if (e.target && (e.target.tagName === "SELECT" || e.target.tagName === "INPUT")) return;
+      if (e.key === "ArrowLeft") { step(-1); e.preventDefault(); return; }
+      if (e.key === "ArrowRight") { step(1); e.preventDefault(); return; }
+      if (/^[0-9]$/.test(e.key)) { var id = e.key === "0" ? "10" : "0" + e.key; if (ids.indexOf(id) >= 0) { state.theme = id; if (state.view === "all") state.view = "one"; render(); } }
+    });
+    render();
+  })();
+  </script>
+</body>
+</html>

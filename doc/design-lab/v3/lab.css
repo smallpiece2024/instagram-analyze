@@ -1,0 +1,107 @@
+/* ==============================================================
+   design-lab v1 共通スタイル（レイアウトとアプリの枠）
+   - 見た目の差はすべて tokens/tokens-XX.css のカスタムプロパティで表現する
+   - トークン以外の値は直書きしない（例外: .lab-theme のラベルと、幅の切れ目のメディアクエリ）
+   ============================================================== */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height, 1.6);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  background-image: var(--bg-texture, none);
+  background-size: var(--bg-texture-size, auto);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: var(--num-variant, normal);
+  min-width: 320px;
+  overflow-x: hidden;
+}
+h1, h2, h3 {
+  font-family: var(--font-heading, inherit);
+  font-weight: var(--font-weight-heading, 700);
+  letter-spacing: var(--letter-spacing-heading, 0);
+  text-transform: var(--heading-transform, none);
+  line-height: 1.35;
+}
+h1 { font-size: var(--font-size-h1); }
+h2 { font-size: var(--font-size-h2); }
+h3 { font-size: var(--font-size-sm); }
+a { color: var(--color-link); text-decoration: none; }
+button, select { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+table { border-collapse: collapse; width: 100%; }
+svg { display: block; overflow: visible; font-family: inherit; }
+svg text { font-family: var(--font-num, inherit); }
+
+.small { font-size: var(--font-size-sm); }
+.xs { font-size: var(--font-size-xs); }
+.muted { color: var(--color-text-muted); }
+.num { font-family: var(--font-num, inherit); font-variant-numeric: tabular-nums; }
+.right { text-align: right; }
+.nowrap { white-space: nowrap; }
+
+/* --- アプリの枠 --- */
+.topbar {
+  background: var(--header-bg, var(--color-nav-bg));
+  color: var(--header-text, var(--color-nav-text));
+  border-bottom: var(--nav-border);
+  position: sticky; top: 0; z-index: 10;
+}
+.topbar__in {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--gap);
+  display: flex; align-items: center; gap: var(--gap); flex-wrap: wrap;
+  min-height: 52px;
+}
+.brand { display: flex; align-items: center; gap: calc(var(--space) * 1); font-weight: 700; white-space: nowrap; padding: calc(var(--space) * 1.25) 0; }
+.brand__mark { width: 22px; height: 22px; border-radius: var(--radius); background: var(--color-primary); flex: none; }
+.brand small { font-weight: 400; color: inherit; opacity: .7; font-size: var(--font-size-xs); margin-left: 4px; }
+.nav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+.nav::-webkit-scrollbar { display: none; }
+.nav a {
+  color: inherit; opacity: .78; white-space: nowrap;
+  padding: 6px 12px; border-radius: var(--nav-radius, var(--radius));
+  font-size: var(--font-size-sm);
+}
+.nav a[aria-current] { opacity: 1; font-weight: 700; color: var(--color-nav-active); background: var(--color-nav-active-bg); box-shadow: var(--nav-active-decor, none); }
+.main { max-width: var(--content-max); margin: 0 auto; padding: var(--gap); }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; margin-bottom: var(--gap); }
+.page-head h1 { padding: var(--heading-pad, 0); border-bottom: var(--heading-decor, none); }
+.page-head .sub { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-top: 2px; }
+.page-head .tools { display: flex; gap: var(--space); flex-wrap: wrap; align-items: center; }
+
+/* --- 12 カラムのグリッド --- */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
+.col-12 { grid-column: span 12; }
+.col-8 { grid-column: span 8; }
+.col-6 { grid-column: span 6; }
+.col-4 { grid-column: span 4; }
+.col-3 { grid-column: span 3; }
+.only-m { display: none; }
+@media (max-width: 900px) {
+  .col-8, .col-6, .col-4 { grid-column: span 12; }
+  .col-3 { grid-column: span 6; }
+  .nav { flex-basis: 100%; margin: 0 calc(var(--gap) * -1); padding: 0 var(--gap) calc(var(--space) * 0.75); }
+  .topbar__in { gap: 0 var(--gap); }
+}
+@media (max-width: 700px) {
+  .only-m { display: block; }
+  .only-d { display: none !important; }
+  .hide-m { display: none !important; }
+  .main { padding: calc(var(--gap) * 0.75); }
+}
+
+/* --- lab の注記（デザインには含まれない） --- */
+.lab-theme {
+  position: fixed; right: 8px; bottom: 8px; z-index: 50;
+  background: rgba(42, 42, 42, 0.9); color: #fff;
+  font: 11px/1.4 system-ui, sans-serif; padding: 4px 10px; border-radius: 4px; pointer-events: none;
+}
+
+/* --- 縦の間隔 --- */
+.stack > * + * { margin-top: var(--gap); }
+.stack > .page-head + * { margin-top: 0; }
