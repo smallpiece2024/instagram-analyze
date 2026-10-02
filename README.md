@@ -250,12 +250,14 @@ npx supabase logout                                # 作業が終わったら
 
 ### 3. Vercel（環境変数は 2 段で入れる）
 
-設定: Root Directory `apps/web`、Node.js 24.x、「Include source files outside of the Root Directory」をオン、Settings → Git の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（プレビューを作らない）。
+設定: Root Directory `apps/web`、Node.js 24.x、「Include source files outside of the Root Directory」をオン、Settings → Build and Deployment の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（プレビューを作らない）。
+
+環境変数は Environments を Production だけにして入れる。区分（Vercel の Config／Secret。Secret は保存後に値を読み返せない）は表のとおり。入れたあとは再デプロイしないと効かない。
 
 | 段 | 変数（Production） |
 |---|---|
-| 1 | `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`APP_URL`（`https://<app>.vercel.app`）、`WEB_ALLOWED_USER_ID` |
-| 2 | `DATABASE_URL`（トランザクションモード、`web_app`。Sensitive）、`DATABASE_POOL_MODE=transaction`、`DATABASE_SSL_CA`、`META_APP_ID`、`META_APP_SECRET`（Sensitive）、`META_GRAPH_API_VERSION=v25.0` |
+| 1 | `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`APP_URL`（`https://<app>.vercel.app`）、`WEB_ALLOWED_USER_ID`。4 つとも Config |
+| 2 | `DATABASE_URL`（トランザクションモード、`web_app`。区分は Secret）、`DATABASE_POOL_MODE=transaction`、`DATABASE_SSL_CA`、`META_APP_ID`、`META_APP_SECRET`（区分は Secret）、`META_GRAPH_API_VERSION=v25.0`。区分の指定がないものは Config |
 
 段 1 だけでデプロイし、未ログインで `/` が `/login` に飛ぶこと、本人でログインできること、別の利用者（一時的に作って消す）が 403 になることを確かめてから段 2 を入れて再デプロイする。`SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY` は Vercel に置かない（サムネイルはログインした本人のセッションで署名する）。
 

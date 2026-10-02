@@ -17,7 +17,7 @@
 - R2 の完了条件は「クラウドで 7 日間、人手を介さず収集が続く。ログインしないと画面を見られない。収集停止の通知が届くことを確認した」（要件 10 章）。
 - R1 の収集ワーカー（7 ジョブ、`run-hourly`／`run-daily`）、最小限の画面 3 つ、Facebook Login の接続は実装・実機確認済み。R2 ではこれらを **作り直さず**、接続先と実行環境を差し替え、ログインと通知を足す。
 - Supabase Cloud と Vercel のプロジェクトはユーザーが作成済み（2026-10-02。Vercel の Root Directory は `apps/web`）。本番の URL、プロジェクトの ref、鍵はリポジトリに書かない（NF-SEC-07）。この文書ではプレースホルダ（`<project-ref>`、`<region>`、`https://<app>.vercel.app`）を使う。
-- GitHub のリポジトリは個人アカウントの所有（Vercel Hobby は組織所有のリポジトリに接続できない。13 章 V3）。GitHub、Vercel、Supabase、Meta 開発者の 4 アカウントは 2 要素認証を有効にする（これらのアカウントが全権を握る。6 章）。
+- **GitHub のリポジトリは組織 `smallpiece2024` の所有**（2026-10-02 に API で確認。0.1〜0.2 の「個人アカウントの所有」は誤り）。Vercel Hobby は組織所有のリポジトリに Git 連携できない（13 章 V3）ので、(a) Vercel CLI で手元からデプロイ、(b) リポジトリを個人アカウントへ移す、(c) Vercel Pro、のどれかを選ぶ（Q12。推奨は (b)）。親のセッションの `gh` は別のアカウント（読み取りのみ）で認証されているため、`workflow_dispatch` と `gh run view --log` はユーザー本人（組織の管理者）が行う。GitHub、Vercel、Supabase、Meta 開発者の 4 アカウントは 2 要素認証を有効にする（これらのアカウントが全権を握る。6 章）。
 - ローカル環境（Supabase CLI と `docker-compose.yml` の常駐ワーカー）は開発用に残す。切り替え後はローカルのワーカーを常駐させない（二重収集を避ける）。
 - インフラの月額は 0 円（NF-CAP-01）。Supabase Free、Vercel Hobby、GitHub Actions（公開リポジトリ）の範囲で設計する。
 
@@ -246,7 +246,7 @@ drop role web_app;
 | 項目 | 内容 |
 |---|---|
 | プラン | Hobby（個人の非商用。要件 2.3 章） |
-| Git 連携 | `main` を本番にデプロイ。**プレビューは作らない**。Settings → Git の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（`exit 0` がスキップ、`exit 1` がビルド）。`main` への全 push（ワーカーや文書だけの変更）で本番ビルドが走るのは許容（同時ビルド 1、1 日 100 デプロイ。13 章 V1） |
+| Git 連携 | `main` を本番にデプロイ。**プレビューは作らない**。Settings → Build and Deployment の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（`exit 0` がスキップ、`exit 1` がビルド）。`main` への全 push（ワーカーや文書だけの変更）で本番ビルドが走るのは許容（同時ビルド 1、1 日 100 デプロイ。13 章 V1） |
 | Root Directory | `apps/web`（設定済み）。「Include source files outside of the Root Directory in the Build Step」が有効であることを初回に確認（ルートの `package-lock.json` を使うため。U5）。ビルドログの `outputFileTracingRoot` の警告が出ないかを見る |
 | Node | `apps/web/package.json` に `"engines": { "node": "24.x" }`（major 指定。範囲指定にしない）。プロジェクト設定の Node.js Version も 24.x |
 | 関数の実行時間 | 2026 年作成のプロジェクトは Fluid compute が既定で、Hobby の既定は 300 秒の可能性がある（13 章 V1 の表は非 Fluid の列。初回に Functions の設定で確認して V1 を直す）。`api/meta/callback/route.ts` に `export const maxDuration = 60` を付け、上限を下げる意味で使う。Meta への各 fetch にはタイムアウトがある（ワーカー `graph.ts`、Web `meta-graph.ts` とも `AbortSignal.timeout`） |
@@ -259,10 +259,10 @@ drop role web_app;
 | 1（ログインの確認まで） | `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | ログインと署名付き URL。ブラウザに出てよい値 |
 | 1 | `APP_URL` | `https://<app>.vercel.app` |
 | 1 | `WEB_ALLOWED_USER_ID` | ログインを許す Supabase Auth の利用者 `id`（4.3 章） |
-| 2（ログインを確認してから） | `DATABASE_URL`（Sensitive） | トランザクションモード、`web_app` |
+| 2（ログインを確認してから） | `DATABASE_URL`（区分は Secret） | トランザクションモード、`web_app` |
 | 2 | `DATABASE_POOL_MODE` | `transaction` |
 | 2 | `DATABASE_SSL_CA` | CA 証明書の PEM |
-| 2 | `META_APP_ID`、`META_APP_SECRET`（Sensitive）、`META_GRAPH_API_VERSION` | 接続とトークン確認 |
+| 2 | `META_APP_ID`、`META_APP_SECRET`（区分は Secret）、`META_GRAPH_API_VERSION` | 接続とトークン確認。区分の指定がないものは Config |
 | 任意 | `META_TARGET_IG_USER_ID` | R1 と同じ |
 | **置かない** | `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` | 3.3 章により不要 |
 
@@ -314,9 +314,9 @@ drop role web_app;
 
 | 項目 | 内容 |
 |---|---|
-| トリガー | `schedule: ['17 0-19,21-23 * * *', '17 20 * * *']` と `workflow_dispatch`（入力 `simulate_alert`: boolean、既定 false）。他のトリガーは付けない |
-| ジョブ `collect` | `run-daily`（`github.event.schedule == '17 20 * * *'` のときだけ。JST 05:17）→ `run-hourly` → `check-alerts` → 死活監視へ ping。daily と hourly を同じジョブで順に動かすので重ならない（R1 の `schedule` コマンドと同じ形）。`timeout-minutes: 30`、`permissions: { contents: read }` |
-| ジョブ `keepalive` | `needs: collect`、`if: ${{ !cancelled() && needs.collect.result != 'skipped' && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}`、`permissions: { actions: write }`（5.4 章） |
+| トリガー | `schedule: ['17 * * * *']`（1 行）と `workflow_dispatch`（入力 `simulate_alert` と `run_daily`: boolean、既定 false）。他のトリガーは付けない。0.2 の 2 行の cron（`17 0-19,21-23` と `17 20`）は、2026-10-02 に 5 回連続で実行が記録されなかったため、書き方の疑いを消す目的で 1 行に戻した |
+| ジョブ `collect` | 最初の `slot` ステップが実行時の UTC の時を見て、20 時台（JST 05 時台）か `run_daily=true` なら `daily=true` を出力する。`run-daily`（`daily=true` のときだけ）→ `run-hourly` → `check-alerts --scope daily\|hourly` → 死活監視へ ping。daily と hourly を同じジョブで順に動かすので重ならない。GitHub の遅延で 21 時台にずれた回は daily を飛ばす（`account_daily` の 4 日の窓が翌日埋める。`profile_daily` はその日が欠ける）。`timeout-minutes: 30`、`permissions: { contents: read }`、`outputs.daily` |
+| ジョブ `keepalive` | `needs: collect`、`if: ${{ !cancelled() && needs.collect.result != 'skipped' && needs.collect.outputs.daily == 'true' && vars.COLLECT_KEEPALIVE == 'true' }}`、`permissions: { actions: write }`（5.4 章） |
 | 門 | `collect` ジョブは repo Variable **`COLLECT_ENABLED == 'true'`** のときだけ動く（`if:` でジョブごと skip。失敗メールにならない）。ワークフローのファイルが `main` に入った時点でスケジュールは有効になるので、Secrets を登録して切り替え（7.2 章）が済むまで `false`（未設定）にしておく。ローカルへ戻すとき（7.3 章）も `false` にするだけでよい |
 | `concurrency` | `group: instagram-analyze-collect`、`cancel-in-progress: false`。1 本なので「実行中 1 ＋ 待ち 1」で足りる（GitHub の遅延が 30 分を超えて 3 つ目が来たときだけ待ちがキャンセルされる。10.2 章で `cancelled` を数える） |
 | 分 | 毎時 0 分は GitHub 全体の混雑でキューが遅れ、混みすぎると落とされる（13 章 G1）。17 分にずらす。遅延は要件 5.2 章の方式（取得時刻から経過時間を計算）で吸収 |
@@ -346,7 +346,7 @@ jobs:
         run: |
           for i in 1 2 3; do sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg && break; sleep 15; done
       - id: daily
-        if: github.event.schedule == '17 20 * * *' && !inputs.simulate_alert
+        if: steps.slot.outputs.daily == 'true' && env.SIMULATE != 'true'
         run: node apps/worker/dist/index.js run-daily
         env: { DATABASE_URL: ${{ secrets.DATABASE_URL }}, DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}, SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}, META_APP_ID: ${{ secrets.META_APP_ID }}, META_APP_SECRET: ${{ secrets.META_APP_SECRET }}, META_GRAPH_API_VERSION: v25.0, WORKER_BACKFILL_HISTORY_DAYS: '400' }
       - id: hourly
@@ -355,7 +355,7 @@ jobs:
         env: { …同上… }
       - id: alerts
         if: ${{ !cancelled() }}
-        run: node apps/worker/dist/index.js check-alerts --scope ${{ github.event.schedule == '17 20 * * *' && 'daily' || 'hourly' }}
+        run: node apps/worker/dist/index.js check-alerts --scope ${{ steps.slot.outputs.daily == 'true' && 'daily' || 'hourly' }}
         env: { DATABASE_URL: …, DATABASE_SSL_CA: …, WORKER_SIMULATE_ALERT: ${{ inputs.simulate_alert || vars.WORKER_SIMULATE_ALERT || 'false' }} }
       - name: ping
         if: ${{ !cancelled() }}                    # 走ったことを知らせる（成否は GitHub のメールが担う。5.3 章）
@@ -458,11 +458,11 @@ A の ping は「走った」ことだけを知らせる（失敗時に `/fail` 
 | 秘密 | 置き場 | 漏れたときの影響 | 取り消し |
 |---|---|---|---|
 | DB パスワード（`postgres`） | GitHub Secrets `DATABASE_URL`、手元の PC（`db push`、移行） | DB の全読み書き。Vault の復号を含む（→ Meta のトークン） | ダッシュボードで DB パスワードをリセット → Secrets を更新。Meta のトークンも `/connect` で取り直す |
-| `web_app` のパスワード | Vercel `DATABASE_URL`（Sensitive） | 画面用テーブルの読み出し、`accounts`／`credentials` の更新（`token_secret_id` は不可）、アカウントの追加（上限 10 件。ワーカーに収集させられる）、`store_token` での上書き（読めない） | `psql` で `\password web_app` → Vercel を更新 |
+| `web_app` のパスワード | Vercel `DATABASE_URL`（区分は Secret） | 画面用テーブルの読み出し、`accounts`／`credentials` の更新（`token_secret_id` は不可）、アカウントの追加（上限 10 件。ワーカーに収集させられる）、`store_token` での上書き（読めない） | `psql` で `\password web_app` → Vercel を更新 |
 | サービスロールキー | GitHub Secrets | REST（公開スキーマなし）、Storage、Auth 管理の全操作 | ダッシュボードでローテーション（新しい API キーなら個別に失効。U2） |
 | `SUPABASE_URL`（project ref を含む） | GitHub Secrets（Variables にしない。NF-SEC-07） | エンドポイントの特定 | 変えられない（プロジェクト作り直し） |
-| `META_APP_ID` | GitHub Secrets、Vercel（Sensitive でなくてよいが Variables にはしない） | アプリの特定 | 変えられない |
-| `META_APP_SECRET` | GitHub Secrets、Vercel（Sensitive） | `debug_token` の実行、アプリの偽装、`appsecret_proof` の生成 | Meta アプリの設定で再生成 → 両方を更新 |
+| `META_APP_ID` | GitHub Secrets、Vercel（Config でよいが GitHub の Variables にはしない） | アプリの特定 | 変えられない |
+| `META_APP_SECRET` | GitHub Secrets、Vercel（Secret） | `debug_token` の実行、アプリの偽装、`appsecret_proof` の生成 | Meta アプリの設定で再生成 → 両方を更新 |
 | Healthchecks の ping URL | GitHub Secrets | 偽の ping で停止を隠せる | Healthchecks で URL を再生成 |
 | Supabase Auth の利用者のパスワード | 本人 | 画面の閲覧と接続操作 | ダッシュボードでパスワード変更、セッション失効 |
 | 移行用の S3 互換キー（7 章） | 手元の PC（`rclone.conf` など） | Storage の全操作 | 移行後にダッシュボードで削除、`rclone` の設定も削除 |
@@ -602,6 +602,7 @@ GitHub Secrets は 6 つ: `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_RO
 | Q9 | ローカルの `web_app` のパスワードを `seed.sql` に公知の値で置く | 置く | **回答: 推奨どおり** |
 | Q10 | ワークフローのファイルを誰のアカウントでコミットするか | ユーザー本人のアカウントでコミットする | **回答: 推奨どおり**。このリポジトリのコミットはユーザーの git の身元で作られ push されるので、親が作ったコミットでも作成者はユーザーになる。念のためマージ後にユーザーが cron を一度編集して宛先を確定する |
 | Q11 | Data API の公開スキーマから `public` を外す（2.6 章） | 外す | **回答: 推奨どおり** |
+| Q12 | リポジトリが組織所有で Vercel Hobby の Git 連携が使えない場合の対応 | (b) リポジトリを個人アカウントへ Transfer（公開リポジトリなので URL が変わるだけ。GitHub Actions も個人で完結） | (a) Vercel CLI で手元から `vercel --prod`（`main` への push で自動反映されない）、(c) Vercel Pro（有料）。未回答 |
 
 決定済み（レビューで確定。確認は不要）: `check-alerts` は収集の失敗後も走る（`!cancelled()`）。履歴が足りないときは判定しない。`partial`／`skipped` は失敗に数えない（`skipped` の連続は別の alert）。トークン警告は daily だけ。通知の試験は T0 の前に行う。
 

@@ -1,6 +1,7 @@
 # 収集ワーカー（R2 設計 5.1 章）。
-# - 毎時 17 分（UTC）に run-hourly。UTC 20:17（JST 05:17）の回だけ run-daily → run-hourly。
-#   毎時 0 分は GitHub 全体の混雑で遅延・欠落しうるので 17 分にずらす。
+# - 毎時 17 分（UTC）に run-hourly。実行時の UTC の時が 20（JST 05 時台）の回だけ run-daily → run-hourly。
+#   毎時 0 分は GitHub 全体の混雑で遅延・欠落しうるので 17 分にずらす。cron は 1 行だけにする（複数行や範囲の書き方で
+#   スケジュールが動かない疑いを残さないため。2026-10-02 に 2 行の cron で 5 回連続で実行が記録されなかった）。
 # - 最後に check-alerts（人が見るべき状態なら終了コード 1 → GitHub の失敗メール）と死活監視への ping。
 # - 秘密（Secrets）は必要なステップの env にだけ渡す。Variables はログでマスクされないので公開してよい値だけ置く。
 # - アクションはコミット SHA で固定する（横に版）。更新は dependabot（.github/dependabot.yml）。
@@ -8,12 +9,16 @@ name: collect
 
 on:
   schedule:
-    - cron: '17 0-19,21-23 * * *'
-    - cron: '17 20 * * *'
+    # 毎時 17 分（UTC）。daily を含めるかは、実行時の UTC の時が 20（JST 05 時台）かで決める（slot ステップ）
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       simulate_alert:
         description: '収集を飛ばし、check-alerts だけを alert=simulated で失敗させる（通知の経路の確認）'
+        type: boolean
+        default: false
+      run_daily:
+        description: 'この実行で run-daily も行う（時刻にかかわらず。切り替え直後や取りこぼしの補い用）'
         type: boolean
         default: false
 
@@ -32,12 +37,27 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      daily: ${{ steps.slot.outputs.daily }}
     env:
       WORKER_LOG_LEVEL: info
       # 通知の経路の確認（R2 設計 5.2 章）。dispatch の入力か repo Variable。schedule では inputs が空なので Variable だけが効く。
       # 1 か所で評価し、収集を飛ばす判定（daily、hourly）と check-alerts の両方で参照する
       SIMULATE: ${{ inputs.simulate_alert == true || vars.WORKER_SIMULATE_ALERT == 'true' }}
     steps:
+      # daily（token-check → profile-daily → account-daily → media-sync --full）を含める回か。UTC 20 時台 = JST 05 時台。
+      # GitHub の遅延で 21 時台にずれた回は daily を飛ばす（翌日の回で 4 日の窓が埋める）。手動は run_daily で強制できる
+      - id: slot
+        name: decide daily slot
+        run: |
+          hour=$(date -u +%H)
+          daily=false
+          if [ "$hour" = "20" ] || [ "$RUN_DAILY" = "true" ]; then daily=true; fi
+          echo "daily=$daily" >> "$GITHUB_OUTPUT"
+          echo "utc_hour=$hour daily=$daily"
+        env:
+          RUN_DAILY: ${{ inputs.run_daily || 'false' }}
+
       # 接続エラーの文言にホスト名・ユーザー名・project ref が混じっても公開ログに出ないよう、部分文字列としてマスクする
       # （setup-node より前なので node に頼らず sed で切り出す。パスワードは URL エンコード済みの前提）
       - name: mask db host, user, project ref
@@ -79,7 +99,7 @@ jobs:
           done
 
       - id: daily
-        if: ${{ github.event.schedule == '17 20 * * *' && env.SIMULATE != 'true' }}
+        if: ${{ steps.slot.outputs.daily == 'true' && env.SIMULATE != 'true' }}
         run: node apps/worker/dist/index.js run-daily
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -107,7 +127,7 @@ jobs:
       # 収集が失敗しても判定は行う（cancelled のときだけ飛ばす）。該当があれば終了コード 1 でこのジョブが失敗になる
       - id: alerts
         if: ${{ !cancelled() }}
-        run: node apps/worker/dist/index.js check-alerts --scope ${{ github.event.schedule == '17 20 * * *' && 'daily' || 'hourly' }}
+        run: node apps/worker/dist/index.js check-alerts --scope ${{ steps.slot.outputs.daily == 'true' && 'daily' || 'hourly' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
@@ -124,7 +144,7 @@ jobs:
   # repo Variable COLLECT_KEEPALIVE=true のときだけ（意図的に無効化したワークフローを勝手に戻さない）
   keepalive:
     needs: collect
-    if: ${{ !cancelled() && needs.collect.result != 'skipped' && github.event.schedule == '17 20 * * *' && vars.COLLECT_KEEPALIVE == 'true' }}
+    if: ${{ !cancelled() && needs.collect.result != 'skipped' && needs.collect.outputs.daily == 'true' && vars.COLLECT_KEEPALIVE == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
