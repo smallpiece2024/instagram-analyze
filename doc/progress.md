@@ -4,8 +4,8 @@
 
 | 項目 | 内容 |
 |---|---|
-| 最終更新 | 2026-10-02 |
-| 現在地 | **R1 の収集ワーカーは手元の Docker で常駐中（3 日間の実機確認の 1 日目。中間結果は 4.2 章。バックフィルは 2026-10-02 15:06 JST に 400 日分が完了。投稿に依存する確認は保留）。R2（クラウド稼働）は段階 A〜D と README「クラウド稼働（R2）」の 1〜5 まで完了し、GitHub のスケジュール実行が記録されない問題を `schedule-probe.yml` で切り分け中。動くことを確認してから 6 の切り替え（5 章）。R2.5 は第 1 ラウンド（design-lab v1）が終わり、フィードバックを受けた第 2 ラウンド（v2）の方針を `doc/design-lab/README.md` に記載済み。次は v2 の 10 案を作る** |
+| 最終更新 | 2026-10-03 |
+| 現在地 | **R2（クラウド稼働）は 2026-10-03 23:29 JST に切り替えを終え、収集は GitHub Actions（クラウドの Supabase の pg_cron が毎時起動）で本番の DB に入っている。手元のワーカーは停止中。次は 7 日間の確認（T0 は 2026-10-04 00:17 JST。5 章）。R2.5 は第 1 ラウンド（design-lab v1）が終わり、フィードバックを受けた第 2 ラウンド（v2）の方針を `doc/design-lab/README.md` に記載済み。次は v2 の 10 案を作る** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -16,7 +16,7 @@
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
 | R1 | 収集基盤（ローカル） | 仕上げ中。DB、ワーカー（7 ジョブとスケジューラ）、最小限の画面、Facebook Login の接続まで実装し実機確認済み（2026-10-02）。残りは 3 日間の収集確認（2026-10-01 深夜開始）の結果の記録 |
-| R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 仕上げ中。段階 A〜D と README の手順 1〜5 まで完了（2026-10-02）。GitHub の schedule が動かないため、毎時の起動をクラウドの Supabase の pg_cron に移した（2026-10-03。README 5.1 まで本番に適用済み）。残りは毎時の自動起動の確認、切り替え、7 日間の確認 |
+| R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 仕上げ中。段階 A〜D と README の手順 1〜5 まで完了（2026-10-02）。GitHub の schedule が動かないため、毎時の起動をクラウドの Supabase の pg_cron に移した（2026-10-03。README 5.1 まで本番に適用済み）。2026-10-03 23:29 JST に切り替えを終え、本番で収集中。残りは 7 日間の確認（T0 は 2026-10-04 00:17 JST） |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | 第 1 ラウンド完了（design-lab v1、2026-10-02）。フィードバックを受けて第 2 ラウンド（v2）の方針を決めた。次は v2 の 10 案を作る。R3 の前に終える |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | 未着手 |
 | R4 | 動画分析（長さとカット） | 未着手。ffmpeg による解析は R0 で動作確認済み |
@@ -192,7 +192,9 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 - GitHub の組織 `smallpiece2024` の Actions permissions は「Allow all actions and reusable workflows」（ユーザー確認。原因ではない）
 - **毎時の起動を pg_cron に移した（2026-10-03。ユーザーの決定で Supabase に一本化）**: マイグレーション `20261003000000_r2_collect_dispatch.sql`（`pg_cron` ＋ `http` 拡張機能、`private.dispatch_collect()`、ジョブ `collect-dispatch` と `cron-history-purge`）。`collect.yml` は `workflow_dispatch` だけにし、`keepalive` と `COLLECT_KEEPALIVE` を廃止。daily は起動側が `run_daily` で渡す。設計は `r2-cloud.md` 5.8 章、手順は README 5.1。レビュー 2 本（`postgres-sql-reviewer` 2.7 分・12 回・5.8 万トークン、`security-engineer` 2.1 分・8 回・5.8 万トークン）を反映: 当初の pg_net はキューの表を PUBLIC が読めて `web_app` からトークンが見えるため `http` に変更（同期、2xx 以外は例外で `cron.job_run_details` に残る）、`security invoker`、トークンの形の検査、Environment `Production` を `main` に限る、concurrency の待機は 1 本だけ、daily の 1 回きりを既知の制約に。ローカルで適用・再適用・偽トークンで 401 の例外まで確認、テスト（Web 242、ワーカー 646）通過
 - **README 5.1 を本番に適用（2026-10-03 01:40 JST ごろ、ユーザー）**: Fine-grained トークンを作成（最初は 30 日で作ってしまったので、同日に Regenerate して Vault の値を差し替え、204 を再確認。期限は GitHub の表示で **2027-01-01（金）**。**12 月中旬に作り直して Vault の値を差し替える**。親の gh 用のトークン（2026-12-31）と同じ時期に更新する）、`db push`（CLI のアカウントが 403 のため前回と同じ回避）、Vault に `collect-dispatch-token`、`select private.dispatch_collect()` が 204 で、`collect` の `workflow_dispatch` 実行（01:39 JST、`skipped`）を確認。Environment `Production` は `main` だけ（API で `custom_branch_policies: true` を確認）、`COLLECT_KEEPALIVE` は削除済み
-- **次**: 02:17 JST 以降の pg_cron による自動起動を確認してから 6 の切り替え（深夜）。それまでは手元の Docker のワーカーが収集を継続。7 日間の確認（T0）で進めた手順と実際の値（欠損の時間帯、遅延の分布、Usage）をここに記録する
+- **pg_cron の毎時の起動を確認（2026-10-03）**: 02:17〜23:17 JST の 22 回すべて `workflow_dispatch` で記録され、遅れは 1〜2 秒（`COLLECT_ENABLED` 未設定なので `skipped`）。初回は 07:30 JST にクラウドの Claude Code のルーティン（1 回きり）で確かめる予定だったが、実行環境にリポジトリのアクセスがなく GitHub API が拒否して未確認に終わった（ルーティンは停止済み）。手元の確認で代えた。手元のワーカーは PC の停止で 01:05〜07:10 JST に収集が抜けた（02:05〜06:05 の hourly と 05:30 の daily）
+- **README 6 の切り替えを実施（2026-10-03 23:05〜23:29 JST）**: README から外した点: サムネイルの rclone は 1 回だけ（25 件、898 kB と小さいため。ワーカーを止める前の 23:05 にコピーし、23:05 の hourly で増えていないことを確認）、流し込みのリハーサルは省略（`--single-transaction` と `ON_ERROR_STOP` で失敗は全体が取り消されるため）。手元の PC に psql がないので、手元の DB コンテナの psql 17.6 で本番に接続した（CA は Variable `DATABASE_SSL_CA` から書き出してコンテナに置いた。接続先は `supabase/.temp/pooler-url`）。Windows PowerShell 5.1 は `'...'` の中の `"..."` を外部コマンドに渡すときに外すので、`sh -c '...'` で接続文字列を渡すと引数が割れて `ENOIDENTIFIER`（ユーザー名に ref がない）になる。コマンドはスクリプトにしてコンテナに置き、`docker exec -it … sh /tmp/import.sh` で動かした。流し込みは INSERT 13,446 件で数分かかり、画面に何も出ないため途中で止めた回がある（1 トランザクションなので取り消されただけ）。件数は 9 表とも手元と一致（`account_daily_metrics` 11,379、`raw_api_responses` 1,841 など）。本番の `/connect` で接続（権限の不足なし、データアクセス期限 2027-01-01）。Repository variable `COLLECT_ENABLED=true` を `gh` で作成（Environment の Variables はジョブの `if:` から見えない）。23:28 JST の手動の hourly が `success`（stories／media_sync／media_snapshot、`check-alerts` の alerts=0、Healthchecks の ping）。一時ファイル（ダンプ、スクリプト、ログ）は削除した。S3 のアクセスキーは使い終わったら削除する（ユーザー）
+- **次**: 2026-10-04 00:17 JST に pg_cron が起動した実行を T0 として 7 日間の確認（README 8）。05:17 JST の回で daily が初めて本番で動く。手元のワーカーは止めたまま（`npm run worker:up` はロールバックのときだけ）。7 日間の確認で進めた手順と実際の値（欠損の時間帯、遅延の分布、Usage）をここに記録する
 - **R2.5 第 1 ラウンドの design-lab v1 を作成（2026-10-02。`dashboard-designer`、25 分、約 50 回の呼び出し、21 万トークン）**: `doc/design-lab/`（README、`v1/index.html` の切り替え・並列表示・10 案一覧、見本画面 7 つ、`lab.css`／`parts.css`、架空データ `data.js`、`render.js`、`variants.js`、`tokens/tokens-01〜10.css`）。配色は 10 案すべて検証 PASS（黄系のコントラスト WARN と、高密度・藍と朱の CVD 6.3 は準備メモどおりで、ラベルと表を添える条件つき）。**ブラウザでの目視はユーザーが行う**（`doc/design-lab/v1/index.html` をダブルクリック）。使い捨ての比較用なので、コードの厳密さは求めない（ユーザーの方針）
   - 画面を作って見えた、要件への反映候補（第 2 ラウンドまでにユーザーと決める）: (1) F-UI-20 の日次推移はフォロワー数とリーチの桁が違うので縦に並べた 2 つのグラフにする、(2) 投稿日（JST）と日次指標（PT）の日付のずれの扱い、(3) モバイルの投稿一覧で出す指標の既定（4 つ）と切替、(4) 中央値・区分比較の最小件数（n<2 か 3 は薄く表示）、(5) ストーリーズ最後の 1 枚の離脱率の扱い、(6) 投稿時刻ヒートマップの時間帯の区切りと空欄、(7) 接続と収集ログに API 使用率・連続失敗回数・次回予定・トークン期限の注意 14 日／重大 7 日を足すか、(8) 画面 15 個のナビを 3 群に分ける、(9) 黄系の系列色と注意色の衝突（案 06・07・10）、(10) サムネイルの URL 期限切れへの R3 の方針
 - **R2.5 第 1 ラウンドのフィードバックと第 2 ラウンドの方針（2026-10-02）**: ユーザーの評価は、色合いが 10 藍と朱 > 01 スタンダード > 04 経済紙 > 06 方眼ノート の順。方眼のような背景の模様、明朝、黒い線、影は不要。角丸はあった方がよいが 05 の R は大きすぎる。05 は文字色のコントラストが弱い。これを受けて、見本画面と架空データは v1 のままトークンだけを差し替える v2 の 10 案（藍と朱を軸に、地の色、差し色の有無、ヘッダーの帯、ゴシックの種類、角丸、カードの縁、密度を振る）の方針を `doc/design-lab/README.md`「第 2 ラウンド（v2）の方針」に記載。次は `dashboard-designer` に v2 を作らせ、ユーザーが目視して 1 案に決める。要件への反映候補 (1)〜(10) は選定後にまとめて決める
