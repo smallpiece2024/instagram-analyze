@@ -29,10 +29,11 @@ describe("resolveCompare（期間の決定）", () => {
       preset: "30d",
       a: { from: "2026-09-05", to: "2026-10-04" },
       b: { from: "2026-08-06", to: "2026-09-04" },
-      input: { aFrom: "2026-09-05", aTo: "2026-10-04", bFrom: "2026-08-06", bTo: "2026-09-04" },
-      errors: {},
-      truncatedTo: null,
     });
+  });
+
+  it("任意の期間のクエリは無視してプリセットで決める", () => {
+    expect(resolveCompare({ a: "2026-09-01..2026-09-30", preset: "7d" }, LATEST).preset).toBe("7d");
   });
 
   it("プリセット。不明な値は前 30 日", () => {
@@ -51,50 +52,6 @@ describe("resolveCompare（期間の決定）", () => {
     });
     expect(resolveCompare({ preset: "xx" }, LATEST).preset).toBe("30d");
     expect(resolveCompare({ preset: ["7d", "30d"] }, LATEST).preset).toBe("30d");
-  });
-
-  it("任意の期間: `a=from..to` の形とフォームの 4 つの欄の形", () => {
-    const expected = {
-      preset: null,
-      a: { from: "2026-09-01", to: "2026-09-30" },
-      b: { from: "2026-08-01", to: "2026-08-31" },
-      errors: {},
-      truncatedTo: null,
-    };
-    expect(resolveCompare({ a: "2026-09-01..2026-09-30", b: "2026-08-01..2026-08-31" }, LATEST)).toMatchObject(expected);
-    expect(
-      resolveCompare({ a_from: "2026-09-01", a_to: "2026-09-30", b_from: "2026-08-01", b_to: "2026-08-31" }, LATEST),
-    ).toMatchObject(expected);
-  });
-
-  it("同じ日の 1 日の期間を許す", () => {
-    expect(resolveCompare({ a: "2026-09-01..2026-09-01", b: "2026-08-01..2026-08-01" }, LATEST)).toMatchObject({
-      a: { from: "2026-09-01", to: "2026-09-01" },
-      errors: {},
-    });
-  });
-
-  it("最新の日より後は最新の日に切り詰める。データの始まりより前は切り詰めない", () => {
-    const r = resolveCompare({ a: "2026-09-10..2026-10-10", b: "2024-01-01..2024-01-31" }, LATEST);
-    expect(r.a).toEqual({ from: "2026-09-10", to: "2026-10-04" });
-    expect(r.b).toEqual({ from: "2024-01-01", to: "2024-01-31" });
-    expect(r.truncatedTo).toBe(LATEST);
-    expect(r.errors).toEqual({});
-  });
-
-  it("検査に通らなければ理由を返し、既定（前 30 日）で表示する。入れた値はフォームに残す", () => {
-    const r = resolveCompare({ a: "2026-02-30..2026-03-01", b: "2026-08-01..2026-08-31" }, LATEST);
-    expect(r.preset).toBe("30d");
-    expect(r.a).toEqual({ from: "2026-09-05", to: "2026-10-04" });
-    expect(r.errors.a).toBeTruthy();
-    expect(r.errors.b).toBeUndefined();
-    expect(r.input.aFrom).toBe("2026-02-30");
-
-    expect(resolveCompare({ a: "2026-09-30..2026-09-01", b: "2026-08-01..2026-08-31" }, LATEST).errors.a).toBeTruthy();
-    expect(resolveCompare({ a: "2025-01-01..2026-01-02", b: "2026-08-01..2026-08-31" }, LATEST).errors.a).toBeTruthy();
-    expect(resolveCompare({ a: "2026-10-05..2026-10-10", b: "2026-08-01..2026-08-31" }, LATEST).errors.a).toBeTruthy();
-    expect(resolveCompare({ a_from: "", a_to: "", b_from: "2026-08-01", b_to: "2026-08-31" }, LATEST).errors.a).toBeTruthy();
-    expect(resolveCompare({ a: "2026-09-01", b: "2026-08-01..2026-08-31" }, LATEST).errors.a).toBeTruthy();
   });
 });
 
@@ -203,22 +160,26 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
     expect(b.posts.er).toEqual({ value: null, used: 0, total: 1 });
   });
 
-  it("getPeriodBaselines: 各投稿の最新の値の平均と分位、指標ごとの n", async () => {
+  it("getPeriodBaselines: 各投稿の最新の値の平均、分位、最小と最大、指標ごとの n", async () => {
     const r = await getPeriodBaselines(accountId, "2026-08-01", "2026-08-05");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.posts).toBe(3);
     const { reach, save_rate, er } = r.data.stats;
-    expect(reach).toEqual({ n: 3, mean: 200, p25: 150, median: 200, p75: 250 });
+    expect(reach).toEqual({ n: 3, mean: 200, p25: 150, median: 200, p75: 250, min: 100, max: 300 });
     expect(save_rate.n).toBe(3);
     expect(save_rate.p25).toBeCloseTo(0.05);
     expect(save_rate.median).toBeCloseTo(0.1);
     expect(save_rate.p75).toBeCloseTo(0.1);
+    expect(save_rate.min).toBeCloseTo(0);
+    expect(save_rate.max).toBeCloseTo(0.1);
     expect(er.n).toBe(3);
     expect(er.mean).toBeCloseTo((0.2 + 0.1 + 0.05) / 3);
     expect(er.p25).toBeCloseTo(0.075);
     expect(er.median).toBeCloseTo(0.1);
     expect(er.p75).toBeCloseTo(0.15);
+    expect(er.min).toBeCloseTo(0.05);
+    expect(er.max).toBeCloseTo(0.2);
   });
 
   it("getPeriodBaselines: 値のない指標は n = 0 で null、投稿のない期間は posts = 0", async () => {
@@ -228,9 +189,9 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
       data: {
         posts: 1,
         stats: {
-          reach: { n: 1, mean: 50, p25: 50, median: 50, p75: 50 },
-          save_rate: { n: 0, mean: null, p25: null, median: null, p75: null },
-          er: { n: 0, mean: null, p25: null, median: null, p75: null },
+          reach: { n: 1, mean: 50, p25: 50, median: 50, p75: 50, min: 50, max: 50 },
+          save_rate: { n: 0, mean: null, p25: null, median: null, p75: null, min: null, max: null },
+          er: { n: 0, mean: null, p25: null, median: null, p75: null, min: null, max: null },
         },
       },
     });

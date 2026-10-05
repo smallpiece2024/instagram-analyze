@@ -81,6 +81,8 @@ export interface BaselineStat {
   p75: number | null;
   /** 下位 25%（25 パーセンタイル） */
   p25: number | null;
+  min: number | null;
+  max: number | null;
 }
 
 export const BASELINE_METRICS = ["reach", "save_rate", "er"] as const;
@@ -97,20 +99,32 @@ interface BaselineRow {
   reach_n: number;
   reach_mean: number | null;
   reach_q: number[] | null;
+  reach_min: number | null;
+  reach_max: number | null;
   save_rate_n: number;
   save_rate_mean: number | null;
   save_rate_q: number[] | null;
+  save_rate_min: number | null;
+  save_rate_max: number | null;
   er_n: number;
   er_mean: number | null;
   er_q: number[] | null;
+  er_min: number | null;
+  er_max: number | null;
 }
 
-function toStat(n: number, mean: number | null, q: number[] | null): BaselineStat {
-  if (n === 0) return { n: 0, mean: null, median: null, p75: null, p25: null };
-  return { n, mean, p25: q?.[0] ?? null, median: q?.[1] ?? null, p75: q?.[2] ?? null };
+function toStat(
+  n: number,
+  mean: number | null,
+  q: number[] | null,
+  min: number | null,
+  max: number | null,
+): BaselineStat {
+  if (n === 0) return { n: 0, mean: null, median: null, p75: null, p25: null, min: null, max: null };
+  return { n, mean, p25: q?.[0] ?? null, median: q?.[1] ?? null, p75: q?.[2] ?? null, min, max };
 }
 
-/** 期間（両端を含む。日本時間の日付）に投稿した投稿の、リーチ、保存率、ER の平均と分位（`percentile_cont`） */
+/** 期間（両端を含む。日本時間の日付）に投稿した投稿の、リーチ、保存率、ER の平均、分位（`percentile_cont`）、最小と最大 */
 export const getPeriodBaselines = cache(
   async (accountId: string, from: string, to: string): Promise<QueryResult<PeriodBaselines>> =>
     runQuery(async (db) => {
@@ -120,12 +134,18 @@ export const getPeriodBaselines = cache(
           count(reach)::int as reach_n,
           avg(reach)::float8 as reach_mean,
           (percentile_cont(array[0.25, 0.5, 0.75]) within group (order by reach::float8))::float8[] as reach_q,
+          min(reach)::float8 as reach_min,
+          max(reach)::float8 as reach_max,
           count(save_rate)::int as save_rate_n,
           avg(save_rate)::float8 as save_rate_mean,
           (percentile_cont(array[0.25, 0.5, 0.75]) within group (order by save_rate::float8))::float8[] as save_rate_q,
+          min(save_rate)::float8 as save_rate_min,
+          max(save_rate)::float8 as save_rate_max,
           count(er)::int as er_n,
           avg(er)::float8 as er_mean,
-          (percentile_cont(array[0.25, 0.5, 0.75]) within group (order by er::float8))::float8[] as er_q
+          (percentile_cont(array[0.25, 0.5, 0.75]) within group (order by er::float8))::float8[] as er_q,
+          min(er)::float8 as er_min,
+          max(er)::float8 as er_max
         from public.media_list_metrics
         where account_id = ${accountId}
           and posted_date_jst between ${from}::date and ${to}::date
@@ -133,9 +153,9 @@ export const getPeriodBaselines = cache(
       return {
         posts: row?.posts ?? 0,
         stats: {
-          reach: toStat(row?.reach_n ?? 0, row?.reach_mean ?? null, row?.reach_q ?? null),
-          save_rate: toStat(row?.save_rate_n ?? 0, row?.save_rate_mean ?? null, row?.save_rate_q ?? null),
-          er: toStat(row?.er_n ?? 0, row?.er_mean ?? null, row?.er_q ?? null),
+          reach: toStat(row?.reach_n ?? 0, row?.reach_mean ?? null, row?.reach_q ?? null, row?.reach_min ?? null, row?.reach_max ?? null),
+          save_rate: toStat(row?.save_rate_n ?? 0, row?.save_rate_mean ?? null, row?.save_rate_q ?? null, row?.save_rate_min ?? null, row?.save_rate_max ?? null),
+          er: toStat(row?.er_n ?? 0, row?.er_mean ?? null, row?.er_q ?? null, row?.er_min ?? null, row?.er_max ?? null),
         },
       };
     }),

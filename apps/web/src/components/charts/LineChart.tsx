@@ -27,6 +27,15 @@ export interface LineChartProps {
   /** グラフの説明（`aria-label`） */
   title: string;
   labels: readonly string[];
+  /**
+   * X 軸のラベルの 2 段目（期間比較の B の日付など）。あれば `labels` を 1 段目、これを 2 段目に描く。
+   * 空文字の位置にはラベルを出さない
+   */
+  labels2?: readonly string[];
+  /** 2 段のラベルの行の頭に太字で書く名前（`["A", "B"]` など）。`labels2` があるときだけ使う */
+  rowNames?: readonly [string, string];
+  /** 2 段のラベルの文字の色（1 段目、2 段目）。`labels2` があるときだけ使う */
+  rowColors?: readonly [string, string];
   series: readonly LineSeries[];
   /** 帯（25〜75% など）。下側と上側。どちらかが null の点は帯を切る */
   band?: {
@@ -54,6 +63,9 @@ export interface LineChartProps {
 export function LineChart({
   title,
   labels,
+  labels2,
+  rowNames,
+  rowColors,
   series,
   band,
   markers,
@@ -66,7 +78,7 @@ export function LineChart({
   max,
   align,
 }: LineChartProps) {
-  const m = { t: 16, r: align ? 8 : 14, b: 26, l: 44 };
+  const m = { t: 16, r: align ? 8 : 14, b: labels2 ? 42 : 26, l: 44 };
   const iw = Math.max(1, width - m.l - m.r);
   const ih = Math.max(1, height - m.t - m.b);
   const all = finiteValues([...series.flatMap((s) => s.values), ...(band ? band.upper : [])]);
@@ -78,6 +90,14 @@ export function LineChart({
   const y = (v: number) => m.t + ih - (ih * (v - dom.min)) / (dom.max - dom.min);
   const step = labelStep(n, iw, align ? 44 : 56);
   const tickValues = ticks(dom.min, dom.max, 4);
+  // X 軸のラベルの段。2 段のときは 1 段目を上に、2 段目を下に置く。
+  // 色は style で付ける（`.chart-axis text` の CSS の fill は、SVG の fill 属性より強い）
+  const axisRows: { labels: readonly string[]; y: number; name?: string; color?: string }[] = labels2
+    ? [
+        { labels, y: height - 22, name: rowNames?.[0], color: rowColors?.[0] },
+        { labels: labels2, y: height - 6, name: rowNames?.[1], color: rowColors?.[1] },
+      ]
+    : [{ labels, y: height - 6 }];
 
   const bandDim = new Set(band?.dimIndexes ?? []);
   const bandPolys = band
@@ -112,13 +132,26 @@ export function LineChart({
             {formatAxis(t, format)}
           </text>
         ))}
-        {labels.map((l, i) =>
-          i % step === 0 || (!align && n <= 8 && i === n - 1) ? (
-            <text key={i} x={coord(x(i))} y={height - 6} textAnchor="middle">
-              {l}
-            </text>
-          ) : null,
-        )}
+        {axisRows.map((row, r) => {
+          const style = row.color ? { fill: row.color } : undefined;
+          return (
+            <g key={r}>
+              {/* 行の名前は左端に置く（最初のラベルは x = m.l を中心に描くので、m.l の近くに置くと重なる） */}
+              {row.name && (
+                <text x={m.l - 18} y={row.y} textAnchor="end" fontWeight="700" style={style}>
+                  {row.name}
+                </text>
+              )}
+              {row.labels.map((l, i) =>
+                l !== "" && (i % step === 0 || (!align && n <= 8 && i === n - 1)) ? (
+                  <text key={i} x={coord(x(i))} y={row.y} textAnchor="middle" style={style}>
+                    {l}
+                  </text>
+                ) : null,
+              )}
+            </g>
+          );
+        })}
       </g>
       {(markers ?? []).map((i, k) => (
         <g key={`m${i}`}>

@@ -11,7 +11,8 @@ import { getCompareUpdatedAt } from "@/lib/queries/compare";
 import { getDailyRange } from "@/lib/queries/period-summary";
 import { BaselineCard } from "./_compare/BaselineCard";
 import { OverlayCard } from "./_compare/OverlayCard";
-import { PeriodForm, PresetLinks } from "./_compare/PeriodForm";
+import { PresetLinks } from "./_compare/PeriodForm";
+import { PeriodStrip } from "./_compare/PeriodStrip";
 import { resolveCompare, type CompareParams } from "./_compare/periods";
 import { SummaryCard } from "./_compare/SummaryCard";
 
@@ -97,23 +98,17 @@ export default async function ComparePage({
           </>
         }
       />
+      <PeriodStrip a={sel.a} b={sel.b} />
       {stale && (
         <Callout state="warn">
           日次指標が {end} で止まっています。<Link href="/jobs">接続と収集ログへ</Link>
         </Callout>
       )}
-      <Card
-        title="期間"
-        foot="日付は米国太平洋時間の日付（日次指標の日付）。投稿単位の値は投稿日時の日本時間の日付で期間に入れる。"
-      >
-        <PeriodForm input={sel.input} errors={sel.errors} />
-        {sel.truncatedTo && <p className="note">{sel.truncatedTo} までのデータで表示</p>}
-      </Card>
       <div className="grid">
         <Suspense key={`s${key}`} fallback={<Loading title="主要指標" />}>
           <SummaryCard accountId={accountId} a={sel.a} b={sel.b} dataStart={start} />
         </Suspense>
-        <Suspense key={`o${key}`} fallback={<Loading title="リーチの日次の重ね合わせ" />}>
+        <Suspense key={`o${key}`} fallback={<Loading title="リーチ" />}>
           <OverlayCard accountId={accountId} a={sel.a} b={sel.b} />
         </Suspense>
         <Suspense key={`b${key}`} fallback={<Loading title="投稿の基準値" />}>

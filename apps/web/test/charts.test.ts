@@ -8,6 +8,8 @@ import { Stacked100, type Stacked100Props } from "@/components/charts/Stacked100
 import { VBars, type VBarsProps } from "@/components/charts/VBars";
 import { dimRuns, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
+import { BaselineBand, bandDomain } from "@/app/compare/_compare/BaselineBand";
+import { jpRange, monthDay } from "@/app/compare/_compare/labels";
 
 /** SVG に NaN、Infinity、undefined が出ていないこと */
 function expectClean(html: string) {
@@ -156,6 +158,32 @@ describe("LineChart", () => {
     expectClean(html);
     expect(html.match(/chart-band/g)?.length).toBe(1);
   });
+
+  it("labels2 があれば X 軸のラベルを 2 段にし、行の頭の名前と行の色を付ける", () => {
+    const html = line({
+      labels: ["9/1", "9/2", "9/3"],
+      labels2: ["8/1", "8/2", ""],
+      rowNames: ["A", "B"],
+      rowColors: ["var(--color-primary)", "var(--color-neutral)"],
+      series: [{ label: "A", values: [1, 2, 3] }],
+      height: 200,
+    });
+    expectClean(html);
+    // 1 段目は y = 178、2 段目は y = 194
+    expect(html).toMatch(/<text x="[^"]+" y="178" text-anchor="middle" style="fill:var\(--color-primary\)">9\/1<\/text>/);
+    expect(html).toMatch(/<text x="[^"]+" y="194" text-anchor="middle" style="fill:var\(--color-neutral\)">8\/2<\/text>/);
+    // 行の名前は太字で、最初のラベル（x = 44）より左に右寄せ
+    expect(html).toContain('<text x="26" y="178" text-anchor="end" font-weight="700" style="fill:var(--color-primary)">A</text>');
+    expect(html).toContain('<text x="26" y="194" text-anchor="end" font-weight="700" style="fill:var(--color-neutral)">B</text>');
+    // 空のラベルは出さない
+    expect(html.match(/y="194" text-anchor="middle"/g)?.length).toBe(2);
+  });
+
+  it("labels2 がなければ 1 段（既存の使い方のまま）", () => {
+    const html = line({ labels: ["a", "b"], series: [{ label: "s", values: [1, 2] }], height: 200 });
+    expect(html).toMatch(/y="194" text-anchor="middle">a<\/text>/);
+    expect(html).not.toContain('font-weight="700"');
+  });
 });
 
 describe("Stacked100", () => {
@@ -270,5 +298,62 @@ describe("pagerItems（‹ 前へ 1 2 3 … 24 次へ ›）", () => {
     expect(pagerItems(1, 1)).toEqual([1]);
     expect(pagerItems(99, 3)).toEqual([1, 2, 3]);
     expect(pagerItems(1, 0)).toEqual([]);
+  });
+});
+
+describe("期間比較の基準値の帯（BaselineBand）", () => {
+  const stat = (p: Partial<Parameters<typeof BaselineBand>[0]["stat"]>) => ({
+    n: 10,
+    mean: 210,
+    median: 200,
+    p25: 150,
+    p75: 250,
+    min: 100,
+    max: 300,
+    ...p,
+  });
+  const render = (p: Partial<Parameters<typeof BaselineBand>[0]>) =>
+    renderToStaticMarkup(
+      createElement(BaselineBand, { stat: stat({}), format: "count", color: "var(--color-primary)", lo: 100, hi: 300, ...p }),
+    );
+
+  it("3 件以上は線、帯、中央値を描き、ヒントに平均、中央値、上位 25%、下位 25%、最小〜最大", () => {
+    const html = render({});
+    expectClean(html);
+    expect(html).toContain('data-part="range"');
+    expect(html).toContain('data-part="band"');
+    expect(html).toContain('data-part="median"');
+    expect(html).toContain("<title>平均: 210\n中央値: 200\n上位 25%: 250\n下位 25%: 150\n最小〜最大: 100〜300</title>");
+    // 薄い表示はしない（3〜9 件でも）
+    expect(render({ stat: stat({ n: 5 }) })).not.toContain(" opacity=");
+  });
+
+  it("1〜2 件は中央値の縦線だけ", () => {
+    const html = render({ stat: stat({ n: 2 }) });
+    expectClean(html);
+    expect(html).not.toContain('data-part="range"');
+    expect(html).not.toContain('data-part="band"');
+    expect(html).toContain('data-part="median"');
+    expect(html).toContain("<title>平均: 210\n中央値: 200</title>");
+  });
+
+  it("目盛は値のある期間の最小と最大。幅 0 でも NaN を出さない", () => {
+    const empty = { n: 0, mean: null, median: null, p25: null, p75: null, min: null, max: null };
+    expect(bandDomain([stat({ min: 50, max: 120 }), stat({ min: 80, max: 400 })])).toEqual({ lo: 50, hi: 400 });
+    expect(bandDomain([stat({ min: 50, max: 120 }), empty])).toEqual({ lo: 50, hi: 120 });
+    expect(bandDomain([empty, empty])).toEqual({ lo: 0, hi: 1 });
+    expectClean(render({ stat: stat({ n: 1, mean: 5, median: 5, p25: 5, p75: 5, min: 5, max: 5 }), lo: 5, hi: 5 }));
+  });
+});
+
+describe("期間比較の日付の表記", () => {
+  it("jpRange は年をまたぐときだけ終わりにも年", () => {
+    expect(jpRange({ from: "2026-09-01", to: "2026-09-30" })).toBe("2026年9月1日 〜 9月30日");
+    expect(jpRange({ from: "2025-12-25", to: "2026-01-07" })).toBe("2025年12月25日 〜 2026年1月7日");
+  });
+
+  it("monthDay は「9/1」", () => {
+    expect(monthDay("2026-09-01")).toBe("9/1");
+    expect(monthDay("2026-12-31")).toBe("12/31");
   });
 });

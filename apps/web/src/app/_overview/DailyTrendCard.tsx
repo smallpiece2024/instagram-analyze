@@ -90,7 +90,7 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
       foot={
         <>
           <span style={{ color: "var(--chart-marker)" }}>▲</span> は投稿のあった日・日次指標: {axis.to}
-          （米国太平洋時間の日付）まで・取得 {formatJst(dailyFetchedAt)}
+          まで・取得 {formatJst(dailyFetchedAt)}
           {shortened && `・${shortened}`}・フォロワー数: 日本時間の日付の記録
         </>
       }

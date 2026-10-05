@@ -14,7 +14,7 @@ import { DailyTrendCard } from "./_overview/DailyTrendCard";
 import { KindBreakdownCard } from "./_overview/KindBreakdownCard";
 import { OverviewKpis } from "./_overview/OverviewKpis";
 import { CardLoading, LoadError, NotCollected } from "./_overview/states";
-import { PT_NOTE } from "@/lib/metric-definitions";
+import { DAY_BOUNDARY_NOTE } from "@/lib/metric-definitions";
 
 const TITLE = "概要";
 
@@ -66,7 +66,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             </Card>
           </div>
         )}
-        <Note>{PT_NOTE}</Note>
+        <Note>{DAY_BOUNDARY_NOTE}</Note>
       </main>
     );
   }
@@ -80,7 +80,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
     <main className="main stack">
       <PageHead
         title={TITLE}
-        sub={`過去 ${range} 日（${cur.from} 〜 ${cur.to}、日付は米国太平洋時間）・${lastUpdatedLabel(updated.latest)}`}
+        sub={`過去 ${range} 日（${cur.from} 〜 ${cur.to}）・${lastUpdatedLabel(updated.latest)}`}
         tools={<RangeChips range={range} er={er} />}
       />
       {stale && (
@@ -106,7 +106,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
           <KindBreakdownCard accountId={accountId} period={cur} mediaFetchedAt={updated.media} className="col-4" />
         </Suspense>
       </div>
-      <Note>{PT_NOTE}</Note>
+      <Note>{DAY_BOUNDARY_NOTE}</Note>
     </main>
   );
 }

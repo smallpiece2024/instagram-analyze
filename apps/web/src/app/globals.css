@@ -199,11 +199,7 @@
 
   /* ---------- 12 カラムのグリッド ---------- */
   .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
-  .col-12 { grid-column: span 12; }
-  .col-8 { grid-column: span 8; }
-  .col-6 { grid-column: span 6; }
-  .col-4 { grid-column: span 4; }
-  .col-3 { grid-column: span 3; }
+  /* .col-* は Tailwind 4 のユーティリティ（col-8 = grid-column: 8）と名前が重なるので、層の外（ファイルの末尾）に置く */
   .only-m { display: none !important; }
 
   /* ---------- 縦の間隔 ---------- */
@@ -312,13 +308,45 @@
   .table th .sort-head { display: inline-flex; align-items: baseline; gap: 4px; }
   .table th.row-head { font-weight: 400; }
   .table th.row-head--sub { padding-left: 24px; }
+
+  /* ---------- 期間比較（見本 v4 の compare.css） ---------- */
+  /* 期間の帯（見出しの下。最新の期間 A と比べる期間 B を大きめに出す） */
+  .period-strip { display: flex; align-items: stretch; gap: var(--gap); flex-wrap: wrap; }
+  .period-block { flex: 1 1 260px; padding-left: 12px; border-left: 4px solid var(--color-primary); }
+  .period-block--b { border-left-color: var(--color-neutral); border-left-style: dashed; }
+  .period-block__label { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+  .period-block__label b { color: var(--color-text); }
+  .period-block__range { font-size: 1.35rem; font-weight: 700; line-height: 1.4; font-variant-numeric: tabular-nums; }
+  .period-block__days { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+  /* A の数字は A の線の色（青）、B の数字は B の線の色（灰）。差の列は増減の色のまま */
+  .is-a, .is-a .muted { color: var(--color-primary); }
+  .is-b, .is-b .muted { color: var(--color-neutral); }
+  /* 基準値の表で、行の見出し（指標名）は文字色のまま */
+  .table tr.is-a > th, .table tr.is-b > th { color: var(--color-text); }
+  /* 表の見出しの色（.table th）より強くする。期間の帯の「A」「B」の文字も同じ色 */
+  .table th.is-a, .table th.is-a .muted, .period-block--a .period-block__label b { color: var(--color-primary); }
+  .table th.is-b, .table th.is-b .muted, .period-block--b .period-block__label b { color: var(--color-neutral); }
+  /* 投稿の基準値の帯グラフ */
+  .band-cell { width: 55%; min-width: 180px; }
+  .band-cell svg { display: block; }
+  /* 凡例の印（.legend i の大きさより強くする） */
+  .legend i.band-key { width: 18px; height: 10px; border-radius: 0; }
+  .legend i.band-key--line { height: 2px; background: var(--color-text-muted); opacity: .6; }
+  .legend i.band-key--box { border-radius: 3px; background: color-mix(in oklab, var(--color-text-muted) 28%, var(--color-surface)); }
+  .legend i.band-key--med { width: 2.5px; height: 14px; background: var(--color-text-muted); }
+  .card__foot p + p, .note p + p { margin-top: 2px; }
+  @media (max-width: 700px) {
+    .period-strip { flex-direction: column; gap: calc(var(--gap) * 0.75); }
+    .period-block__range { font-size: 1.15rem; }
+  }
   .table tfoot td { font-weight: 700; border-top: 2px solid var(--color-border-strong); border-bottom: 0; }
   .table code { font-family: var(--font-num, inherit); font-size: var(--font-size-xs); background: var(--color-surface-alt); padding: 1px 6px; border-radius: var(--radius); }
   .bar-cell { position: relative; }
   .bar-cell i { position: absolute; left: 8px; bottom: 4px; height: 3px; background: var(--chart-1); border-radius: 2px; opacity: .55; }
 
   /* ---------- サムネイル ---------- */
-  .thumb { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; border-radius: var(--thumb-radius); object-fit: cover; background: var(--color-surface-alt); }
+  /* max-width: none: Tailwind の preflight の img { max-width: 100% } があると、表のセルの中で列ごと縮む */
+  .thumb { display: inline-flex; align-items: center; justify-content: center; flex: none; max-width: none; width: 44px; height: 44px; border-radius: var(--thumb-radius); object-fit: cover; background: var(--color-surface-alt); }
   .thumb[data-type="reel"] { aspect-ratio: 9 / 16; height: 56px; width: auto; }
   .thumb--lg { width: 120px; height: 120px; border-radius: var(--radius); }
   .thumb--lg[data-type="reel"] { height: 180px; width: auto; }
@@ -414,8 +442,6 @@
     .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 900px) {
-    .col-8, .col-6, .col-4 { grid-column: span 12; }
-    .col-3 { grid-column: span 6; }
     .nav { order: 3; flex-basis: 100%; margin: 0 calc(var(--gap) * -1); padding: 0 var(--gap) calc(var(--space) * 0.75); }
     .topbar__in { gap: 0 var(--gap); }
   }
@@ -432,4 +458,18 @@
     .metrics-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .detail-head { flex-direction: column; }
   }
+}
+
+/* ---------- 12 カラムのグリッドの列（層の外） ----------
+   Tailwind 4 には col-<n>（grid-column: <n>。n 列目に 1 列分だけ置く）のユーティリティがあり、utilities の層は
+   components の層より強いので、ここを @layer components に置くと上書きされてカードが 1 列分の幅になる。
+   層の外の規則はどの層よりも強い。 */
+.col-12 { grid-column: span 12; }
+.col-8 { grid-column: span 8; }
+.col-6 { grid-column: span 6; }
+.col-4 { grid-column: span 4; }
+.col-3 { grid-column: span 3; }
+@media (max-width: 900px) {
+  .col-8, .col-6, .col-4 { grid-column: span 12; }
+  .col-3 { grid-column: span 6; }
 }

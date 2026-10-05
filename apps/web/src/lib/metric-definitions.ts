@@ -64,6 +64,12 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
   follower_gain: { label: "フォロワー純増", hint: "フォロワー純増 = 期間中にフォローされた数 − フォローを外された数" },
   er: { label: "エンゲージメント率", hint: METRIC_DEFINITIONS.er.hint },
   save_rate: { label: "保存率", hint: METRIC_DEFINITIONS.save_rate.hint },
+  share_rate: { label: "シェア率", hint: METRIC_DEFINITIONS.share_rate.hint },
+  non_follower_reach_rate: {
+    label: "非フォロワーリーチ比率",
+    hint: "非フォロワーリーチ比率 = フォロワー以外へのリーチ ÷（フォロワーへのリーチ + フォロワー以外へのリーチ）",
+  },
+  posts: { label: "投稿数", hint: "投稿数 = 期間中に投稿した数（投稿日時の日本時間の日付）" },
   profile_visits: {
     label: "プロフィール訪問（参考）",
     // 集計は `media_list_metrics`（ストーリーズを含まない）の投稿単位の値の合計。リールは API で取れない
@@ -72,7 +78,9 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
 } as const satisfies Record<string, MetricDefinition>;
 
 /**
- * 日次指標と投稿単位の日付の区切りの注記（見本 `render.js` の `PT_NOTE`）。概要と期間比較のページの下に出す
+ * 日次指標の 1 日の区切りの注記（見本 v4 の `compare.js`）。概要と期間比較に出す。
+ * 日次指標の日付は API の区切り（米国太平洋時間）で、日本時間では 16 時（冬時間は 17 時）に日が変わる。
+ * 画面では冬時間のかっこ書きと「米国太平洋時間」の語を出さない（2026-10-05 ユーザーの決定）
  */
-export const PT_NOTE =
-  "日次指標の日付は API の区切り（米国太平洋時間）。日本時間では 16 時（冬時間は 17 時）に日が変わるため、日本時間の日付には組み替えられない。投稿単位の集計（投稿日時、初速、曜日×時間帯）は日本時間。";
+export const DAY_BOUNDARY_NOTE =
+  "リーチ、閲覧数、非フォロワーリーチ比率の 1 日は、日本時間の 16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";
