@@ -116,7 +116,7 @@
     s += '<g class="chart-axis">';
     o.labels.forEach(function (l, i) {
       if (i % step === 0) s += '<text x="' + (m.l + slot * i + slot / 2).toFixed(1) + '" y="' + (h - (o.nLabels ? 18 : 6)) + '" text-anchor="middle">' + l + "</text>";
-      if (o.nLabels) s += '<text x="' + (m.l + slot * i + slot / 2).toFixed(1) + '" y="' + (h - 4) + '" text-anchor="middle"' + (o.nLabels[i] < 3 ? ' opacity=".55"' : "") + ">n=" + o.nLabels[i] + "</text>";
+      if (o.nLabels) s += '<text x="' + (m.l + slot * i + slot / 2).toFixed(1) + '" y="' + (h - 4) + '" text-anchor="middle" opacity=".6">n=' + o.nLabels[i] + "</text>";
     });
     s += "</g>";
     vals.forEach(function (v, i) {
@@ -191,8 +191,12 @@
         var x = labelW + cellW * ci, y = 22 + cellH * ri;
         if (v == null) { s += '<rect class="heat-cell heat-cell--none" x="' + x.toFixed(1) + '" y="' + y + '" width="' + cellW.toFixed(1) + '" height="' + cellH + '" rx="3"/>'; return; }
         var p = Math.round(12 + 88 * v / max);
-        s += '<rect class="heat-cell" x="' + x.toFixed(1) + '" y="' + y + '" width="' + cellW.toFixed(1) + '" height="' + cellH + '" rx="3" fill="color-mix(in oklab, var(--heat) ' + p + '%, var(--color-surface))"' + (cnt < 2 ? ' opacity=".45"' : "") + "><title>" + r + " " + c + " 時: 中央値 " + n(v) + "（n=" + cnt + "）</title></rect>";
-        if (cellW >= 34) s += '<text x="' + (x + cellW / 2).toFixed(1) + '" y="' + (y + cellH / 2 + 4) + '" text-anchor="middle" font-size="10.5" fill="' + (p > 55 ? "var(--color-surface)" : "var(--color-text)") + '"' + (cnt < 2 ? ' opacity=".7"' : "") + ">" + n(v) + "</text>";
+        s += '<rect class="heat-cell" x="' + x.toFixed(1) + '" y="' + y + '" width="' + cellW.toFixed(1) + '" height="' + cellH + '" rx="3" fill="color-mix(in oklab, var(--heat) ' + p + '%, var(--color-surface))"><title>' + r + " " + c + " 時: 中央値 " + n(v) + "（n=" + cnt + "）</title></rect>";
+        if (cellW >= 34) {
+          var tx = (x + cellW / 2).toFixed(1), tfill = p > 70 ? "var(--color-surface)" : "var(--color-text)";
+          // 件数 1 件のセルは数字の横に ※ を添える（色は中央値のまま。注記はカードの下）
+          s += '<text x="' + tx + '" y="' + (y + cellH / 2 + 4) + '" text-anchor="middle" font-size="10.5" fill="' + tfill + '">' + n(v) + (cnt < 2 ? "※" : "") + "</text>";
+        }
       });
     });
     return s + "</svg>";
@@ -659,19 +663,47 @@
 
   // ---------- 投稿時刻 ----------
   S.timing = function (ctx) {
-    var T = D.timing, B = D.timingByBand;
+    var T = D.timing, B = D.timingByBand, W = D.timingByDay;
     var total = B.n.reduce(function (a, b) { return a + b; }, 0);
     var head = P.pageHead("投稿時刻", "投稿後 24 時間のリーチの中央値（日本時間、過去 180 日の投稿 " + total + " 件）", '<span class="select">指標: 24 時間リーチ</span><span class="select">種類: すべて</span>');
-    var heat = card("曜日 × 時間帯", '<div class="chart">' + P.heatmap({ w: ctx.cw(8), rows: T.days, cols: T.bands, values: T.median, counts: T.n }) + "</div>",
-      { sub: "濃いほど中央値が高い。件数 2 件未満は薄く", foot: "セルの数字は 24 時間リーチの中央値。ホバーで件数。深夜帯（0〜6 時）は投稿がない。" });
+    var heat = card("曜日 × 時間帯の 24 時間リーチ（中央値）",'<div class="chart">' + P.heatmap({ w: ctx.cw(12), rows: T.days, cols: T.bands, values: T.median, counts: T.n }) + "</div>",
+      { foot: "※: n=1" });
     var dim = []; B.n.forEach(function (c, i) { if (c < 3) dim.push(i); });
-    var bands = card("時間帯別の初速", '<div class="chart">' + P.vbars({ w: ctx.cw(4), h: 220, values: B.median, labels: B.bands, color: "var(--heat)", valueLabels: "all", nLabels: B.n, dim: dim }) + "</div>",
-      { sub: "曜日をまとめた中央値", foot: "18〜21 時が最も高いが、投稿数も多い（n=34）。件数 3 件未満は薄く。" });
-    var cells = [];
-    T.days.forEach(function (d, di) { T.bands.forEach(function (b, bi) { if (T.n[di][bi] >= 2) cells.push({ d: d, b: b, v: T.median[di][bi], n: T.n[di][bi] }); }); });
+    var bands = card("時間帯別の 24 時間リーチ（中央値）",'<div class="chart">' + P.vbars({ w: ctx.cw(6), h: 220, values: B.median, labels: B.bands, color: "var(--heat)", valueLabels: "all", nLabels: B.n, dim: dim }) + "</div>");
+    var wdim = []; W.n.forEach(function (c, i) { if (c < 3) wdim.push(i); });
+    var days = card("曜日別の 24 時間リーチ（中央値）",'<div class="chart">' + P.vbars({ w: ctx.cw(6), h: 220, values: W.median, labels: W.days, color: "var(--heat)", valueLabels: "all", nLabels: W.n, dim: wdim }) + "</div>");
+    // 組み合わせごとの投稿 1 件ずつの 24 時間リーチ（架空。中央値のまわりに決まった比率で散らす）
+    var spread = function (m, cnt, seed) {
+      var out = [];
+      for (var k = 0; k < cnt; k++) { var f = cnt === 1 ? 1 : 1 + (k - (cnt - 1) / 2) * (0.9 / cnt) + (((seed + k * 5) % 3) - 1) * 0.06; out.push(Math.round(m * f)); }
+      return out;
+    };
+    var cells = [], all = [];
+    T.days.forEach(function (d, di) { T.bands.forEach(function (b, bi) {
+      var cnt = T.n[di][bi]; if (!cnt) return;
+      var vs = spread(T.median[di][bi], cnt, di * 8 + bi); all = all.concat(vs);
+      if (cnt >= 2) cells.push({ d: d, b: b, v: T.median[di][bi], n: cnt, vs: vs });
+    }); });
     cells.sort(function (a, b) { return b.v - a.v; });
-    var best = card("上位の組み合わせ", table("<th>曜日</th><th>時間帯</th><th class=\"num\">中央値</th><th class=\"num\">件数</th>", cells.slice(0, 5).map(function (c) { return "<tr><td>" + c.d + "</td><td>" + c.b + " 時</td><td class=\"num\">" + n(c.v) + '</td><td class="num">' + c.n + "</td></tr>"; }).join("")), { sub: "件数 2 件以上" });
-    return head + '<div class="grid"><div class="col-8">' + heat + '</div><div class="col-4 stack">' + bands + best + "</div></div>" + note("この画面は投稿日時をもとに日本時間で集計する。時間帯別のオンラインフォロワー数は API で取れないため、自分の投稿の初速で代用する（要件 F-UI-42）。" + P.PT_NOTE);
+    var top = cells.slice(0, 5), allMed = P.median(all);
+    // 帯グラフ: 線は最小〜最大、点は投稿 1 件ずつ、縦線はこの組み合わせの中央値、灰色の線は全投稿の中央値。目盛は全行で共通
+    var sVals = top.reduce(function (a, c) { return a.concat(c.vs); }, [allMed]);
+    var sMin = Math.min.apply(null, sVals), sMax = Math.max.apply(null, sVals);
+    var SW = Math.max(160, ctx.cw(12) - 340), SH = 28, sp = 8;
+    var sx = function (v) { return (sp + (v - sMin) / ((sMax - sMin) || 1) * (SW - sp * 2)).toFixed(1); };
+    var strip = function (c) {
+      var mn = Math.min.apply(null, c.vs), mx = Math.max.apply(null, c.vs);
+      var tip = esc(c.d + " " + c.b + " 時: " + c.vs.map(n).join("、") + "（中央値 " + n(c.v) + "）");
+      return '<svg width="' + SW + '" height="' + SH + '" viewBox="0 0 ' + SW + " " + SH + '" role="img" aria-label="' + tip + '">' +
+        '<line x1="' + sx(allMed) + '" x2="' + sx(allMed) + '" y1="0" y2="' + SH + '" stroke="var(--color-text-muted)" stroke-width="1" opacity=".5"/>' +
+        '<line x1="' + sx(mn) + '" x2="' + sx(mx) + '" y1="14" y2="14" stroke="var(--chart-grid)" stroke-width="2"/>' +
+        '<rect x="' + sx(q25(c.vs)) + '" y="7" width="' + (sx(q75(c.vs)) - sx(q25(c.vs))).toFixed(1) + '" height="14" rx="3" fill="color-mix(in oklab, #3aa6dd 22%, var(--color-surface))"/>' +
+        '<line x1="' + sx(c.v) + '" x2="' + sx(c.v) + '" y1="4" y2="24" class="chart-ref"/>' +
+        c.vs.map(function (v) { return '<g><title>' + n(v) + '</title><circle cx="' + sx(v) + '" cy="14" r="10" fill="transparent"/><circle cx="' + sx(v) + '" cy="14" r="5" fill="' + P.chartColor("reel") + '" stroke="var(--color-surface)" stroke-width="2"/></g>'; }).join("") + "</svg>";
+    };
+    var bestLeg = legend([{ label: "投稿", color: P.chartColor("reel") }, { label: "組み合わせの中央値", kind: "dash" }, { label: "25〜75% の範囲", color: "color-mix(in oklab, #3aa6dd 22%, var(--color-surface))" }, { label: "全投稿の中央値（" + n(allMed) + "）", color: "var(--color-text-muted)" }]);
+    var best = card("上位の組み合わせ", bestLeg + table("<th>曜日</th><th>時間帯</th><th class=\"num\">中央値</th><th class=\"num\">件数</th><th>投稿ごとの 24 時間リーチ</th>", top.map(function (c) { return "<tr><td>" + c.d + "</td><td>" + c.b + " 時</td><td class=\"num\">" + n(c.v) + '</td><td class="num">' + c.n + "</td><td>" + strip(c) + "</td></tr>"; }).join("")), { sub: "件数 1 件の組み合わせは除く" });
+    return head + '<div class="grid"><div class="col-12">' + heat + '</div><div class="col-6">' + bands + '</div><div class="col-6">' + days + '</div><div class="col-12">' + best + "</div></div>";
   };
 
   // ---------- 接続と収集ログ ----------
