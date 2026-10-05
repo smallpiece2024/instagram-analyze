@@ -42,6 +42,11 @@ describe("resolveCompare（期間の決定）", () => {
       a: { from: "2026-09-28", to: "2026-10-04" },
       b: { from: "2026-09-21", to: "2026-09-27" },
     });
+    expect(resolveCompare({ preset: "90d" }, LATEST)).toMatchObject({
+      preset: "90d",
+      a: { from: "2026-07-07", to: "2026-10-04" },
+      b: { from: "2026-04-08", to: "2026-07-06" },
+    });
     expect(resolveCompare({ preset: "month" }, LATEST)).toMatchObject({
       a: { from: "2026-09-01", to: "2026-09-30" },
       b: { from: "2026-08-01", to: "2026-08-31" },

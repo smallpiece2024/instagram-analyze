@@ -85,10 +85,11 @@
   }
 
   // ---------- 期間 ----------
-  var PRESETS = [["7d", "前 7 日"], ["30d", "前 30 日"], ["month", "前月"], ["yoy", "前年同月"]];
+  var PRESETS = [["7d", "前 7 日"], ["30d", "前 30 日"], ["90d", "前 3 か月"], ["month", "前月"], ["yoy", "前年同月"]];
   function resolve(preset) {
     var y = +LATEST.slice(0, 4), m = +LATEST.slice(5, 7);
     if (preset === "7d") return { a: { from: addDays(LATEST, -6), to: LATEST }, b: { from: addDays(LATEST, -13), to: addDays(LATEST, -7) } };
+    if (preset === "90d") return { a: { from: addDays(LATEST, -89), to: LATEST }, b: { from: addDays(LATEST, -179), to: addDays(LATEST, -90) } };
     if (preset === "month") return { a: monthOf(y, m - 1), b: monthOf(y, m - 2) };
     if (preset === "yoy") return { a: monthOf(y, m - 1), b: monthOf(y - 1, m - 1) };
     return { a: { from: addDays(LATEST, -29), to: LATEST }, b: { from: addDays(LATEST, -59), to: addDays(LATEST, -30) } };

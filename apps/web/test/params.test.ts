@@ -81,8 +81,8 @@ describe("投稿 ID", () => {
 
 describe("preset", () => {
   it("7d、30d、month、yoy。ほかは 30d", () => {
-    for (const v of ["7d", "30d", "month", "yoy"]) expect(parsePreset(v)).toBe(v);
-    expect(parsePreset("90d")).toBe("30d");
+    for (const v of ["7d", "30d", "90d", "month", "yoy"]) expect(parsePreset(v)).toBe(v);
+    expect(parsePreset("365d")).toBe("30d");
     expect(parsePreset(undefined)).toBe("30d");
   });
 });

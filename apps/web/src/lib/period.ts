@@ -155,13 +155,13 @@ export function clampPeriod(
 }
 
 /** 期間比較のプリセット（4.7 節） */
-export const COMPARE_PRESETS = ["7d", "30d", "month", "yoy"] as const;
+export const COMPARE_PRESETS = ["7d", "30d", "90d", "month", "yoy"] as const;
 export type ComparePreset = (typeof COMPARE_PRESETS)[number];
 
 /**
  * プリセットの 2 つの期間（R3 設計 3.5 節の表）。`a` は新しい方、`b` は比べる方。`latest` は日次指標の最新の日
  * （`account_daily_wide` の `max(metric_date) filter (where reach is not null)`。3.2 節、6 章）。
- * - 7d／30d: 最新の日までの N 日と、その直前の N 日
+ * - 7d／30d／90d: 最新の日までの N 日と、その直前の N 日（90d は画面で「前 3 か月」。2026-10-05 ユーザーの決定で直近 90 日）
  * - month: 最新の日を含む月の前の月（暦月、1 日〜末日）と、その前の月
  * - yoy: 最新の日を含む月の前の月と、その 1 年前の同じ月（うるう年の 2 月の前年は 28 日まで）
  * 暦月はどちらも 1 日〜末日のまま返す（`a` は最新の日より前に終わるので切り詰めは要らない）
@@ -169,8 +169,9 @@ export type ComparePreset = (typeof COMPARE_PRESETS)[number];
 export function presetPeriods(preset: ComparePreset, latest: Ymd): { a: Period; b: Period } {
   switch (preset) {
     case "7d":
-    case "30d": {
-      const a = lastNDays(latest, preset === "7d" ? 7 : 30);
+    case "30d":
+    case "90d": {
+      const a = lastNDays(latest, preset === "7d" ? 7 : preset === "30d" ? 30 : 90);
       return { a, b: previousPeriod(a) };
     }
     case "month": {
