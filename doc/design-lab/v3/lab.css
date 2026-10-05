@@ -89,6 +89,9 @@ svg text { font-family: var(--font-num, inherit); }
   .topbar__in { gap: 0 var(--gap); }
 }
 @media (max-width: 700px) {
+  /* モバイルではメニューを横に流さず、複数段のタブにする */
+  .nav { flex-wrap: wrap; gap: 4px; overflow: visible; }
+  .nav a { flex: 1 1 auto; text-align: center; padding: 6px 10px; }
   .only-m { display: block !important; }
   .media-cards.only-m { display: grid !important; }
   .only-d { display: none !important; }
