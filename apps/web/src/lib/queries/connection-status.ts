@@ -1,6 +1,7 @@
 /**
- * 接続状態の読み出し（設計 1.6 章）。ビュー `account_connection_status` に `accounts` を結合して `name` を補い、
- * 最終収集時刻はビューの列を使わず（`token_check` の成功でも進むため）`job_runs` から `token_check` を除いて計算する。
+ * 接続状態の読み出し（R1 設計 1.6 章、R3 設計 3.6 節、4.5 節）。ビュー `account_connection_status` に `accounts` を結合して
+ * `name` を補い、最終収集時刻はビューの列を使わず（`token_check` の成功でも進むため）`job_runs` から `token_check` を除いて計算する。
+ * R3 では対象のアカウント（`getTargetAccount`）1 件だけを読む。
  */
 import "server-only";
 import { cache } from "react";
@@ -24,8 +25,11 @@ export interface ConnectionStatus {
   last_collected_at: Date | null;
 }
 
-/** 全アカウントの接続状態（登録順）。同一リクエスト内では `React.cache` で 1 回だけ読む */
-export const getConnectionStatus = cache(async (): Promise<QueryResult<ConnectionStatus[]>> => {
+/**
+ * 対象のアカウントの接続状態。ビューに行がなければ null。同一リクエスト内では `React.cache` で 1 回だけ読む
+ * （`/jobs` の数字タイルと接続状態のカードが同じ結果を使う）
+ */
+export const getConnectionStatus = cache(async (accountId: string): Promise<QueryResult<ConnectionStatus | null>> => {
   await markDynamic();
   const env = readEnv();
   if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
@@ -53,9 +57,10 @@ export const getConnectionStatus = cache(async (): Promise<QueryResult<Connectio
         ) as last_collected_at
       from public.account_connection_status s
       join public.accounts a on a.id = s.account_id
-      order by a.created_at, a.id
+      where s.account_id = ${accountId}
     `;
-    return { ok: true, data: [...rows] };
+    const row = rows[0];
+    return { ok: true, data: row === undefined ? null : { ...row } };
   } catch (e) {
     return { ok: false, reason: describeDbError(e) };
   }

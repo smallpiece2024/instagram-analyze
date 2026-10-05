@@ -1,9 +1,11 @@
 /**
- * 接続状態の部品（R1 設計 1.1 章、1.6 章）。R1 では `/` にあったものを、R3 設計 3.6 節に従い `/jobs` 側へ移した
- * （R3 段階 0）。`/` を概要に作り直す段階 1 までは、`/` もここから読み込んで今までどおり表示する。
+ * 接続状態のカード（R1 設計 1.1 章、1.6 章、R3 設計 3.6 節。見本の `S.connection` の「接続状態」）。
+ * 見本の「再接続」「トークンを確認」のボタンは置かない（ユーザーの決定）。再接続が要るときだけ `/connect` への案内を出す。
  * `_components` は Next.js の private folder で、ルートにならない。
  */
 import Link from "next/link";
+import { Callout } from "@/components/Callout";
+import { Card } from "@/components/Card";
 import {
   accountStatusLabel,
   credentialStatusLabel,
@@ -15,8 +17,9 @@ import {
   tokenTypeLabel,
 } from "@/lib/format";
 import { getConnectionStatus, type ConnectionStatus } from "@/lib/queries/connection-status";
+import { DATA_ACCESS_SPAN_DAYS, expiryState } from "./schedule";
 
-/** 再接続を促す帯の理由（設計 1.1 章、1.6 章）。固定文言と DB の `last_error`（ワーカーがマスク済み）だけ */
+/** 再接続を促す帯の理由（R1 設計 1.1 章、1.6 章）。固定文言と DB の `last_error`（ワーカーがマスク済み）だけ */
 function reconnectReason(s: ConnectionStatus, now: Date): string {
   if (s.credential_status === null) return "認証情報が登録されていません";
   if (s.credential_status !== "valid") {
@@ -28,7 +31,13 @@ function reconnectReason(s: ConnectionStatus, now: Date): string {
   return `データアクセス期限まで残り ${left ?? EMPTY} 日です`;
 }
 
-export function AccountCard({ s, now }: { s: ConnectionStatus; now: Date }) {
+function expiryLabel(d: Date | null, left: number | undefined): string {
+  if (d === null) return EMPTY;
+  if (left === undefined) return formatJst(d);
+  return `${formatJst(d)}（${left < 0 ? "期限切れ" : `あと ${left} 日`}）`;
+}
+
+export function AccountStatusBody({ s, now }: { s: ConnectionStatus; now: Date }) {
   const reconnect = needsReconnect({
     credential_status: s.credential_status,
     data_access_expires_at: s.data_access_expires_at,
@@ -36,69 +45,74 @@ export function AccountCard({ s, now }: { s: ConnectionStatus; now: Date }) {
   });
   const left = daysLeft(s.data_access_expires_at, now);
   const missing = missingScopes(s.scopes);
-  const rows: [string, string][] = [
-    ["ユーザー名", s.username ?? EMPTY],
-    ["表示名", s.name ?? EMPTY],
-    ["アカウントの状態", accountStatusLabel(s.account_status)],
-    ["トークンの種類", tokenTypeLabel(s.token_type)],
-    ["トークンの有効期限", s.token_type === null ? EMPTY : s.token_expires_at === null ? "期限なし" : formatJst(s.token_expires_at)],
-    [
-      "データアクセス期限",
-      s.data_access_expires_at === null
-        ? EMPTY
-        : `${formatJst(s.data_access_expires_at)}（${left !== undefined && left < 0 ? "期限切れ" : `残り ${left ?? EMPTY} 日`}）`,
-    ],
-    ["権限", s.scopes && s.scopes.length > 0 ? s.scopes.join(", ") : EMPTY],
-    ["不足している権限", missing.length === 0 ? "なし" : missing.join(", ")],
-    ["認証情報の状態", credentialStatusLabel(s.credential_status)],
-    ["最後のエラー", s.last_error ?? EMPTY],
-    ["最終確認", formatJst(s.last_checked_at)],
-    ["最終収集", formatJst(s.last_collected_at)],
-  ];
+  const state = s.credential_status === "valid" ? (reconnect ? "warn" : "ok") : "bad";
+  const width = left === undefined ? 0 : Math.min(100, Math.max(0, (left / DATA_ACCESS_SPAN_DAYS) * 100));
   return (
-    <section className="rounded border border-neutral-200 p-4">
-      <h2 className="text-lg font-semibold">{s.username ? `@${s.username}` : "（ユーザー名なし）"}</h2>
+    <div className="stack">
       {reconnect && (
-        <p className="mt-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-          再接続が必要です: {reconnectReason(s, now)}。最終確認 {formatJst(s.last_checked_at)}。{" "}
-          <Link href="/connect" className="font-semibold underline">
-            接続設定へ
-          </Link>
-        </p>
+        <Callout state={s.credential_status === "valid" ? "warn" : "bad"}>
+          再接続が必要です: {reconnectReason(s, now)}。<Link href="/connect">接続設定へ</Link>
+        </Callout>
       )}
-      <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[12rem_1fr]">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-neutral-500">{label}</dt>
-            <dd className="break-words">{value}</dd>
-          </div>
-        ))}
+      <dl className="dl">
+        <dt>状態</dt>
+        <dd>
+          <span className="status" data-state={state}>
+            {credentialStatusLabel(s.credential_status)}
+          </span>
+        </dd>
+        <dt>Instagram</dt>
+        <dd>
+          {s.username ? `@${s.username}` : EMPTY}
+          {s.name ? `（${s.name}）` : ""}
+        </dd>
+        <dt>アカウント</dt>
+        <dd>{accountStatusLabel(s.account_status)}</dd>
+        <dt>トークン</dt>
+        <dd>
+          {tokenTypeLabel(s.token_type)}
+          {s.token_type === null ? "" : s.token_expires_at === null ? "・期限なし" : `・期限 ${formatJst(s.token_expires_at)}`}
+        </dd>
+        <dt>データアクセス期限</dt>
+        <dd>{expiryLabel(s.data_access_expires_at, left)}</dd>
+        <dt>不足している権限</dt>
+        <dd>{s.credential_status === null ? EMPTY : missing.length === 0 ? "なし" : missing.join(", ")}</dd>
+        <dt>最終確認</dt>
+        <dd>{formatJst(s.last_checked_at)}</dd>
+        <dt>最終収集</dt>
+        <dd>{formatJst(s.last_collected_at)}</dd>
+        <dt>最終エラー</dt>
+        <dd>{s.last_error ?? EMPTY}</dd>
       </dl>
-    </section>
+      {left !== undefined && (
+        <div
+          className="progress"
+          data-state={expiryState(left)}
+          role="img"
+          aria-label={`データアクセス期限まで ${Math.max(0, left)} 日`}
+        >
+          <i style={{ width: `${width.toFixed(0)}%` }} />
+        </div>
+      )}
+    </div>
   );
 }
 
-/** 接続状態の一覧（読み出し、失敗、未登録の表示を含む）。async Server Component */
-export async function ConnectionStatusList() {
-  const status = await getConnectionStatus();
+/** 接続状態のカード（読み出し、失敗、未登録の表示を含む）。async Server Component */
+export async function ConnectionStatusList({ accountId, className }: { accountId: string; className?: string }) {
+  const status = await getConnectionStatus(accountId);
   const now = new Date();
   return (
-    <div className="space-y-4">
+    <Card title="接続状態" sub="Meta Graph API" className={className}>
       {!status.ok ? (
-        <p className="rounded border border-red-400 bg-red-50 p-4 text-sm text-red-900">
-          接続状態を読み出せません（{status.reason}）。
-        </p>
-      ) : status.data.length === 0 ? (
-        <p className="rounded border border-amber-400 bg-amber-50 p-4 text-sm text-amber-900">
-          アカウントが登録されていません。{" "}
-          <Link href="/connect" className="font-semibold underline">
-            接続設定
-          </Link>{" "}
-          から Meta と接続してください。
-        </p>
+        <Callout state="bad">読み出せません（{status.reason}）</Callout>
+      ) : status.data === null ? (
+        <Callout state="warn">
+          認証情報が登録されていません。<Link href="/connect">接続設定へ</Link>
+        </Callout>
       ) : (
-        status.data.map((s) => <AccountCard key={s.account_id} s={s} now={now} />)
+        <AccountStatusBody s={status.data} now={now} />
       )}
-    </div>
+    </Card>
   );
 }
