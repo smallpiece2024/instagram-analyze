@@ -161,6 +161,8 @@ window.LAB_DATA = (function () {
     timing: timing,
     // 時間帯別の初速（24 時間リーチの中央値と件数。曜日をまとめたもの）
     timingByBand: { bands: bands, median: [null, null, 470, 860, 820, 1010, 1450, 690], n: [0, 0, 9, 19, 24, 12, 34, 8] },
+    // 曜日別（24 時間リーチの中央値と件数。時間帯をまとめたもの。n は timing の行の合計）
+    timingByDay: { days: days, median: [810, 860, 900, 940, 990, 1220, 1080], n: [12, 10, 16, 13, 16, 25, 16] },
     jobs: jobs,
     connection: {
       state: "ok",
