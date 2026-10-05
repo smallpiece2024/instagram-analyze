@@ -1,42 +1,22 @@
 /**
- * `queries/*` の結合テスト（設計 4.3 章）。`TEST_DATABASE_URL` があるときだけ動く。
- * 架空のアカウント 2 件（ig_user_id の先頭 6 桁が 0。1 件は認証情報つき、1 件は name も認証情報もなし）、
- * 実行記録、投稿 52 件（うち 1 件はストーリーズ）、スナップショットを作り、`afterAll` でアカウントを消す
- * （カスケードで関連行と Vault の秘密も消える）。
+ * `queries/connection-status.ts` と `queries/jobs.ts` の結合テスト（R1 設計 4.3 章。R3 段階 0 で `queries.test.ts` から分けた）。
+ * `TEST_DATABASE_URL` があるときだけ動く。架空のアカウント 2 件（ig_user_id の先頭 6 桁が 0。1 件は認証情報つき、
+ * 1 件は name も認証情報もなし）と実行記録を作り、`afterAll` でアカウントを消す（カスケードで関連行と Vault の秘密も消える）。
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeAllDb } from "@/lib/db";
-import { PAGE_SIZE } from "@/lib/format";
 import { getConnectionStatus } from "@/lib/queries/connection-status";
 import { getLatestRuns, listRecentRuns, RECENT_RUNS_LIMIT } from "@/lib/queries/jobs";
-import { getMediaPage, listMedia } from "@/lib/queries/media";
+import { DAY_MS, fakeIgUserId, HOUR_MS, MINUTE_MS, setWebEnv } from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
-const MINUTE_MS = 60 * 1000;
-/** ページング確認用の投稿数（1 ページ分 + 1） */
-const FEED_COUNT = PAGE_SIZE + 1;
 
-/** 架空の Instagram アカウント ID（実在しない。先頭 6 桁が 0） */
-function fakeIgUserId(): string {
-  return "000000" + Math.floor(Math.random() * 1_000_000_000).toString().padStart(9, "0");
-}
-
-/** 架空のメディア ID（数字だけ。先頭 4 桁が 0、`seq` は 3 桁で末尾） */
-function fakeMediaId(seq: number): string {
-  return "0000" + Date.now().toString() + seq.toString().padStart(3, "0");
-}
-
-describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
+describe.skipIf(!TEST_DATABASE_URL)("queries/jobs と connection-status（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";
   const igUserId = fakeIgUserId();
   const igUserId2 = fakeIgUserId();
   const now = new Date();
-  /** 投稿日時の新しい順に並ぶよう、seq が小さいほど新しい（seq 0 が最新。実アカウントの投稿より新しい） */
-  const feedIds = Array.from({ length: FEED_COUNT }, (_, seq) => fakeMediaId(seq));
-  const storyId = fakeMediaId(900);
   const t0 = new Date(now.getTime() - 6 * HOUR_MS);
   const mediaSyncFinished = new Date(t0.getTime() + 1 * HOUR_MS);
   const tokenCheckFinished = new Date(t0.getTime() + 2 * HOUR_MS);
@@ -49,24 +29,10 @@ describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
   let sql: postgres.Sql;
   let accountId = "";
   let accountId2 = "";
-  const savedEnv: Record<string, string | undefined> = {};
+  let restoreEnv: () => void = () => {};
 
   beforeAll(async () => {
-    // readEnv が読む変数。DB 以外は架空の値（Meta には繋がない。Storage は thumbnail_path が null なので呼ばれない）
-    const env: Record<string, string> = {
-      DATABASE_URL: url,
-      META_APP_ID: "1",
-      META_APP_SECRET: "test-secret",
-      META_GRAPH_API_VERSION: "v25.0",
-      APP_URL: "http://localhost:3000",
-    };
-    for (const [k, v] of Object.entries(env)) {
-      savedEnv[k] = process.env[k];
-      process.env[k] = v;
-    }
-    savedEnv.META_TARGET_IG_USER_ID = process.env.META_TARGET_IG_USER_ID;
-    delete process.env.META_TARGET_IG_USER_ID;
-
+    restoreEnv = setWebEnv(url);
     sql = postgres(url, { max: 1, onnotice: () => {} });
     const [account] = await sql<{ id: string }[]>`
       insert into public.accounts (ig_user_id, username, name)
@@ -102,23 +68,6 @@ describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
         ('stories', ${accountId}, ${storiesStarted}, ${storiesFinished}, 'failed', 0, 1, 'テスト用の失敗', null),
         ('media_snapshot', ${accountId}, ${runningStarted}, null, 'running', null, null, null, null)
     `;
-    const feedRows = feedIds.map((id, seq) => ({
-      id,
-      account_id: accountId,
-      media_type: "IMAGE",
-      media_product_type: "FEED",
-      posted_at: new Date(now.getTime() - seq * MINUTE_MS),
-      permalink: "https://www.instagram.com/p/fake/",
-    }));
-    await sql`insert into public.media ${sql(feedRows, "id", "account_id", "media_type", "media_product_type", "posted_at", "permalink")}`;
-    await sql`
-      insert into public.media (id, account_id, media_type, media_product_type, posted_at, permalink)
-      values (${storyId}, ${accountId}, 'VIDEO', 'STORY', ${new Date(now.getTime() + MINUTE_MS)}, null)
-    `;
-    await sql`
-      insert into public.media_insight_snapshots (media_id, fetched_at, elapsed_seconds, metrics)
-      values (${feedIds[0] ?? ""}, now(), 3600, ${sql.json({ views: 10, reach: null })})
-    `;
   });
 
   afterAll(async () => {
@@ -132,10 +81,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
     }
     await closeAllDb();
     await sql.end({ timeout: 5 });
-    for (const [k, v] of Object.entries(savedEnv)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
+    restoreEnv();
   });
 
   it("getConnectionStatus: accounts.name を補い、最終収集は token_check と失敗・実行中を除く。partial は含む", async () => {
@@ -221,54 +167,6 @@ describe.skipIf(!TEST_DATABASE_URL)("queries（結合）", () => {
       const cur = all.data[i];
       if (prev && cur) expect(prev.started_at.getTime()).toBeGreaterThanOrEqual(cur.started_at.getTime());
     }
-  });
-
-  it("listMedia と getMediaPage: ストーリーズを除き、最新のスナップショットを付け、51 件で次ページがある", async () => {
-    const page1 = await listMedia(1);
-    expect(page1.ok).toBe(true);
-    if (!page1.ok) return;
-    expect(page1.data.page).toBe(1);
-    expect(page1.data.items).toHaveLength(PAGE_SIZE);
-    expect(page1.data.hasNext).toBe(true);
-    // 架空の投稿は実アカウントの投稿より新しいので、1 ページ目の先頭 50 件がそのまま並ぶ
-    expect(page1.data.items.map((m) => m.id)).toEqual(feedIds.slice(0, PAGE_SIZE));
-    expect(page1.data.items.find((m) => m.id === storyId)).toBeUndefined();
-    expect(page1.data.items.every((m) => m.media_product_type !== "STORY")).toBe(true);
-
-    const newest = page1.data.items[0];
-    expect(newest?.id).toBe(feedIds[0]);
-    expect(newest?.media_product_type).toBe("FEED");
-    expect(newest?.posted_at).toBeInstanceOf(Date);
-    expect(newest?.metrics_fetched_at).toBeInstanceOf(Date);
-    expect(newest?.elapsed_seconds).toBe(3600);
-    expect(newest?.metrics).toEqual({ views: 10, reach: null });
-    expect(newest?.thumbnail_path).toBeNull();
-    expect(newest?.gone_at).toBeNull();
-    expect(newest !== undefined && "caption" in newest).toBe(false);
-    // スナップショットのない投稿
-    const second = page1.data.items[1];
-    expect(second?.metrics).toBeNull();
-    expect(second?.metrics_fetched_at).toBeNull();
-    expect(second?.elapsed_seconds).toBeNull();
-
-    const page2 = await listMedia(2);
-    expect(page2.ok).toBe(true);
-    if (!page2.ok) return;
-    expect(page2.data.page).toBe(2);
-    expect(page2.data.items[0]?.id).toBe(feedIds[PAGE_SIZE]);
-    expect(page2.data.items.find((m) => m.id === storyId)).toBeUndefined();
-
-    const withThumbs = await getMediaPage(1);
-    expect(withThumbs.ok).toBe(true);
-    if (!withThumbs.ok) return;
-    expect(withThumbs.data.hasNext).toBe(true);
-    expect(withThumbs.data.items.find((m) => m.id === feedIds[0])?.thumbnail_url).toBeNull();
-
-    const far = await listMedia(100_000);
-    expect(far.ok).toBe(true);
-    if (!far.ok) return;
-    expect(far.data.items).toEqual([]);
-    expect(far.data.hasNext).toBe(false);
   });
 
   it("設定が足りなければ変数名だけの固定文言", async () => {

@@ -74,19 +74,51 @@ describe("期間", () => {
     expect(sameMonthLastYear("2026-10-04")).toEqual({ from: "2025-10-01", to: "2025-10-31" });
   });
 
-  it("プリセット", () => {
+  it("プリセット 7d／30d: 最新の日までの N 日と、その直前の N 日", () => {
     expect(presetPeriods("7d", "2026-10-04")).toEqual({
       a: { from: "2026-09-28", to: "2026-10-04" },
       b: { from: "2026-09-21", to: "2026-09-27" },
     });
-    expect(presetPeriods("30d", "2026-10-04").b).toEqual({ from: "2026-08-06", to: "2026-09-04" });
-    expect(presetPeriods("month", "2026-10-04")).toEqual({
-      a: { from: "2026-10-01", to: "2026-10-04" },
-      b: { from: "2026-09-01", to: "2026-09-30" },
+    expect(presetPeriods("30d", "2026-10-04")).toEqual({
+      a: { from: "2026-09-05", to: "2026-10-04" },
+      b: { from: "2026-08-06", to: "2026-09-04" },
     });
+  });
+
+  it("プリセット month: 最新の日を含む月の前の月と、その前の月（どちらも暦月の 1 日〜末日）", () => {
+    expect(presetPeriods("month", "2026-10-04")).toEqual({
+      a: { from: "2026-09-01", to: "2026-09-30" },
+      b: { from: "2026-08-01", to: "2026-08-31" },
+    });
+    // 最新の日が月末でも、その月ではなく前の月
+    expect(presetPeriods("month", "2026-09-30")).toEqual({
+      a: { from: "2026-08-01", to: "2026-08-31" },
+      b: { from: "2026-07-01", to: "2026-07-31" },
+    });
+    // 年をまたぐ
+    expect(presetPeriods("month", "2026-02-10")).toEqual({
+      a: { from: "2026-01-01", to: "2026-01-31" },
+      b: { from: "2025-12-01", to: "2025-12-31" },
+    });
+  });
+
+  it("プリセット yoy: 最新の日を含む月の前の月と、その 1 年前の同じ月", () => {
     expect(presetPeriods("yoy", "2026-10-04")).toEqual({
-      a: { from: "2026-10-01", to: "2026-10-04" },
-      b: { from: "2025-10-01", to: "2025-10-31" },
+      a: { from: "2026-09-01", to: "2026-09-30" },
+      b: { from: "2025-09-01", to: "2025-09-30" },
+    });
+    // 前の月がうるう年の 2 月なら、前年同月は 28 日まで（日数が違う）
+    const leap = presetPeriods("yoy", "2024-03-10");
+    expect(leap).toEqual({
+      a: { from: "2024-02-01", to: "2024-02-29" },
+      b: { from: "2023-02-01", to: "2023-02-28" },
+    });
+    expect(periodLength(leap.a)).toBe(29);
+    expect(periodLength(leap.b)).toBe(28);
+    // 最新の日が 1 月なら、前の月は前年の 12 月
+    expect(presetPeriods("yoy", "2027-01-05")).toEqual({
+      a: { from: "2026-12-01", to: "2026-12-31" },
+      b: { from: "2025-12-01", to: "2025-12-31" },
     });
   });
 

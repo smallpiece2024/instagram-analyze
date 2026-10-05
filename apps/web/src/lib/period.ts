@@ -159,11 +159,12 @@ export const COMPARE_PRESETS = ["7d", "30d", "month", "yoy"] as const;
 export type ComparePreset = (typeof COMPARE_PRESETS)[number];
 
 /**
- * プリセットの 2 つの期間。`a` は最新の期間、`b` は比べる相手。
- * - 7d／30d: 最新の日で終わる N 日と、その直前の N 日
- * - month: 最新の日を含む暦月（最新の日まで）と前月
- * - yoy: 最新の日を含む暦月（最新の日まで）と前年同月
- * `a` の暦月は最新の日で切り詰める。`b` は暦月のまま（データの範囲での切り詰めは `clampPeriod`）
+ * プリセットの 2 つの期間（R3 設計 3.5 節の表）。`a` は新しい方、`b` は比べる方。`latest` は日次指標の最新の日
+ * （`account_daily_wide` の `max(metric_date) filter (where reach is not null)`。3.2 節、6 章）。
+ * - 7d／30d: 最新の日までの N 日と、その直前の N 日
+ * - month: 最新の日を含む月の前の月（暦月、1 日〜末日）と、その前の月
+ * - yoy: 最新の日を含む月の前の月と、その 1 年前の同じ月（うるう年の 2 月の前年は 28 日まで）
+ * 暦月はどちらも 1 日〜末日のまま返す（`a` は最新の日より前に終わるので切り詰めは要らない）
  */
 export function presetPeriods(preset: ComparePreset, latest: Ymd): { a: Period; b: Period } {
   switch (preset) {
@@ -172,10 +173,14 @@ export function presetPeriods(preset: ComparePreset, latest: Ymd): { a: Period; 
       const a = lastNDays(latest, preset === "7d" ? 7 : 30);
       return { a, b: previousPeriod(a) };
     }
-    case "month":
-      return { a: { from: monthOf(latest).from, to: latest }, b: previousMonth(latest) };
-    case "yoy":
-      return { a: { from: monthOf(latest).from, to: latest }, b: sameMonthLastYear(latest) };
+    case "month": {
+      const a = previousMonth(latest);
+      return { a, b: previousMonth(a.from) };
+    }
+    case "yoy": {
+      const a = previousMonth(latest);
+      return { a, b: sameMonthLastYear(a.from) };
+    }
   }
 }
 
