@@ -167,7 +167,7 @@ Web アプリのサーバー側は Postgres に直結し、ログイン（Supaba
 | `WEB_ALLOWED_USER_ID` | ログインを許す Supabase Auth の利用者の `id`。未設定なら全画面が 403（フェイルクローズ） |
 | `META_APP_ID`、`META_APP_SECRET`、`META_GRAPH_API_VERSION` | ワーカーの `.env` と同じ値 |
 | `APP_URL` | `http://localhost:3000`。Meta からの戻り先 `${APP_URL}/api/meta/callback` の元 |
-| `META_TARGET_IG_USER_ID` | 任意。指定すると、候補の数にかかわらず一致する Instagram アカウントのページだけを登録し、一致がなければ登録しない（複数のページを管理しているときの保険） |
+| `META_TARGET_IG_USER_ID` | 任意。指定すると、候補の数にかかわらず一致する Instagram アカウントのページだけを登録し、一致がなければ登録しない（複数のページを管理しているときの保険）。本番の Vercel には必ず入れる（ページの管理者でない人が誤って接続しても、他のアカウントを登録させないため。要件 F-SYS-16） |
 
 ### Meta アプリ側の設定（Facebook Login を使う前に 1 回）
 
