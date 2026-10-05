@@ -478,7 +478,7 @@
     var c3 = P.chartColor("reel"), HS = ' style="cursor:help;text-decoration:underline dotted"';
     var RATE_HINT = "リーチ率 = 7 日時点のリーチ ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値";
     var rp = function (v) { return pct(v, 0); };
-    var head = P.pageHead("リール分析", "リール " + R.length + " 件（過去 180 日）・目的変数: <span title=\"" + esc(RATE_HINT) + "\"" + HS + ">リーチ率</span>", '<span class="select">期間: 過去 180 日</span>');
+    var head = P.pageHead("リール分析", "リール " + R.length + " 件（過去 1 年間）・目的変数: <span title=\"" + esc(RATE_HINT) + "\"" + HS + ">リーチ率</span>", '<span class="select">期間: 過去 1 年間</span>');
     var wq = ctx.cw(4), w3 = ctx.cw(3), w12 = ctx.cw(12);
 
     // 1. 要因と目的変数の関係（順位相関とその幅）
@@ -665,7 +665,7 @@
   S.timing = function (ctx) {
     var T = D.timing, B = D.timingByBand, W = D.timingByDay;
     var total = B.n.reduce(function (a, b) { return a + b; }, 0);
-    var head = P.pageHead("投稿時刻", "投稿後 24 時間のリーチの中央値（日本時間、過去 180 日の投稿 " + total + " 件）", '<span class="select">指標: 24 時間リーチ</span><span class="select">種類: すべて</span>');
+    var head = P.pageHead("投稿時刻", "投稿後 24 時間のリーチ（過去 1 年間の投稿 " + total + " 件）", '<span class="select">指標: 24 時間リーチ</span><span class="select">種類: すべて</span>');
     var heat = card("曜日 × 時間帯の 24 時間リーチ（中央値）",'<div class="chart">' + P.heatmap({ w: ctx.cw(12), rows: T.days, cols: T.bands, values: T.median, counts: T.n }) + "</div>",
       { foot: "※: n=1" });
     var dim = []; B.n.forEach(function (c, i) { if (c < 3) dim.push(i); });
