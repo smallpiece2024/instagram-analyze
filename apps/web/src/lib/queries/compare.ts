@@ -9,10 +9,10 @@
  */
 import "server-only";
 import { cache } from "react";
-import { dbFromEnv, type Db } from "@/lib/db";
-import { describeDbError, type QueryResult } from "@/lib/db-errors";
+import { dbFromEnv } from "@/lib/db";
+import type { QueryResult } from "@/lib/db-errors";
 import { markDynamic } from "@/lib/dynamic";
-import { configMissingReason, readEnv } from "@/lib/env";
+import { readEnv } from "@/lib/env";
 import type { DailyCsvRow } from "@/lib/csv";
 import type { Period } from "@/lib/period";
 import {
@@ -23,18 +23,7 @@ import {
   type FollowerChange,
   type PostTotals,
 } from "@/lib/queries/period-summary";
-
-/** DB の読み出しの共通部分（環境変数の検査、例外を固定文言にする） */
-async function run<T>(fn: (db: Db) => Promise<T>): Promise<QueryResult<T>> {
-  await markDynamic();
-  const env = readEnv();
-  if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
-  try {
-    return { ok: true, data: await fn(dbFromEnv(env.env)) };
-  } catch (e) {
-    return { ok: false, reason: describeDbError(e) };
-  }
-}
+import { runQuery } from "./run";
 
 /* ------------------------------------------------------------------
  * 主要指標（期間 A と B）
@@ -124,7 +113,7 @@ function toStat(n: number, mean: number | null, q: number[] | null): BaselineSta
 /** 期間（両端を含む。日本時間の日付）に投稿した投稿の、リーチ、保存率、ER の平均と分位（`percentile_cont`） */
 export const getPeriodBaselines = cache(
   async (accountId: string, from: string, to: string): Promise<QueryResult<PeriodBaselines>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const [row] = await db<BaselineRow[]>`
         select
           count(*)::int as posts,
@@ -159,7 +148,7 @@ export const getPeriodBaselines = cache(
 /** 期間比較が使うデータの取得時刻の最大値（日次指標とスナップショット）。なければ null */
 export const getCompareUpdatedAt = cache(
   async (accountId: string): Promise<QueryResult<Date | null>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const [row] = await db<{ at: Date | null }[]>`
         select greatest(
           (select max(fetched_at) from public.account_daily_metrics where account_id = ${accountId}),

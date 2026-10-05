@@ -55,7 +55,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
                 autoComplete="username"
                 required
                 maxLength={254}
-                className="select mt-1 w-full"
+                className="input input--block mt-1"
               />
             </div>
             <div>
@@ -69,7 +69,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
                 autoComplete="current-password"
                 required
                 maxLength={256}
-                className="select mt-1 w-full"
+                className="input input--block mt-1"
               />
             </div>
             <button type="submit" className="btn">

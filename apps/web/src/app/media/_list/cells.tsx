@@ -25,11 +25,6 @@ export function rowKind(row: Pick<MediaListRow, "kind">): MediaKind {
   return isMediaKind(row.kind) ? row.kind : "feed";
 }
 
-/** 投稿から今までの日数（切り捨て）。一覧の投稿日時の下に小さく出す */
-export function elapsedDays(hours: number): string {
-  return `${Math.floor(Math.max(0, hours) / 24)} 日`;
-}
-
 function engagement(row: MediaListRow): number | null {
   const { likes, comments, saved, shares } = row;
   if (likes == null || comments == null || saved == null || shares == null) return null;

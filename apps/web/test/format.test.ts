@@ -3,22 +3,21 @@ import {
   accountStatusLabel,
   credentialStatusLabel,
   daysLeft,
+  elapsedDaysLabel,
   elapsedLabel,
   EMPTY,
   ERROR_FOLD_LENGTH,
   formatCount,
   formatDuration,
+  formatElapsedDays,
   formatJst,
   isInstagramPermalink,
-  JOB_ORDER,
   jobRowView,
   jobStatusLabel,
-  MAX_PAGE,
+  mediaTitle,
   metricCell,
   missingScopes,
   needsReconnect,
-  parseJobFilter,
-  parsePage,
   tokenTypeLabel,
   usagePercent,
 } from "@/lib/format";
@@ -127,38 +126,6 @@ describe("metricCell", () => {
 
   it("プロトタイプのキーは見ない", () => {
     expect(metricCell({}, "toString")).toBe(EMPTY);
-  });
-});
-
-describe("parsePage", () => {
-  it("1 以上の整数。数字以外、0、負、配列、未指定は 1", () => {
-    expect(parsePage(undefined)).toBe(1);
-    expect(parsePage("abc")).toBe(1);
-    expect(parsePage("0")).toBe(1);
-    expect(parsePage("-1")).toBe(1);
-    expect(parsePage("1.5")).toBe(1);
-    expect(parsePage(["2", "3"])).toBe(1);
-    expect(parsePage("3")).toBe(3);
-    expect(parsePage("007")).toBe(7);
-  });
-
-  it("巨大な値は桁数にかかわらず上限に丸める", () => {
-    expect(parsePage("999999999")).toBe(MAX_PAGE);
-    expect(parsePage("9999999999999")).toBe(MAX_PAGE);
-    expect(parsePage("9".repeat(40))).toBe(MAX_PAGE);
-    expect(parsePage("0000")).toBe(1);
-    expect(parsePage(String(MAX_PAGE))).toBe(MAX_PAGE);
-    expect(parsePage(String(MAX_PAGE + 1))).toBe(MAX_PAGE);
-  });
-});
-
-describe("parseJobFilter", () => {
-  it("7 つのジョブ名だけを通す。未知、配列、未指定は undefined", () => {
-    for (const name of JOB_ORDER) expect(parseJobFilter(name)).toBe(name);
-    expect(parseJobFilter("unknown")).toBeUndefined();
-    expect(parseJobFilter("")).toBeUndefined();
-    expect(parseJobFilter(["stories"])).toBeUndefined();
-    expect(parseJobFilter(undefined)).toBeUndefined();
   });
 });
 
@@ -306,5 +273,36 @@ describe("ラベル", () => {
     expect(accountStatusLabel(null)).toBe(EMPTY);
     expect(tokenTypeLabel("PAGE")).toBe("ページトークン");
     expect(tokenTypeLabel(null)).toBe(EMPTY);
+  });
+});
+
+describe("formatElapsedDays と elapsedDaysLabel（投稿一覧と投稿詳細で同じ数え方）", () => {
+  it("時間を日に切り捨てる。負は 0、null と有限でない値は —", () => {
+    expect(formatElapsedDays(0)).toBe("0 日");
+    expect(formatElapsedDays(23.9)).toBe("0 日");
+    expect(formatElapsedDays(24)).toBe("1 日");
+    expect(formatElapsedDays(12 * 24 + 5)).toBe("12 日");
+    expect(formatElapsedDays(-5)).toBe("0 日");
+    expect(formatElapsedDays(null)).toBe(EMPTY);
+    expect(formatElapsedDays(Number.NaN)).toBe(EMPTY);
+    expect(elapsedDaysLabel(12 * 24 + 5)).toBe("投稿から 12 日");
+    expect(elapsedDaysLabel(undefined)).toBe(EMPTY);
+  });
+});
+
+describe("mediaTitle", () => {
+  it("1 行目の先頭 40 文字。空なら（キャプションなし）", () => {
+    expect(mediaTitle("題名\n本文")).toBe("題名");
+    expect(mediaTitle("題名\r\n本文")).toBe("題名");
+    expect(mediaTitle("題名\r本文")).toBe("題名");
+    expect(mediaTitle(null)).toBe("（キャプションなし）");
+    expect(mediaTitle("")).toBe("（キャプションなし）");
+    expect(mediaTitle("  \n二行目")).toBe("（キャプションなし）");
+  });
+
+  it("サロゲートペアを割らない", () => {
+    const long = "😀".repeat(45);
+    expect(Array.from(mediaTitle(long))).toHaveLength(40);
+    expect(mediaTitle(long)).toBe("😀".repeat(40));
   });
 });

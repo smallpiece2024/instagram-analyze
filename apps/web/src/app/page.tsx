@@ -14,7 +14,7 @@ import { DailyTrendCard } from "./_overview/DailyTrendCard";
 import { KindBreakdownCard } from "./_overview/KindBreakdownCard";
 import { OverviewKpis } from "./_overview/OverviewKpis";
 import { CardLoading, LoadError, NotCollected } from "./_overview/states";
-import { PT_NOTE } from "./_overview/texts";
+import { PT_NOTE } from "@/lib/metric-definitions";
 
 const TITLE = "概要";
 

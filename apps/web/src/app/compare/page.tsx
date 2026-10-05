@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { PageHead } from "@/components/PageHead";
+import { buildHref } from "@/components/href";
 import { lastUpdatedLabel } from "@/lib/format";
 import { isStale, todayPacific } from "@/lib/period";
 import { getTargetAccount } from "@/lib/queries/account";
@@ -86,7 +87,15 @@ export default async function ComparePage({
             <UpdatedAt accountId={accountId} />
           </Suspense>
         }
-        tools={<PresetLinks current={sel.preset} />}
+        tools={
+          <>
+            <PresetLinks current={sel.preset} />
+            {/* 日次の CSV は期間 A の範囲（太平洋時間の日付） */}
+            <a className="btn btn--ghost" href={buildHref("/export/daily", { from: sel.a.from, to: sel.a.to })}>
+              CSV
+            </a>
+          </>
+        }
       />
       {stale && (
         <Callout state="warn">

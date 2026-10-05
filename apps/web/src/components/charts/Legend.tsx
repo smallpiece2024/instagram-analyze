@@ -2,7 +2,7 @@ import { KIND_LABEL, kindColor, type MediaKind } from "@/lib/metrics";
 
 export interface LegendItem {
   label: string;
-  /** 色（`var(--chart-1)` など）。`dash` は不要 */
+  /** 色（`var(--chart-1)` など）。`dash` で省略すると `--chart-ref` の破線 */
   color?: string;
   /** 印の形。既定は四角 */
   shape?: "box" | "line" | "dash";
@@ -16,7 +16,7 @@ export function Legend({ items }: { items: readonly LegendItem[] }) {
         <span key={it.label}>
           <i
             className={it.shape && it.shape !== "box" ? it.shape : undefined}
-            style={it.color && it.shape !== "dash" ? { background: it.color } : undefined}
+            style={it.color ? (it.shape === "dash" ? { borderTopColor: it.color } : { background: it.color }) : undefined}
             aria-hidden="true"
           />
           {it.label}

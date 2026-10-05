@@ -1,6 +1,6 @@
 /**
  * `queries/media.ts` の結合テスト（R3 設計 3.3 節、4.5 節、7 章）。
- * `TEST_DATABASE_URL` があるときだけ動く（`mediaTitle` の単体テストはいつも動く）。
+ * `TEST_DATABASE_URL` があるときだけ動く（`mediaTitle` の単体テストは `test/format.test.ts`）。
  * 架空のアカウント 1 件に、フィード 51 件、リール 1 件、ストーリーズ 1 件（一覧に出ない）とスナップショットを作り、
  * `afterAll` でアカウントを消す（カスケードで関連行も消える）。読み出しはすべて架空のアカウントの `accountId` で絞る。
  */
@@ -15,7 +15,6 @@ import {
   getMediaPage,
   listMedia,
   listMediaCsvRows,
-  mediaTitle,
   type MediaListParams,
 } from "@/lib/queries/media";
 import { fakeIgUserId, fakeMediaId, HOUR_MS, MINUTE_MS, setWebEnv } from "./fixtures";
@@ -24,20 +23,6 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 /** フィードの件数（1 ページ分 + 1） */
 const FEED_COUNT = PAGE_SIZE + 1;
 const DEFAULT_PARAMS: MediaListParams = { sort: "posted", order: "desc", page: 1, er: "reach" };
-
-describe("mediaTitle", () => {
-  it("1 行目の先頭 40 文字。サロゲートペアを割らない。空は null", () => {
-    expect(mediaTitle(null)).toBeNull();
-    expect(mediaTitle("")).toBeNull();
-    expect(mediaTitle("\n2 行目")).toBeNull();
-    expect(mediaTitle("題名\n本文")).toBe("題名");
-    expect(mediaTitle("題名\r\n本文")).toBe("題名");
-    const emoji = "😀".repeat(45);
-    const title = mediaTitle(emoji);
-    expect(Array.from(title ?? "")).toHaveLength(40);
-    expect(title).toBe("😀".repeat(40));
-  });
-});
 
 describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";

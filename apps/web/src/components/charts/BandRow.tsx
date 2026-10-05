@@ -22,6 +22,8 @@ export interface BandRowProps {
   width?: number;
   /** 系列の色（自分の点） */
   color?: string;
+  /** 向きを逆にする（小さい値を右に置く）。低いほどよい指標（スキップ率）で「右ほどよい」をそろえる */
+  reverse?: boolean;
 }
 
 const H = 34;
@@ -32,7 +34,15 @@ const PAD = 10;
  * 比較相手の数 n で出し方を変える（設計 3.1 節「基準値」）:
  * 0 は何も描かない、1〜2 は線と中央値だけ、3〜9 は薄く、10 以上は通常
  */
-export function BandRow({ label, value, stats, format = "count", width = 520, color = "var(--chart-1)" }: BandRowProps) {
+export function BandRow({
+  label,
+  value,
+  stats,
+  format = "count",
+  width = 520,
+  color = "var(--chart-1)",
+  reverse = false,
+}: BandRowProps) {
   const display: BaselineDisplay = baselineDisplay(stats.n);
   const domainValues = finiteValues([
     value,
@@ -46,7 +56,7 @@ export function BandRow({ label, value, stats, format = "count", width = 520, co
     hi += pad;
   }
   const iw = Math.max(1, width - PAD * 2);
-  const x = (v: number) => PAD + (iw * (v - lo)) / (hi - lo);
+  const x = (v: number) => PAD + (iw * (reverse ? hi - v : v - lo)) / (hi - lo);
   const mid = H / 2;
   const fin = (v: number | null): v is number => typeof v === "number" && Number.isFinite(v);
   const opacity = display === "faint" ? ".45" : undefined;
@@ -67,6 +77,7 @@ export function BandRow({ label, value, stats, format = "count", width = 520, co
       role="img"
       aria-label={aria}
       data-display={display}
+      data-reverse={reverse ? "true" : undefined}
     >
       <title>{aria}</title>
       {display !== "none" && (
@@ -78,9 +89,9 @@ export function BandRow({ label, value, stats, format = "count", width = 520, co
             <rect
               className="chart-band"
               data-part="band"
-              x={coord(x(stats.p25))}
+              x={coord(Math.min(x(stats.p25), x(stats.p75)))}
               y={mid - 7}
-              width={coord(Math.max(1, x(stats.p75) - x(stats.p25)))}
+              width={coord(Math.max(1, Math.abs(x(stats.p75) - x(stats.p25))))}
               height="14"
               rx="4"
             />

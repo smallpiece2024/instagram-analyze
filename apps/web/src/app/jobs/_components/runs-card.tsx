@@ -10,7 +10,7 @@ import { Card } from "@/components/Card";
 import { buildHref, type Query } from "@/components/href";
 import { Pager } from "@/components/Pager";
 import { EMPTY, formatCount, formatJst, JOB_ORDER, jobRowView, type JobName, type JobStatus } from "@/lib/format";
-import { listRecentRuns, type JobRunView } from "@/lib/queries/jobs";
+import { listRecentRuns, RUNS_PAGE_SIZE, type JobRunView } from "@/lib/queries/jobs";
 import { runState } from "./schedule";
 
 const PATH = "/jobs";
@@ -116,7 +116,16 @@ export async function RunsCard({
           </div>
         )}
       </div>
-      {result.ok && <Pager page={result.data.page} pageCount={result.data.pageCount} path={PATH} query={query} />}
+      {result.ok && (
+        <Pager
+          page={result.data.page}
+          pageCount={result.data.pageCount}
+          path={PATH}
+          query={query}
+          total={result.data.total}
+          pageSize={RUNS_PAGE_SIZE}
+        />
+      )}
     </Card>
   );
 }

@@ -18,4 +18,16 @@ describe("next.config.ts の headers()", () => {
     const policy = all?.headers.find((header) => header.key === "Referrer-Policy");
     expect(policy?.value).toBe("same-origin");
   });
+
+  it("署名付き URL を含むページ（/media、/media/:id）は Cache-Control: private, no-store", async () => {
+    const rules = nextConfig.headers ? await nextConfig.headers() : [];
+    for (const source of ["/media", "/media/:id"]) {
+      const rule = rules.find((r) => r.source === source);
+      expect(rule, source).toBeDefined();
+      expect(rule?.headers.find((h) => h.key === "Cache-Control")?.value).toBe("private, no-store");
+    }
+    // ほかの経路には付けない（全ルートの規則は Cache-Control を持たない）
+    const all = rules.find((r) => r.source === "/:path*");
+    expect(all?.headers.some((h) => h.key === "Cache-Control")).toBe(false);
+  });
 });

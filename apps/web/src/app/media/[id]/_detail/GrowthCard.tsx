@@ -65,6 +65,11 @@ export async function GrowthCard({ media }: { media: MediaDetail }) {
     return p && baselineDisplay(p.n) !== "none" && baselineDisplay(p.n) !== "range_only" ? p.p25 : null;
   });
   const upper = GROWTH_HORIZONS.map((h, i) => (lower[i] === null ? null : (peerBy.get(h)?.p75 ?? null)));
+  // 比較相手が 3〜9 件の区分は中央値と帯を薄く描く（3.1 節の件数による出し方）
+  const dimIndexes = GROWTH_HORIZONS.flatMap((h, i) => {
+    const p = peerBy.get(h);
+    return p && baselineDisplay(p.n) === "faint" ? [i] : [];
+  });
   const hasPeers = median.some((v) => v !== null);
   const hasBand = lower.some((v) => v !== null);
 
@@ -106,9 +111,9 @@ export async function GrowthCard({ media }: { media: MediaDetail }) {
         <LineChart
           title={`${title}: この投稿のリーチ（経過時間の区分ごと）`}
           labels={labels}
-          band={hasBand ? { lower, upper, label: "25〜75%" } : undefined}
+          band={hasBand ? { lower, upper, label: "25〜75%", dimIndexes } : undefined}
           series={[
-            ...(hasPeers ? [{ label: "中央値", values: median, dashed: true }] : []),
+            ...(hasPeers ? [{ label: "中央値", values: median, dashed: true, dimIndexes }] : []),
             {
               label: "この投稿",
               values,

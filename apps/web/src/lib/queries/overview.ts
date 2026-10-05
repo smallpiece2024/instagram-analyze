@@ -8,26 +8,12 @@
  */
 import "server-only";
 import { cache } from "react";
-import { dbFromEnv, type Db } from "@/lib/db";
-import { describeDbError, type QueryResult } from "@/lib/db-errors";
-import { markDynamic } from "@/lib/dynamic";
-import { configMissingReason, readEnv } from "@/lib/env";
+import type { QueryResult } from "@/lib/db-errors";
 import { ratio } from "@/lib/metrics";
 import type { ErDenominator } from "@/lib/params";
 import type { Ymd } from "@/lib/period";
 import type { FollowerChange, PostTotals } from "./period-summary";
-
-/** DB の読み出しの共通部分（環境変数の検査、例外を固定文言にする） */
-async function run<T>(fn: (db: Db) => Promise<T>): Promise<QueryResult<T>> {
-  await markDynamic();
-  const env = readEnv();
-  if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
-  try {
-    return { ok: true, data: await fn(dbFromEnv(env.env)) };
-  } catch (e) {
-    return { ok: false, reason: describeDbError(e) };
-  }
-}
+import { runQuery } from "./run";
 
 /* ------------------------------------------------------------------
  * 最終更新（F-UI-26）
@@ -45,7 +31,7 @@ export interface OverviewUpdatedAt {
 /** 概要が使うデータの取得時刻 */
 export const getOverviewUpdatedAt = cache(
   async (accountId: string): Promise<QueryResult<OverviewUpdatedAt>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const [row] = await db<{ daily: Date | null; media: Date | null }[]>`
         select
           (select max(d.fetched_at) from public.account_daily_metrics d where d.account_id = ${accountId}) as daily,
@@ -77,7 +63,7 @@ export interface PostMarker {
 /** 期間（両端を含む。太平洋時間の日付）に投稿した投稿の印。ストーリーズはビューに入らないので含まない。日時の古い順 */
 export const getPostMarkers = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<PostMarker[]>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<PostMarker[]>`
         select posted_date_pt, posted_at
         from public.media_list_metrics
@@ -95,7 +81,7 @@ export const getPostMarkers = cache(
  */
 export const getMetricChangeDates = cache(
   async (from: Ymd, to: Ymd): Promise<QueryResult<Ymd[]>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<{ on: Ymd }[]>`
         select distinct d as "on"
         from public.metric_definitions md

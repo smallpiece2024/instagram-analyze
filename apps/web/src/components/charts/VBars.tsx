@@ -17,8 +17,11 @@ export interface VBarsProps {
   valueLabels?: "all" | readonly number[];
   /** 薄くする棒（件数が少ない区分） */
   dim?: readonly number[];
-  /** X 軸の下に ▲ を置く index（投稿の印） */
+  /** X 軸の下に ▲ を置く index（投稿の印）。`markerTips` はその印のヒント（`markers` と同じ順） */
   markers?: readonly number[];
+  markerTips?: readonly string[];
+  /** 縦の破線とラベル（指標変更の日など。`LineChart` と同じ形） */
+  refLines?: readonly { index: number; label: string }[];
   /** 2 行目のラベル（`n=12`） */
   nLabels?: readonly number[];
   /** 棒ごとのヒント（`<title>`）。省略時は「ラベル: 値」 */
@@ -40,6 +43,8 @@ export function VBars({
   valueLabels,
   dim,
   markers,
+  markerTips,
+  refLines,
   nLabels,
   tips,
   noAxis,
@@ -129,8 +134,21 @@ export function VBars({
           </g>
         );
       })}
-      {(markers ?? []).map((i) => (
-        <path key={`m${i}`} d={`M${coord(m.l + slot * i + slot / 2)} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)" />
+      {(refLines ?? []).map((r) => {
+        const rx = m.l + slot * r.index + slot / 2;
+        return (
+          <g key={`r${r.index}`}>
+            <line className="chart-ref" x1={coord(rx)} x2={coord(rx)} y1={m.t} y2={m.t + ih} />
+            <text className="chart-label chart-label--muted" x={coord(rx + 4)} y={m.t + 10}>
+              {r.label}
+            </text>
+          </g>
+        );
+      })}
+      {(markers ?? []).map((i, k) => (
+        <path key={`m${i}`} d={`M${coord(m.l + slot * i + slot / 2)} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)">
+          {markerTips?.[k] && <title>{markerTips[k]}</title>}
+        </path>
       ))}
     </svg>
   );

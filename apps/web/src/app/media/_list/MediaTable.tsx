@@ -8,7 +8,8 @@ import { SortHeader } from "@/components/SortHeader";
 import { Thumb } from "@/components/Thumb";
 import { SpecialTags, TypeTag } from "@/components/TypeTag";
 import type { Query } from "@/components/href";
-import { formatCount, formatJst } from "@/lib/format";
+import { formatCount, formatElapsedDays, formatJst, mediaTitle } from "@/lib/format";
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import { baselineDisplay, MISSING_REASON_TEXT } from "@/lib/metrics";
 import type { ErDenominator, SortOrder } from "@/lib/params";
 import {
@@ -16,27 +17,28 @@ import {
   type MediaBaseline,
   type MediaListRowWithThumbnail,
   type MediaSortKey,
-  mediaTitle,
 } from "@/lib/queries/media";
-import { elapsedDays, formatMetric, type ListMetric, MetricValue, rowKind } from "./cells";
+import { formatMetric, type ListMetric, MetricValue, rowKind } from "./cells";
 
 export interface ListColumn {
   key: ListMetric;
   label: string;
+  /** 指標の定義のヒント（F-UI-29） */
+  hint: string;
   /** スマートフォンの幅で隠す（見本の `hide-m`） */
   hideM?: boolean;
 }
 
 /** 数値の列（3.3 節の表の順） */
 export const LIST_COLUMNS: readonly ListColumn[] = [
-  { key: "reach", label: "リーチ" },
-  { key: "views", label: "閲覧数", hideM: true },
-  { key: "likes", label: "いいね", hideM: true },
-  { key: "saved", label: "保存" },
-  { key: "save_rate", label: "保存率" },
-  { key: "share_rate", label: "シェア率" },
-  { key: "er", label: "ER" },
-  { key: "profile_visits", label: "プロフ訪問", hideM: true },
+  { key: "reach", label: METRIC_DEFINITIONS.reach.label, hint: METRIC_DEFINITIONS.reach.hint },
+  { key: "views", label: METRIC_DEFINITIONS.views.label, hint: METRIC_DEFINITIONS.views.hint, hideM: true },
+  { key: "likes", label: METRIC_DEFINITIONS.likes.label, hint: METRIC_DEFINITIONS.likes.hint, hideM: true },
+  { key: "saved", label: METRIC_DEFINITIONS.saved.label, hint: METRIC_DEFINITIONS.saved.hint },
+  { key: "save_rate", label: METRIC_DEFINITIONS.save_rate.label, hint: METRIC_DEFINITIONS.save_rate.hint },
+  { key: "share_rate", label: METRIC_DEFINITIONS.share_rate.label, hint: METRIC_DEFINITIONS.share_rate.hint },
+  { key: "er", label: METRIC_DEFINITIONS.er.label, hint: METRIC_DEFINITIONS.er.hint },
+  { key: "profile_visits", label: "プロフ訪問", hint: METRIC_DEFINITIONS.profile_visits.hint, hideM: true },
 ];
 
 const BASELINE_ROWS: readonly { label: string; stat: keyof Omit<BaselineStats, "n"> }[] = [
@@ -73,7 +75,7 @@ export function MediaTable({ items, baseline, sort, order, er, query }: MediaTab
               <th scope="col">種類</th>
               <SortHeader label="投稿日時" sortKey="posted" {...sortProps} />
               {LIST_COLUMNS.map((c) => (
-                <SortHeader key={c.key} label={c.label} sortKey={c.key} numeric {...sortProps} />
+                <SortHeader key={c.key} label={c.label} hint={c.hint} sortKey={c.key} numeric {...sortProps} />
               ))}
             </tr>
           </thead>
@@ -85,12 +87,12 @@ export function MediaTable({ items, baseline, sort, order, er, query }: MediaTab
               return (
                 <tr key={m.media_id} className={m.gone_at ? "dim" : undefined}>
                   <td>
-                    <Link href={href} aria-label={title ?? "（キャプションなし）"}>
+                    <Link href={href} aria-label={title}>
                       <Thumb src={m.thumbnail_url} kind={kind} />
                     </Link>
                   </td>
                   <td className="title">
-                    <Link href={href}>{title ?? "（キャプションなし）"}</Link>
+                    <Link href={href}>{title}</Link>
                   </td>
                   <td>
                     <TypeTag kind={kind} />{" "}
@@ -103,7 +105,7 @@ export function MediaTable({ items, baseline, sort, order, er, query }: MediaTab
                   </td>
                   <td className="nowrap small">
                     <div>{formatJst(m.posted_at)}</div>
-                    <div className="muted">{elapsedDays(m.elapsed_hours)}</div>
+                    <div className="muted">{formatElapsedDays(m.elapsed_hours)}</div>
                   </td>
                   {LIST_COLUMNS.map((c) => (
                     <td key={c.key} className={c.hideM ? "num hide-m" : "num"}>

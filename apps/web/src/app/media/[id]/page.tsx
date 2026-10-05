@@ -4,14 +4,13 @@ import { Suspense } from "react";
 import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { PageHead } from "@/components/PageHead";
-import { lastUpdatedLabel } from "@/lib/format";
+import { lastUpdatedLabel, mediaTitle } from "@/lib/format";
 import { parseMediaId } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { getMedia, signMediaThumbnail } from "@/lib/queries/media-detail";
 import { GrowthCard } from "./_detail/GrowthCard";
 import { MediaInfo } from "./_detail/MediaInfo";
 import { QualityCard, QuantityCard } from "./_detail/MetricBands";
-import { mediaTitle } from "./_detail/text";
 
 const TITLE = "投稿詳細";
 

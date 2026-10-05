@@ -10,25 +10,11 @@
 import "server-only";
 import { cache } from "react";
 import { readAuthEnv } from "@/lib/auth-env";
-import { dbFromEnv, type Db } from "@/lib/db";
-import { describeDbError, type QueryResult } from "@/lib/db-errors";
-import { markDynamic } from "@/lib/dynamic";
-import { configMissingReason, readEnv } from "@/lib/env";
+import type { QueryResult } from "@/lib/db-errors";
 import type { MediaKind } from "@/lib/metrics";
 import { signThumbnailUrls, THUMBNAIL_BUCKET } from "@/lib/storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-/** DB の読み出しの共通部分（環境変数の検査、例外を固定文言にする） */
-async function run<T>(fn: (db: Db) => Promise<T>): Promise<QueryResult<T>> {
-  await markDynamic();
-  const env = readEnv();
-  if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
-  try {
-    return { ok: true, data: await fn(dbFromEnv(env.env)) };
-  } catch (e) {
-    return { ok: false, reason: describeDbError(e) };
-  }
-}
+import { runQuery } from "./run";
 
 /* ------------------------------------------------------------------
  * 投稿 1 件
@@ -83,7 +69,7 @@ export interface MediaDetail {
  * キャプションは画面に出すので読む（ログには出さない）
  */
 export const getMedia = cache(async (accountId: string, id: string): Promise<QueryResult<MediaDetail | null>> =>
-  run(async (db) => {
+  runQuery(async (db) => {
     const rows = await db<MediaDetail[]>`
       select
         media_id, account_id, kind, media_type, media_product_type, posted_at, caption, permalink, thumbnail_path,
@@ -143,7 +129,7 @@ export interface MediaHorizonPoint {
  * 並びは区分の短い順
  */
 export const getMediaHorizons = cache(async (accountId: string, id: string): Promise<QueryResult<MediaHorizonPoint[]>> =>
-  run(async (db) => {
+  runQuery(async (db) => {
     const rows = await db<MediaHorizonPoint[]>`
       select
         horizon, horizon_seconds::int as horizon_seconds, elapsed_seconds::int as elapsed_seconds,
@@ -171,7 +157,7 @@ export interface PeerHorizonStats {
  */
 export const getPeerHorizonStats = cache(
   async (accountId: string, kind: MediaKind, excludeId: string): Promise<QueryResult<PeerHorizonStats[]>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<(PeerHorizonStats & { horizon_seconds: number })[]>`
         select
           horizon,
@@ -243,7 +229,7 @@ const EMPTY_STATS: MetricPeerStats = { n: 0, min: null, max: null, mean: null, p
  */
 export const getPeerStats = cache(
   async (accountId: string, kind: MediaKind, excludeId: string): Promise<QueryResult<PeerStatsResult>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const [rows, rank] = await Promise.all([
         db<({ metric: PeerMetric } & MetricPeerStats)[]>`
           with v as (

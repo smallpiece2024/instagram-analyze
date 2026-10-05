@@ -9,8 +9,12 @@ import type { NextConfig } from "next";
  *   `logging.fetches` は設定しない（fetch の URL が端末に出る）
  * - `headers()`: 全ルートに固定のセキュリティヘッダ。`Referrer-Policy` は `same-origin`（`no-referrer` にすると
  *   ブラウザが同一オリジンのフォーム送信でも `Origin: null` を送り、`/api/meta/login` の Origin 検査が 403 になる。
- *   `same-origin` でも Referer は他のオリジン（Storage、Meta）には送られない。`test/next-config.test.ts`）
+ *   `same-origin` でも Referer は他のオリジン（Storage、Meta）には送られない。`test/next-config.test.ts`）。
+ *   署名付き URL を含むページ（`/media`、`/media/:id`）は `Cache-Control: private, no-store`
  */
+/** 署名付き URL を含むページの経路（投稿一覧と投稿詳細） */
+const SIGNED_URL_PAGES = ["/media", "/media/:id"] as const;
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["postgres"],
   logging: {
@@ -28,6 +32,11 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
         ],
       },
+      // 署名付き URL（サムネイル）を含むページは共有のキャッシュにも履歴のキャッシュにも残さない（R3 設計 4.7 節）
+      ...SIGNED_URL_PAGES.map((source) => ({
+        source,
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      })),
     ];
   },
 };

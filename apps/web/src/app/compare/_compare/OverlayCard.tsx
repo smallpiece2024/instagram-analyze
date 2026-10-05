@@ -2,6 +2,7 @@ import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { Legend } from "@/components/charts/Legend";
 import { LineChart } from "@/components/charts/LineChart";
+import { formatCount } from "@/lib/format";
 import { eachDay, periodLength, type Period } from "@/lib/period";
 import { getDailySeries, type DailyPoint } from "@/lib/queries/period-summary";
 import { periodLabel } from "./labels";
@@ -14,6 +15,12 @@ function alignedReach(period: Period, points: readonly DailyPoint[]): (number | 
 
 function pad<T>(values: readonly T[], length: number, fill: T): T[] {
   return [...values, ...Array.from({ length: Math.max(0, length - values.length) }, () => fill)];
+}
+
+/** 点のヒント。X 軸は何日目かなので、実際の日付（太平洋時間の日付）を出す。「A 2026-09-03（3 日目）: 1,234」 */
+function pointTips(name: string, period: Period, values: readonly (number | null)[]): string[] {
+  const days = eachDay(period);
+  return values.map((v, i) => `${name} ${days[i] ?? ""}（${i + 1} 日目）: ${formatCount(v)}`);
 }
 
 /** 日次の重ね合わせ（3.5 節「表示」の 2）。期間の 1 日目をそろえ、A は実線、B は破線 */
@@ -32,8 +39,20 @@ export async function OverlayCard({ accountId, a, b }: { accountId: string; a: P
   const valuesA = pad(alignedReach(a, ra.data), len, null);
   const valuesB = pad(alignedReach(b, rb.data), len, null);
   const series = [
-    { label: `A（${periodLabel(a)}）`, values: valuesA, color: "var(--color-primary)", dots: len <= 31 },
-    { label: `B（${periodLabel(b)}）`, values: valuesB, color: "var(--color-neutral)", dashed: true },
+    {
+      label: `A（${periodLabel(a)}）`,
+      values: valuesA,
+      color: "var(--color-primary)",
+      dots: len <= 31,
+      pointTips: pointTips("A", a, valuesA),
+    },
+    {
+      label: `B（${periodLabel(b)}）`,
+      values: valuesB,
+      color: "var(--color-neutral)",
+      dashed: true,
+      pointTips: pointTips("B", b, valuesB),
+    },
   ];
   const title = `リーチの日次。A ${periodLabel(a)} と B ${periodLabel(b)} を 1 日目をそろえて重ねた折れ線`;
 
@@ -46,7 +65,7 @@ export async function OverlayCard({ accountId, a, b }: { accountId: string; a: P
       <Legend
         items={[
           { label: `A ${periodLabel(a)}`, color: "var(--color-primary)", shape: "line" },
-          { label: `B ${periodLabel(b)}`, shape: "dash" },
+          { label: `B ${periodLabel(b)}`, color: "var(--color-neutral)", shape: "dash" },
         ]}
       />
       <div className="chart only-d">

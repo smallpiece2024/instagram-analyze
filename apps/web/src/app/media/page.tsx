@@ -79,9 +79,6 @@ export default async function MediaPage(props: PageProps<"/media">) {
     );
   }
 
-  const first = (page - 1) * PAGE_SIZE + 1;
-  const last = first + data.items.length - 1;
-
   return (
     <main className="main stack">
       <PageHead
@@ -112,14 +109,14 @@ export default async function MediaPage(props: PageProps<"/media">) {
             </div>
             <MediaCards items={data.items} er={er} />
           </Card>
-          {data.pageCount > 1 && (
-            <div>
-              <Pager page={page} pageCount={data.pageCount} path="/media" query={query} />
-              <p className="small muted text-center">
-                {formatCount(first)}〜{formatCount(last)} 件目（全 {formatCount(data.total)} 件）
-              </p>
-            </div>
-          )}
+          <Pager
+            page={page}
+            pageCount={data.pageCount}
+            path="/media"
+            query={query}
+            total={data.total}
+            pageSize={PAGE_SIZE}
+          />
         </>
       )}
     </main>

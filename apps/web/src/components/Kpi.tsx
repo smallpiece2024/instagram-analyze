@@ -13,10 +13,12 @@ export interface KpiProps {
   delta?: DeltaValue | null;
   /** 分母の表示（「分母: リーチ」） */
   denom?: string;
+  /** タイルの下に置く部品（ER の分母の切り替えなど） */
+  children?: ReactNode;
 }
 
 /** 数字タイル（見本の `kpi`）。`kpis` のグリッドの中に並べる */
-export function Kpi({ label, hint, value, unit, delta, denom }: KpiProps) {
+export function Kpi({ label, hint, value, unit, delta, denom, children }: KpiProps) {
   return (
     <div className="card kpi">
       <div className="kpi__label">{hint ? <MetricHint label={label} text={hint} /> : label}</div>
@@ -28,6 +30,7 @@ export function Kpi({ label, hint, value, unit, delta, denom }: KpiProps) {
         <Delta delta={delta ?? null} />
         {denom && <span className="kpi__denom">{denom}</span>}
       </div>
+      {children && <div className="kpi__extra">{children}</div>}
     </div>
   );
 }

@@ -11,12 +11,11 @@
  */
 import "server-only";
 import { cache } from "react";
-import { dbFromEnv, type Db } from "@/lib/db";
-import { describeDbError, type QueryResult } from "@/lib/db-errors";
-import { markDynamic } from "@/lib/dynamic";
-import { configMissingReason, readEnv } from "@/lib/env";
+import type { Db } from "@/lib/db";
+import type { QueryResult } from "@/lib/db-errors";
 import { ratio, type MediaKind, type RatioOfSums } from "@/lib/metrics";
 import { addDays, diffDays, periodLength, type Ymd } from "@/lib/period";
+import { runQuery } from "./run";
 
 /** 純増の端の記録として使える、指定の日からの最大の日数（3.2 節「純増の端の記録」） */
 export const FOLLOWER_EDGE_MAX_DAYS = 1;
@@ -24,18 +23,6 @@ export const FOLLOWER_EDGE_MAX_DAYS = 1;
 /** `media_list_metrics` に入る投稿の種類（ストーリーズを除く） */
 export const POST_KINDS = ["feed", "carousel", "reel"] as const satisfies readonly MediaKind[];
 export type PostKind = (typeof POST_KINDS)[number];
-
-/** DB の読み出しの共通部分（環境変数の検査、例外を固定文言にする） */
-async function run<T>(fn: (db: Db) => Promise<T>): Promise<QueryResult<T>> {
-  await markDynamic();
-  const env = readEnv();
-  if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
-  try {
-    return { ok: true, data: await fn(dbFromEnv(env.env)) };
-  } catch (e) {
-    return { ok: false, reason: describeDbError(e) };
-  }
-}
 
 /* ------------------------------------------------------------------
  * 日次指標の範囲
@@ -53,7 +40,7 @@ export interface DailyRange {
  * 日次指標が 1 日もなければ null
  */
 export const getDailyRange = cache(async (accountId: string): Promise<QueryResult<DailyRange | null>> =>
-  run(async (db) => {
+  runQuery(async (db) => {
     const [row] = await db<{ start: Ymd | null; end: Ymd | null }[]>`
       select
         min(metric_date) filter (where reach is not null) as start,
@@ -89,7 +76,7 @@ export interface DailyPoint {
 /** 期間（両端を含む）の日次指標。行のない日（欠け）は返らない。日付の古い順 */
 export const getDailySeries = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<DailyPoint[]>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<DailyPoint[]>`
         select
           metric_date,
@@ -139,7 +126,7 @@ export interface DailyTotals {
 /** 期間（両端を含む）の日次指標の合計 */
 export const getDailyTotals = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<DailyTotals>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const [row] = await db<
         {
           reach_sum: number | null;
@@ -191,7 +178,7 @@ export interface FollowerPoint {
 /** 期間（両端を含む）のフォロワー数の記録。日付の古い順 */
 export const getFollowerSeries = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<FollowerPoint[]>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<FollowerPoint[]>`
         select captured_on, followers_count
         from public.profile_daily
@@ -227,7 +214,7 @@ export interface FollowerChange {
  */
 export const getFollowerChange = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<FollowerChange>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const startTarget = addDays(from, -1);
       const [row] = await db<
         {
@@ -353,7 +340,7 @@ function add(a: number, b: number | null): number {
  */
 export const getPostTotals = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<PostTotals>> =>
-    run(async (db) => {
+    runQuery(async (db) => {
       const rows = await db<KindRow[]>`
         select
           kind,

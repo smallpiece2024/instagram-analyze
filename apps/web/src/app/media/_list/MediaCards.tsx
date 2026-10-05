@@ -5,16 +5,17 @@
 import Link from "next/link";
 import { Thumb } from "@/components/Thumb";
 import { SpecialTags, TypeTag } from "@/components/TypeTag";
-import { formatJst } from "@/lib/format";
+import { formatElapsedDays, formatJst, mediaTitle } from "@/lib/format";
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import type { ErDenominator } from "@/lib/params";
-import { type MediaListRowWithThumbnail, mediaTitle } from "@/lib/queries/media";
-import { elapsedDays, type ListMetric, MetricValue, rowKind } from "./cells";
+import type { MediaListRowWithThumbnail } from "@/lib/queries/media";
+import { type ListMetric, MetricValue, rowKind } from "./cells";
 
 const CARD_METRICS: readonly { key: ListMetric; label: string }[] = [
-  { key: "reach", label: "リーチ" },
-  { key: "saved", label: "保存" },
-  { key: "save_rate", label: "保存率" },
-  { key: "er", label: "ER" },
+  { key: "reach", label: METRIC_DEFINITIONS.reach.label },
+  { key: "saved", label: METRIC_DEFINITIONS.saved.label },
+  { key: "save_rate", label: METRIC_DEFINITIONS.save_rate.label },
+  { key: "er", label: METRIC_DEFINITIONS.er.label },
 ];
 
 export function MediaCards({ items, er }: { items: readonly MediaListRowWithThumbnail[]; er: ErDenominator }) {
@@ -23,9 +24,9 @@ export function MediaCards({ items, er }: { items: readonly MediaListRowWithThum
       {items.map((m) => {
         const kind = rowKind(m);
         const href = `/media/${m.media_id}`;
-        const title = mediaTitle(m.caption) ?? "（キャプションなし）";
+        const title = mediaTitle(m.caption);
         return (
-          <div key={m.media_id} className="media-card" style={m.gone_at ? { opacity: 0.55 } : undefined}>
+          <div key={m.media_id} className={m.gone_at ? "media-card dim" : "media-card"}>
             <Link href={href} aria-label={title}>
               <Thumb src={m.thumbnail_url} kind={kind} />
             </Link>
@@ -39,7 +40,7 @@ export function MediaCards({ items, er }: { items: readonly MediaListRowWithThum
                   gone={m.gone_at !== null}
                 />
                 <span className="num">{formatJst(m.posted_at)}</span>
-                <span>{elapsedDays(m.elapsed_hours)}</span>
+                <span>{formatElapsedDays(m.elapsed_hours)}</span>
               </div>
               <div className="media-card__title">
                 <Link href={href}>{title}</Link>

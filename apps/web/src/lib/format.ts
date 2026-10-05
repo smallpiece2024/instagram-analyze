@@ -48,8 +48,6 @@ export const DATA_ACCESS_WARN_DAYS = 14;
 
 /** 投稿一覧の 1 ページの件数 */
 export const PAGE_SIZE = 50;
-/** `?page=` の上限 */
-export const MAX_PAGE = 100_000;
 
 /** 値がないときの表示 */
 export const EMPTY = "—";
@@ -126,21 +124,6 @@ export function metricCell(metrics: unknown, key: string): string {
   if (value === null) return "欠損";
   if (typeof value === "number" && Number.isFinite(value)) return NUMBER_FORMATTER.format(value);
   return EMPTY;
-}
-
-/** `?page=` を 1 以上の整数にする。数字以外、0、配列は 1。数字列なら桁数にかかわらず上限 `MAX_PAGE` に丸める */
-export function parsePage(value: string | string[] | undefined): number {
-  if (typeof value !== "string" || !/^\d+$/.test(value)) return 1;
-  const n = Number(value);
-  if (!Number.isSafeInteger(n)) return MAX_PAGE;
-  if (n < 1) return 1;
-  return Math.min(n, MAX_PAGE);
-}
-
-/** `?job=` が 7 つのジョブ名の 1 つならそれ、未知と配列は undefined（無視） */
-export function parseJobFilter(value: string | string[] | undefined): JobName | undefined {
-  if (typeof value !== "string") return undefined;
-  return (JOB_ORDER as readonly string[]).includes(value) ? (value as JobName) : undefined;
 }
 
 /** レート制限の使用率（3 つの百分率の最大。ワーカーの `RateMonitor.percent` と同じ）。null は undefined */
@@ -409,8 +392,28 @@ export function lastUpdatedLabel(d: Date | null | undefined): string {
   return `最終更新 ${formatJst(d)}`;
 }
 
-/** 投稿からの経過日数（時間で受け取り、日に切り捨て）。`投稿から 12 日`。null は `—` */
-export function elapsedDaysLabel(hours: number | null | undefined): string {
+/** 投稿からの経過日数（時間で受け取り、日に切り捨て。負は 0）。`12 日`。null は `—`（投稿一覧） */
+export function formatElapsedDays(hours: number | null | undefined): string {
   if (typeof hours !== "number" || !Number.isFinite(hours)) return EMPTY;
-  return `投稿から ${Math.floor(Math.max(0, hours) / 24)} 日`;
+  return `${Math.floor(Math.max(0, hours) / 24)} 日`;
+}
+
+/** 投稿からの経過日数。`投稿から 12 日`。数え方は `formatElapsedDays` と同じ。null は `—`（投稿詳細） */
+export function elapsedDaysLabel(hours: number | null | undefined): string {
+  const days = formatElapsedDays(hours);
+  return days === EMPTY ? EMPTY : `投稿から ${days}`;
+}
+
+/** 投稿の題名の最大の文字数（R3 設計 3.3 節） */
+export const TITLE_MAX_CHARS = 40;
+
+/**
+ * 投稿の題名（投稿一覧と投稿詳細）。キャプションの 1 行目の先頭 40 文字。
+ * `Array.from` で文字（コードポイント）単位に切り、サロゲートペアを割らない。
+ * キャプションがない、または 1 行目が空なら「（キャプションなし）」
+ */
+export function mediaTitle(caption: string | null | undefined): string {
+  const first = typeof caption === "string" ? (caption.split(/\r\n|\r|\n/, 1)[0] ?? "").trim() : "";
+  if (first === "") return "（キャプションなし）";
+  return Array.from(first).slice(0, TITLE_MAX_CHARS).join("");
 }

@@ -1,16 +1,26 @@
 import { formatAxis, formatValue, type ValueFormat } from "@/lib/format";
-import { coord, finiteValues, labelStep, segments, ticks, yDomain } from "./scale";
+import { coord, dimRuns, finiteValues, labelStep, segments, ticks, yDomain } from "./scale";
+
+/** 件数が少ない区分を薄く描くときの不透明度（`BandRow` と同じ） */
+const DIM_OPACITY = ".45";
 
 export interface LineSeries {
   label: string;
   values: readonly (number | null)[];
-  /** 線の色（`var(--chart-1)` など）。`dashed` の系列は `--chart-ref` の破線 */
+  /** 線の色（`var(--chart-1)` など）。`dashed` の系列で省略すると `--chart-ref` の破線 */
   color?: string;
   dashed?: boolean;
   /** 点（8px）を描く */
   dots?: boolean;
   /** 線の右端に書くラベル（直接ラベル） */
   endLabel?: string;
+  /**
+   * 点ごとのヒント（`<title>`）。省略時は「系列名 ラベル: 値」。`dots` がない系列では、ヒントを付けるための
+   * 透明な点を置く
+   */
+  pointTips?: readonly (string | null | undefined)[];
+  /** 薄く描く index（件数が少ない区分）。その点と、その点につながる線を薄くする */
+  dimIndexes?: readonly number[];
 }
 
 export interface LineChartProps {
@@ -19,7 +29,13 @@ export interface LineChartProps {
   labels: readonly string[];
   series: readonly LineSeries[];
   /** 帯（25〜75% など）。下側と上側。どちらかが null の点は帯を切る */
-  band?: { lower: readonly (number | null)[]; upper: readonly (number | null)[]; label: string };
+  band?: {
+    lower: readonly (number | null)[];
+    upper: readonly (number | null)[];
+    label: string;
+    /** 薄く描く index（件数が少ない区分） */
+    dimIndexes?: readonly number[];
+  };
   /** X 軸の下に ▲ を置く index（投稿の印）。`markerTips` はその印のヒント */
   markers?: readonly number[];
   markerTips?: readonly string[];
@@ -63,6 +79,7 @@ export function LineChart({
   const step = labelStep(n, iw, align ? 44 : 56);
   const tickValues = ticks(dom.min, dom.max, 4);
 
+  const bandDim = new Set(band?.dimIndexes ?? []);
   const bandPolys = band
     ? segments(
         labels.map((_, i) => {
@@ -119,34 +136,71 @@ export function LineChart({
           </text>
         </g>
       ))}
-      {bandPolys.map((seg) => {
-        const up = seg.items.map((p) => `${coord(x(p.i))},${coord(y(p.up))}`);
-        const lo = seg.items.map((p) => `${coord(x(p.i))},${coord(y(p.lo))}`).reverse();
-        return (
-          <polygon key={`b${seg.start}`} className="chart-band" points={[...up, ...lo].join(" ")}>
-            <title>{band?.label ?? ""}</title>
-          </polygon>
-        );
-      })}
+      {bandPolys.flatMap((seg) =>
+        dimRuns(seg.items, bandDim).map((run) => {
+          const up = run.items.map((p) => `${coord(x(p.i))},${coord(y(p.up))}`);
+          const lo = run.items.map((p) => `${coord(x(p.i))},${coord(y(p.lo))}`).reverse();
+          return (
+            <polygon
+              key={`b${run.items[0]?.i ?? seg.start}`}
+              className="chart-band"
+              points={[...up, ...lo].join(" ")}
+              opacity={run.dim ? DIM_OPACITY : undefined}
+            >
+              <title>{band?.label ?? ""}</title>
+            </polygon>
+          );
+        }),
+      )}
       {series.map((se, si) => {
+        const dim = new Set(se.dimIndexes ?? []);
         const pts = se.values.map((v, i) => (typeof v === "number" && Number.isFinite(v) ? { i, v } : null));
-        const segs = segments(pts);
-        const d = segs
-          .map((seg) => seg.items.map((p, k) => `${k ? "L" : "M"}${coord(x(p.i))} ${coord(y(p.v))}`).join(""))
-          .join("");
+        const runs = segments(pts).flatMap((seg) => dimRuns(seg.items, dim));
+        const lineClass = se.dashed ? "chart-ref" : "chart-line";
+        // 破線の系列も `color` があればその色（ないときは `.chart-ref` の色）
+        const lineStyle = se.color ? { stroke: se.color } : undefined;
         const present = pts.filter((p): p is { i: number; v: number } => p !== null);
         const last = present[present.length - 1];
+        const tipOf = (p: { i: number; v: number }) =>
+          se.pointTips?.[p.i] ?? `${se.label} ${labels[p.i] ?? ""}: ${formatValue(p.v, format)}`;
         return (
           <g key={si}>
-            {d && (
-              <path className={se.dashed ? "chart-ref" : "chart-line"} d={d} style={se.dashed ? undefined : { stroke: se.color }}>
-                <title>{se.label}</title>
-              </path>
-            )}
+            {[false, true].map((isDim) => {
+              const d = runs
+                .filter((run) => run.dim === isDim)
+                .map((run) => run.items.map((p, k) => `${k ? "L" : "M"}${coord(x(p.i))} ${coord(y(p.v))}`).join(""))
+                .join("");
+              return d ? (
+                <path
+                  key={isDim ? "dim" : "line"}
+                  className={lineClass}
+                  d={d}
+                  style={lineStyle}
+                  opacity={isDim ? DIM_OPACITY : undefined}
+                >
+                  <title>{se.label}</title>
+                </path>
+              ) : null;
+            })}
             {se.dots &&
               present.map((p) => (
-                <circle key={p.i} className="chart-dot" cx={coord(x(p.i))} cy={coord(y(p.v))} r="4" fill={se.color}>
-                  <title>{`${se.label} ${labels[p.i] ?? ""}: ${formatValue(p.v, format)}`}</title>
+                <circle
+                  key={p.i}
+                  className="chart-dot"
+                  cx={coord(x(p.i))}
+                  cy={coord(y(p.v))}
+                  r="4"
+                  fill={se.color}
+                  opacity={dim.has(p.i) ? DIM_OPACITY : undefined}
+                >
+                  <title>{tipOf(p)}</title>
+                </circle>
+              ))}
+            {!se.dots &&
+              se.pointTips &&
+              present.map((p) => (
+                <circle key={p.i} data-part="tip" cx={coord(x(p.i))} cy={coord(y(p.v))} r="5" fill="transparent">
+                  <title>{tipOf(p)}</title>
                 </circle>
               ))}
             {se.endLabel && last && (

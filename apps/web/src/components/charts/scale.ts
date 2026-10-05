@@ -70,3 +70,27 @@ export function segments<T>(items: readonly (T | null)[]): { start: number; item
   });
   return out;
 }
+
+/**
+ * つながった点の並びを、薄く描く部分と通常の部分に分ける（件数が少ない区分を薄く描くため）。
+ * 2 点の間は、どちらかの点が薄く描く index なら薄くする。分けた並びは境目の点を共有する。
+ * 1 点だけの並びはその点の状態になる
+ */
+export function dimRuns<T extends { i: number }>(
+  items: readonly T[],
+  dim: ReadonlySet<number>,
+): { dim: boolean; items: T[] }[] {
+  const first = items[0];
+  if (first === undefined) return [];
+  if (items.length === 1) return [{ dim: dim.has(first.i), items: [first] }];
+  const out: { dim: boolean; items: T[] }[] = [];
+  for (let k = 1; k < items.length; k++) {
+    const a = items[k - 1] as T;
+    const b = items[k] as T;
+    const d = dim.has(a.i) || dim.has(b.i);
+    const last = out[out.length - 1];
+    if (last && last.dim === d) last.items.push(b);
+    else out.push({ dim: d, items: [a, b] });
+  }
+  return out;
+}

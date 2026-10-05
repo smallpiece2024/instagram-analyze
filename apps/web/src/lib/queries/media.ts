@@ -362,21 +362,3 @@ export async function listMediaCsvRows(
     return { ok: false, reason: describeDbError(e) };
   }
 }
-
-/* ------------------------------------------------------------------
- * 表示の手伝い（純粋関数）
- * ------------------------------------------------------------------ */
-
-/** 題名の文字数 */
-export const TITLE_LENGTH = 40;
-
-/**
- * 投稿の題名（キャプションの 1 行目の先頭 40 文字）。`Array.from` で文字（コードポイント）単位に切り、サロゲートペアを割らない。
- * キャプションがない、または 1 行目が空なら null（画面で「（キャプションなし）」）
- */
-export function mediaTitle(caption: string | null | undefined): string | null {
-  if (typeof caption !== "string") return null;
-  const firstLine = (caption.split(/\r\n|\r|\n/)[0] ?? "").trim();
-  if (firstLine === "") return null;
-  return Array.from(firstLine).slice(0, TITLE_LENGTH).join("");
-}

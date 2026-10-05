@@ -5,6 +5,7 @@ import { Legend } from "@/components/charts/Legend";
 import { MetricHint } from "@/components/MetricHint";
 import { MissingValue } from "@/components/MissingValue";
 import { formatValue, type ValueFormat } from "@/lib/format";
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import {
   kindColor,
   MISSING_REASON_TEXT,
@@ -14,7 +15,6 @@ import {
   type Missing,
 } from "@/lib/metrics";
 import { getPeerStats, type MediaDetail, type MetricPeerStats, type PeerMetric } from "@/lib/queries/media-detail";
-import { METRIC_TEXT } from "./text";
 
 /** 帯グラフの viewBox の幅（6 列のカードで指標名と値の列を除いた幅） */
 const BAND_WIDTH = 340;
@@ -25,6 +25,8 @@ interface BandRowDef {
   value: number | null;
   missing: Missing | null;
   format: ValueFormat;
+  /** 低いほどよい指標。帯グラフの向きを逆にして「右ほどよい」にそろえる */
+  reverse?: boolean;
 }
 
 const NO_PEERS: MetricPeerStats = { n: 0, min: null, max: null, mean: null, p25: null, median: null, p75: null };
@@ -82,7 +84,13 @@ export function qualityRows(m: MediaDetail): BandRowDef[] {
     { key: "er", value: m.er, missing: ratioMissing("er", k, engagementSum(m), m.reach), format: "percent" },
     // 視聴維持率は動画の長さが R4 なので、R3 ではすべての種類で「—」
     { key: "retention_rate", value: null, missing: valueMissing("retention_rate", k, null), format: "percent" },
-    { key: "skip_rate", value: m.skip_rate, missing: valueMissing("skip_rate", k, m.skip_rate), format: "percent" },
+    {
+      key: "skip_rate",
+      value: m.skip_rate,
+      missing: valueMissing("skip_rate", k, m.skip_rate),
+      format: "percent",
+      reverse: true,
+    },
     {
       key: "profile_visit_rate",
       value: m.profile_visit_rate,
@@ -125,7 +133,7 @@ function BandRows({ rows, stats, color }: { rows: BandRowDef[]; stats: Record<Pe
   return (
     <div style={{ display: "grid", gridTemplateColumns: "max-content max-content minmax(0, 1fr)", columnGap: 12 }}>
       {rows.map((row) => {
-        const text = METRIC_TEXT[row.key];
+        const text = METRIC_DEFINITIONS[row.key];
         const missing = effectiveMissing(row);
         const peer = row.key === "retention_rate" ? NO_PEERS : stats[row.key];
         return (
@@ -145,6 +153,7 @@ function BandRows({ rows, stats, color }: { rows: BandRowDef[]; stats: Record<Pe
                 format={row.format}
                 width={BAND_WIDTH}
                 color={color}
+                reverse={row.reverse}
               />
             </div>
           </div>

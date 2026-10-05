@@ -233,6 +233,7 @@
   .kpi__value small { font-size: 0.5em; font-weight: 400; color: var(--color-text-muted); margin-left: 2px; }
   .kpi__delta { font-size: var(--font-size-xs); margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .kpi__denom { color: var(--color-text-muted); }
+  .kpi__extra { margin-top: 8px; }
   .delta { font-family: var(--font-num, inherit); font-weight: 700; white-space: nowrap; }
   .delta[data-dir="up"] { color: var(--color-pos); }
   .delta[data-dir="down"] { color: var(--color-neg); }
@@ -272,8 +273,27 @@
   .seg > * { padding: 4px 10px; font-size: var(--font-size-xs); border-right: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text); }
   .seg > *:last-child { border-right: 0; }
   .seg > [aria-pressed="true"], .seg > [aria-current] { background: var(--color-primary); color: var(--color-primary-contrast); }
-  .pager { display: flex; align-items: center; justify-content: center; gap: var(--gap); margin-top: var(--gap); }
-  .pager__pos { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+  .pager { display: flex; align-items: center; justify-content: center; gap: var(--gap); margin-top: var(--gap); flex-wrap: wrap; }
+  .pager__pages { display: flex; align-items: center; gap: 4px; }
+  .pager__page { min-width: 2em; padding: 4px 6px; border-radius: var(--radius); text-align: center; font-size: var(--font-size-sm); }
+  .pager__page[aria-current] { background: var(--color-primary); color: var(--color-primary-contrast); font-weight: 700; }
+  .pager__gap { color: var(--color-text-muted); }
+  .pager__pos { font-size: var(--font-size-sm); color: var(--color-text-muted); text-align: center; margin-top: 6px; }
+
+  /* ---------- 入力欄（ログイン、期間比較） ---------- */
+  .input { display: inline-block; max-width: 100%; padding: 5px 10px; border-radius: var(--radius); border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text); font-size: var(--font-size-sm); }
+  .input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+  .input--block { display: block; width: 100%; }
+  .input[aria-invalid="true"] { border-color: var(--color-bad); }
+  /* 入力欄の下の理由の文字 */
+  .field-error { font-size: var(--font-size-sm); color: var(--color-bad); margin-top: 4px; }
+  .fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  .fieldset > legend { font-size: var(--font-size-sm); font-weight: 700; margin-bottom: 4px; }
+  .field-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .grid--end { align-items: end; }
+
+  /* 薄い表示（消えた投稿、件数が少ない基準値など。表の外でも使う） */
+  .dim { opacity: .55; }
 
   /* ---------- 表 ---------- */
   .table-wrap { overflow-x: auto; margin: 0 calc(var(--card-pad) * -1); padding: 0 var(--card-pad); }
@@ -289,8 +309,10 @@
   .table th[aria-sort="ascending"]::after { content: " ▴"; color: var(--color-primary); }
   .table th .sort-link { color: inherit; }
   .table th .sort-link:hover { text-decoration: underline; }
+  .table th .sort-head { display: inline-flex; align-items: baseline; gap: 4px; }
+  .table th.row-head { font-weight: 400; }
+  .table th.row-head--sub { padding-left: 24px; }
   .table tfoot td { font-weight: 700; border-top: 2px solid var(--color-border-strong); border-bottom: 0; }
-  .table .dim { opacity: .55; }
   .table code { font-family: var(--font-num, inherit); font-size: var(--font-size-xs); background: var(--color-surface-alt); padding: 1px 6px; border-radius: var(--radius); }
   .bar-cell { position: relative; }
   .bar-cell i { position: absolute; left: 8px; bottom: 4px; height: 3px; background: var(--chart-1); border-radius: 2px; opacity: .55; }

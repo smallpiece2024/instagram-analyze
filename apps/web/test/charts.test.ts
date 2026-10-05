@@ -6,7 +6,8 @@ import { LineChart, type LineChartProps } from "@/components/charts/LineChart";
 import { Legend } from "@/components/charts/Legend";
 import { Stacked100, type Stacked100Props } from "@/components/charts/Stacked100";
 import { VBars, type VBarsProps } from "@/components/charts/VBars";
-import { niceMax, segments, yDomain } from "@/components/charts/scale";
+import { dimRuns, niceMax, segments, yDomain } from "@/components/charts/scale";
+import { pagerItems } from "@/components/Pager";
 
 /** SVG に NaN、Infinity、undefined が出ていないこと */
 function expectClean(html: string) {
@@ -70,6 +71,21 @@ describe("VBars", () => {
   it("aria-label を付ける", () => {
     expect(vbars({ title: "日次のリーチ", values: [1], labels: ["a"] })).toContain('aria-label="日次のリーチ"');
   });
+
+  it("縦の破線とラベル、投稿の印のヒントを描く（LineChart と同じ形）", () => {
+    const html = vbars({
+      values: [1, 2, 3],
+      labels: ["a", "b", "c"],
+      markers: [0, 2],
+      markerTips: ["投稿 1", "投稿 2"],
+      refLines: [{ index: 1, label: "指標変更" }],
+    });
+    expectClean(html);
+    expect(html).toContain('class="chart-ref"');
+    expect(html).toContain("指標変更");
+    expect(html).toContain("<title>投稿 1</title>");
+    expect(html).toContain("<title>投稿 2</title>");
+  });
 });
 
 describe("LineChart", () => {
@@ -85,6 +101,50 @@ describe("LineChart", () => {
     const html = line({ labels: ["a", "b", "c", "d"], series: [{ label: "s", values: [1, 2, null, 4], color: "red" }] });
     const d = /class="chart-line" d="([^"]+)"/.exec(html)?.[1] ?? "";
     expect(d.match(/M/g)?.length).toBe(2);
+  });
+
+  it("破線の系列も color が効く。color がなければ .chart-ref の色のまま", () => {
+    const html = line({
+      labels: ["a", "b"],
+      series: [
+        { label: "B", values: [1, 2], dashed: true, color: "var(--color-neutral)" },
+        { label: "中央値", values: [2, 3], dashed: true },
+      ],
+    });
+    expect(html).toMatch(/class="chart-ref" d="[^"]+" style="stroke:var\(--color-neutral\)"/);
+    expect(html).toMatch(/class="chart-ref" d="[^"]+"><title>中央値/);
+  });
+
+  it("pointTips を点のヒントにする。dots がない系列は透明な点にヒントを付ける", () => {
+    const html = line({
+      labels: ["1 日目", "2 日目"],
+      series: [
+        { label: "A", values: [1, 2], dots: true, pointTips: ["A 2026-09-01", "A 2026-09-02"] },
+        { label: "B", values: [3, null], dashed: true, pointTips: ["B 2025-09-01", "B 2025-09-02"] },
+      ],
+    });
+    expectClean(html);
+    expect(html).toContain("<title>A 2026-09-02</title>");
+    expect(html).toContain("<title>B 2025-09-01</title>");
+    // 値のない点にはヒントを出さない
+    expect(html).not.toContain("B 2025-09-02");
+    expect(html.match(/data-part="tip"/g)?.length).toBe(1);
+  });
+
+  it("dimIndexes の点とつながる線、帯を薄く描く", () => {
+    const html = line({
+      labels: ["a", "b", "c", "d"],
+      series: [{ label: "中央値", values: [1, 2, 3, 4], dashed: true, dimIndexes: [3] }],
+      band: { lower: [0, 1, 2, 3], upper: [2, 3, 4, 5], label: "25〜75%", dimIndexes: [3] },
+    });
+    expectClean(html);
+    // 線は通常（a〜c）と薄い（c〜d）の 2 本、帯も 2 つ
+    expect(html.match(/class="chart-ref"/g)?.length).toBe(2);
+    expect(html.match(/class="chart-band"/g)?.length).toBe(2);
+    expect(html.match(/opacity="\.45"/g)?.length).toBe(2);
+    // 薄くしないときは 1 本
+    const plain = line({ labels: ["a", "b"], series: [{ label: "s", values: [1, 2] }] });
+    expect(plain).not.toContain("opacity=");
   });
 
   it("帯は両側がある区間だけ描く", () => {
@@ -148,6 +208,22 @@ describe("BandRow（件数による出し方）", () => {
     expect(html).not.toContain("opacity=");
   });
 
+  it("reverse で向きを逆にする（小さい値が右）", () => {
+    const stats = { n: 10, min: 0.1, max: 0.5, p25: 0.2, median: 0.3, p75: 0.4 };
+    const cx = (html: string) => Number(/data-part="self" cx="([\d.]+)"/.exec(html)?.[1]);
+    const normal = band({ value: 0.1, stats, format: "percent", width: 520 });
+    const reversed = band({ value: 0.1, stats, format: "percent", width: 520, reverse: true });
+    expectClean(reversed);
+    expect(cx(normal)).toBe(10);
+    expect(cx(reversed)).toBe(510);
+    expect(reversed).toContain('data-reverse="true"');
+    expect(normal).not.toContain("data-reverse");
+    // 帯は幅が正のまま（25% が右、75% が左）
+    const rect = /data-part="band" x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/.exec(reversed);
+    expect(Number(rect?.[2])).toBeGreaterThan(0);
+    expect(Number(rect?.[1])).toBeCloseTo(10 + (500 * (0.5 - 0.4)) / 0.4, 1);
+  });
+
   it("全部同じ値（幅 0）、自分の値が null でも NaN を出さない", () => {
     expectClean(band({ value: 5, stats: { n: 4, min: 5, max: 5, p25: 5, median: 5, p75: 5 } }));
     expectClean(band({ value: 0, stats: { n: 4, min: 0, max: 0, p25: 0, median: 0, p75: 0 } }));
@@ -162,5 +238,37 @@ describe("Legend", () => {
     const html = renderToStaticMarkup(createElement(Legend, { items: [{ label: "リーチ", color: "var(--chart-1)" }, { label: "前期", shape: "dash" }] }));
     expect(html).toContain("リーチ");
     expect(html).toContain('class="dash"');
+  });
+
+  it("dash も色を受け取る（線の色）", () => {
+    const html = renderToStaticMarkup(
+      createElement(Legend, { items: [{ label: "B", color: "var(--color-neutral)", shape: "dash" }] }),
+    );
+    expect(html).toContain('class="dash" style="border-top-color:var(--color-neutral)"');
+  });
+});
+
+describe("dimRuns", () => {
+  it("薄い点につながる線を分け、境目の点を共有する", () => {
+    const pts = [0, 1, 2, 3].map((i) => ({ i }));
+    expect(dimRuns(pts, new Set([3]))).toEqual([
+      { dim: false, items: [{ i: 0 }, { i: 1 }, { i: 2 }] },
+      { dim: true, items: [{ i: 2 }, { i: 3 }] },
+    ]);
+    expect(dimRuns([{ i: 5 }], new Set([5]))).toEqual([{ dim: true, items: [{ i: 5 }] }]);
+    expect(dimRuns([], new Set())).toEqual([]);
+  });
+});
+
+describe("pagerItems（‹ 前へ 1 2 3 … 24 次へ ›）", () => {
+  it("最初と最後、今のページと前後 1 ページを出し、2 ページ以上空くところを … にする", () => {
+    expect(pagerItems(1, 24)).toEqual([1, 2, "gap", 24]);
+    expect(pagerItems(2, 24)).toEqual([1, 2, 3, "gap", 24]);
+    expect(pagerItems(12, 24)).toEqual([1, "gap", 11, 12, 13, "gap", 24]);
+    expect(pagerItems(24, 24)).toEqual([1, "gap", 23, 24]);
+    expect(pagerItems(3, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(pagerItems(1, 1)).toEqual([1]);
+    expect(pagerItems(99, 3)).toEqual([1, 2, 3]);
+    expect(pagerItems(1, 0)).toEqual([]);
   });
 });

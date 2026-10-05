@@ -106,6 +106,8 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
             width={width}
             height={170}
             markers={markerIndexes}
+            markerTips={markerTips}
+            refLines={refLines}
             valueLabels={maxIndex >= 0 ? [maxIndex] : undefined}
           />
         </div>

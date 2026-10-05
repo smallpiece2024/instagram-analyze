@@ -15,7 +15,7 @@
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mediaTitle, topPercent } from "@/app/media/[id]/_detail/text";
+import { topPercent } from "@/app/media/[id]/_detail/text";
 import { closeAllDb } from "@/lib/db";
 import { getMedia, getMediaHorizons, getPeerHorizonStats, getPeerStats } from "@/lib/queries/media-detail";
 import { fakeIgUserId, fakeMediaId, setWebEnv } from "./fixtures";
@@ -23,16 +23,6 @@ import { fakeIgUserId, fakeMediaId, setWebEnv } from "./fixtures";
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 describe("投稿詳細の文字の組み立て", () => {
-  it("mediaTitle: 1 行目の先頭 40 文字。空なら（キャプションなし）", () => {
-    expect(mediaTitle("一行目\n二行目")).toBe("一行目");
-    expect(mediaTitle(null)).toBe("（キャプションなし）");
-    expect(mediaTitle("  \n二行目")).toBe("（キャプションなし）");
-    // サロゲートペアを割らない
-    const long = "😀".repeat(45);
-    expect(Array.from(mediaTitle(long))).toHaveLength(40);
-    expect(mediaTitle(long)).toBe("😀".repeat(40));
-  });
-
   it("topPercent: k = 大きい相手の数 + 1、m = 相手の数 + 1、上位 ⌈k ÷ m × 100⌉%", () => {
     expect(topPercent(1, 2)).toEqual({ percent: 67, rank: 2, of: 3 });
     expect(topPercent(0, 9)).toEqual({ percent: 10, rank: 1, of: 10 });

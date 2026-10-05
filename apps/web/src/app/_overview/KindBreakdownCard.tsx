@@ -7,7 +7,7 @@ import { formatCount, formatJst } from "@/lib/format";
 import type { Period } from "@/lib/period";
 import { getPostTotals, POST_KINDS } from "@/lib/queries/period-summary";
 import { LoadError } from "./states";
-import { HINT } from "./texts";
+import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 
 export interface KindBreakdownCardProps {
   accountId: string;
@@ -62,10 +62,10 @@ export async function KindBreakdownCard({ accountId, period, mediaFetchedAt, cla
               <th>種類</th>
               <th className="num">投稿</th>
               <th className="num">
-                <MetricHint label="リーチ" text={HINT.postReach} />
+                <MetricHint label={METRIC_DEFINITIONS.reach.label} text={METRIC_DEFINITIONS.reach.hint} />
               </th>
               <th className="num">
-                <MetricHint label="保存" text={HINT.postSaved} />
+                <MetricHint label={METRIC_DEFINITIONS.saved.label} text={METRIC_DEFINITIONS.saved.hint} />
               </th>
             </tr>
           </thead>

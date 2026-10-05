@@ -84,7 +84,7 @@ export async function BaselineCard({ accountId, a, b }: { accountId: string; a: 
               sides.map((s, i) => (
                 <tr key={`${m.key}-${s.name}`} className={baselineDisplay(s.data.stats[m.key].n) === "faint" ? "dim" : undefined}>
                   {i === 0 && (
-                    <th scope="rowgroup" rowSpan={sides.length} style={{ fontWeight: 400 }}>
+                    <th scope="rowgroup" rowSpan={sides.length} className="row-head">
                       {m.label}
                     </th>
                   )}

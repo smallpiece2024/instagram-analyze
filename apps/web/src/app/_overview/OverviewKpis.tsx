@@ -8,7 +8,7 @@ import { ER_DENOMINATOR_LABEL, erFor } from "@/lib/queries/overview";
 import { getDailyTotals, getFollowerChange, getPostTotals, type DailySum } from "@/lib/queries/period-summary";
 import { ErChips } from "./Chips";
 import { LoadError } from "./states";
-import { HINT } from "./texts";
+import { ACCOUNT_METRIC_DEFINITIONS as DEF } from "@/lib/metric-definitions";
 
 export interface OverviewKpisProps {
   accountId: string;
@@ -66,8 +66,8 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
   return (
     <div className="kpis">
       <Kpi
-        label="リーチ"
-        hint={HINT.reach}
+        label={DEF.reach.label}
+        hint={DEF.reach.hint}
         value={formatCount(dc.reach.sum)}
         delta={dp.reach.days === 0 ? null : deltaRate(dc.reach.sum, dp.reach.sum)}
         denom={join(
@@ -77,8 +77,8 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
         )}
       />
       <Kpi
-        label="閲覧数"
-        hint={HINT.views}
+        label={DEF.views.label}
+        hint={DEF.views.hint}
         value={formatCount(dc.views.sum)}
         delta={dp.views.days === 0 ? null : deltaRate(dc.views.sum, dp.views.sum)}
         denom={join(
@@ -88,8 +88,8 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
         )}
       />
       <Kpi
-        label="フォロワー純増"
-        hint={HINT.followerGain}
+        label={DEF.follower_gain.label}
+        hint={DEF.follower_gain.hint}
         value={fc.net === null ? EMPTY : formatSignedCount(fc.net)}
         delta={deltaCount(fc.net, fp.net)}
         denom={join(
@@ -97,21 +97,18 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
           fc.net === null && fc.firstCapturedOn !== null ? `記録は ${fc.firstCapturedOn} から` : null,
         )}
       />
-      <div>
-        <Kpi
-          label="エンゲージメント率"
-          hint={HINT.er}
-          value={noPosts ? EMPTY : formatPercent(erCur.value, 2)}
-          delta={noPrevPosts ? null : deltaPoint(erCur.value, erPrev.value)}
-          denom={noPosts ? "期間中の投稿なし" : join(erDenom, `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`)}
-        />
-        <div className="mt-2">
-          <ErChips range={range} er={er} />
-        </div>
-      </div>
       <Kpi
-        label="保存率"
-        hint={HINT.saveRate}
+        label={DEF.er.label}
+        hint={DEF.er.hint}
+        value={noPosts ? EMPTY : formatPercent(erCur.value, 2)}
+        delta={noPrevPosts ? null : deltaPoint(erCur.value, erPrev.value)}
+        denom={noPosts ? "期間中の投稿なし" : join(erDenom, `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`)}
+      >
+        <ErChips range={range} er={er} />
+      </Kpi>
+      <Kpi
+        label={DEF.save_rate.label}
+        hint={DEF.save_rate.hint}
         value={noPosts ? EMPTY : formatPercent(pc.saveRate.value, 2)}
         delta={noPrevPosts ? null : deltaPoint(pc.saveRate.value, pp.saveRate.value)}
         denom={
@@ -121,11 +118,11 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
         }
       />
       <Kpi
-        label="プロフィール訪問（参考）"
-        hint={HINT.profileVisits}
+        label={DEF.profile_visits.label}
+        hint={DEF.profile_visits.hint}
         value={noPosts ? EMPTY : formatCount(pc.profileVisits.sum)}
         delta={noPrevPosts ? null : deltaRate(pc.profileVisits.sum, pp.profileVisits.sum)}
-        denom={noPosts ? "期間中の投稿なし" : "フィードとストーリーズの投稿単位の合計。リールとアカウント全体は含まない"}
+        denom={noPosts ? "期間中の投稿なし" : "フィード（カルーセルを含む）の投稿単位の合計。リールとアカウント全体は含まない"}
       />
     </div>
   );

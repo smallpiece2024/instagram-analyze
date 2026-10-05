@@ -24,11 +24,11 @@ export function PresetLinks({ current }: { current: ComparePreset | null }) {
   );
 }
 
-function DateField({ name, label, value }: { name: string; label: string; value: string }) {
+function DateField({ name, label, value, invalid }: { name: string; label: string; value: string; invalid: boolean }) {
   return (
     <label className="small">
       <span className="muted">{label} </span>
-      <input className="select num" type="date" name={name} defaultValue={value} required />
+      <input className="input num" type="date" name={name} defaultValue={value} required aria-invalid={invalid || undefined} />
     </label>
   );
 }
@@ -48,17 +48,15 @@ function Side({
 }) {
   const errorId = `compare-${side}-error`;
   return (
-    <fieldset aria-describedby={error ? errorId : undefined} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <legend className="small" style={{ fontWeight: 700, marginBottom: 4 }}>
-        {title}
-      </legend>
-      <div className="chips" style={{ alignItems: "center" }}>
-        <DateField name={`${side}_from`} label="開始" value={from} />
+    <fieldset className="fieldset" aria-describedby={error ? errorId : undefined}>
+      <legend>{title}</legend>
+      <div className="field-row">
+        <DateField name={`${side}_from`} label="開始" value={from} invalid={error !== undefined} />
         <span className="muted">〜</span>
-        <DateField name={`${side}_to`} label="終了" value={to} />
+        <DateField name={`${side}_to`} label="終了" value={to} invalid={error !== undefined} />
       </div>
       {error && (
-        <p id={errorId} className="small" role="alert" style={{ color: "var(--color-bad)", marginTop: 4 }}>
+        <p id={errorId} className="field-error" role="alert">
           {error}
         </p>
       )}
@@ -69,7 +67,7 @@ function Side({
 /** 任意の期間の指定（GET のフォーム。JS なしで動く） */
 export function PeriodForm({ input, errors }: { input: CompareInput; errors: { a?: string; b?: string } }) {
   return (
-    <form method="get" action="/compare" className="grid" style={{ alignItems: "end" }}>
+    <form method="get" action="/compare" className="grid grid--end">
       <div className="col-4">
         <Side side="a" title="期間 A（新しい方）" from={input.aFrom} to={input.aTo} error={errors.a} />
       </div>

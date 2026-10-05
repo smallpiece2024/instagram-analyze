@@ -16,7 +16,8 @@ import {
 import { compareYmd, type Period, type Ymd } from "@/lib/period";
 import { getPeriodComparison, type PeriodSide } from "@/lib/queries/compare";
 import { POST_KINDS, type PostSum } from "@/lib/queries/period-summary";
-import { periodLabel, PT_NOTE } from "./labels";
+import { PT_NOTE } from "@/lib/metric-definitions";
+import { periodLabel } from "./labels";
 
 /** 値がない（計算に使える日や投稿がない）ときの「—」。文言は `lib/metrics.ts` の理由から決まる */
 const NO_DATA: Missing = { reason: "no_baseline_data", text: MISSING_REASON_TEXT.no_baseline_data };
@@ -173,7 +174,7 @@ export async function SummaryCard({
           <tbody>
             {rows.map((r) => (
               <tr key={r.key}>
-                <th scope="row" style={r.sub ? { paddingLeft: 24, fontWeight: 400 } : { fontWeight: 400 }}>
+                <th scope="row" className={r.sub ? "row-head row-head--sub" : "row-head"}>
                   {r.label}
                 </th>
                 <td className="num">
