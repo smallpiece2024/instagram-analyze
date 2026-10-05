@@ -716,7 +716,7 @@
       P.kpi("API 使用率", pct(C.rateUsage, 0), null, "直近 1 時間") + P.kpi("保存した投稿", n(D.account.mediaCount), null, "初速の収集中 1 件") + P.kpi("保存した日次指標", "742", null, "日分（2 年分を遡って取得済み）") + "</div>";
     var tState = C.tokenDaysLeft < 7 ? "bad" : C.tokenDaysLeft < 14 ? "warn" : "ok";
     var status = card("接続状態", '<div class="stack"><dl class="dl"><dt>状態</dt><dd><span class="status" data-state="ok">接続中</span></dd><dt>Facebook ページ</dt><dd>' + esc(C.pageName) + "</dd><dt>Instagram</dt><dd>" + esc(C.igAccount) + "（プロアカウント・架空）</dd><dt>トークン</dt><dd>長期トークン・" + C.tokenIssuedAt + " 発行</dd><dt>期限</dt><dd>" + C.tokenExpiresAt + "（あと " + C.tokenDaysLeft + " 日）</dd></dl>" +
-      '<div class="progress" data-state="' + tState + '"><i style="width:' + pct(C.tokenDaysLeft / C.tokenDaysTotal, 0) + '"></i></div><p class="xs muted">期限の 14 日前から注意、7 日前から重大として通知する。</p><p><span class="btn">再接続（Facebook でログイン）</span> <span class="btn btn--ghost">トークンを確認</span></p></div>', { sub: "Meta Graph API" });
+      '<div class="progress" data-state="' + tState + '"><i style="width:' + pct(C.tokenDaysLeft / C.tokenDaysTotal, 0) + '"></i></div><p class="xs muted">期限の 14 日前から注意、7 日前から重大として通知する。</p></div>', { sub: "Meta Graph API" });
     var sched = card("収集スケジュール", '<div class="stack"><dl class="dl"><dt>投稿の確認</dt><dd>' + C.schedule + "</dd><dt>日次指標</dt><dd>毎日 23:30（PT の前日分）</dd><dt>ストーリーズ</dt><dd>毎時 00 分（公開中は 15 分おき）</dd><dt>トークン確認</dt><dd>毎日 18:00</dd><dt>実行環境</dt><dd>GitHub Actions（Production）</dd></dl>" +
       '<p class="xs muted">API 使用率（直近 1 時間）: ' + pct(C.rateUsage, 0) + '</p><div class="progress" data-state="ok"><i style="width:' + pct(C.rateUsage, 0) + '"></i></div></div>', { sub: "cron" });
     var label = { ok: "成功", warn: "注意", bad: "失敗" };
@@ -725,7 +725,7 @@
     }).join("");
     var log = card("ジョブの実行記録", '<div class="chips"><span class="chip" aria-pressed="true">すべて</span><span class="chip">失敗のみ</span><span class="chip">media-poll</span><span class="chip">stories-poll</span><span class="chip">insights-daily</span><span class="chip">token-check</span></div>' +
       table("<th>時刻</th><th>ジョブ</th><th>結果</th><th class=\"num hide-m\">所要</th><th class=\"num hide-m\">件数</th><th>内容</th>", rows),
-      { sub: "直近 12 件", foot: "失敗した行は背景を変え、内容を太字にする。注意（レート制限、繰り延べ）は薄い黄色。" });
+      { sub: "直近 12 件" });
     return head + alert + kpis + '<div class="grid"><div class="col-6">' + status + '</div><div class="col-6">' + sched + '</div><div class="col-12">' + log + "</div></div>";
   };
 })();
