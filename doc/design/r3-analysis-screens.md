@@ -1,6 +1,6 @@
 # R3 分析画面の設計
 
-- 版: 0.2（2026-10-05）。実装前にユーザーの確認を受ける。確認事項は 11 章
+- 版: 0.4（2026-10-05）。実装前にユーザーの確認を受ける。確認事項は 11 章
 
 ## 版と変更履歴
 
@@ -9,6 +9,7 @@
 | 0.1 | 2026-10-05 | 起草 |
 | 0.2 | 2026-10-05 | 3 本のレビュー（DB・SQL、セキュリティ、品質）の指摘を反映。経過時間の区分の許容幅（R-1）、日次の内訳の 0 と未取得の区別（R-2）、分位の n を指標ごと（R-3）、一覧の基準値を固定区分に（R-4）、スキップ率の単位（R-5）、日付の違いの明記（R-6）、対象アカウントの決め方（M1）、除外の設定の Server Action と Cookie（M2）、照合結果の置き場所（M3）、入力の検査（M4）、合計の比の欠損の扱い、「—」の理由の列挙、テストの道具と置き場所と担当、突き合わせの手順の具体化、ログに出さないもの、ロールバック SQL。レビューで確かめられた事実で「未確認」を置き換え、確認事項を統合して番号を振り直した |
 | 0.3 | 2026-10-05 | 確認事項 Q1〜Q20 はすべて推奨どおりと回答を得た。親が `next.config`（`cacheComponents` なし、`Referrer-Policy: same-origin`）と照合の列（`accounts.ig_user_id`）を確かめて「未確認」を置き換えた |
+| 0.4 | 2026-10-05 | ユーザーの決定（Q21）で、比較の基準に「最新の値（投稿から 30 日以上の投稿）」を足し、7 日時点と自動で切り替える（3.1 節「比較の基準」）。再レビューの指摘を反映: 日次の内訳の 0／null の判定を実データに合わせて直す、期間の終わりを `reach` のある最新の日にする、7 日時点の値が許容内にない場合は既存の理由 `no_baseline_data` に寄せる（ユーザーの指示で新しい理由は足さない）、`getMediaHorizons` が `within_tolerance` を返す、`getMediaBaseline` のテスト、`media_kind()` の `strict` を外す、ロールバックに R1 の定義を載せる。`reels_skip_rate` が 0〜100 であることを確認済みにした |
 - 要件: `doc/requirements/requirements-definition.md` 4.4 章（F-UI-10〜11、F-UI-20〜29）、5.5 章、7 章、9 章、10 章
 - デザイン: `doc/design-system.md`、`doc/design-lab/README.md`、`doc/design-lab/v3/render.js`（見本の描画）
 - 既存: R1 のスキーマとビュー（`supabase/migrations/20261001100100_r1_collection.sql`、`20261001100400_r1_views.sql`）、R2 の `web_app` ロール（`20261002005926_r2_web_role.sql`）、`apps/web` の R1 画面
@@ -96,12 +97,12 @@
 | シェア率 | シェア ÷ リーチ | 分母: リーチ | — |
 | いいね率 | いいね ÷ リーチ | 分母: リーチ | — |
 | コメント率 | コメント ÷ リーチ | 分母: リーチ | — |
-| リーチ率 | **常に 7 日時点**のリーチ ÷ 投稿したときのフォロワー数 | 分母: 投稿時のフォロワー数 | 投稿から 7 日未満（「—（7 日経過後に表示）」）、7 日時点の値が許容幅の外（4.3 節）、投稿時のフォロワー数の記録がない |
+| リーチ率 | **常に 7 日時点**のリーチ ÷ 投稿したときのフォロワー数（要件 7.1 の定義。比較の基準が「最新の値」のときも 7 日時点のまま） | 分母: 投稿時のフォロワー数 | 投稿から 7 日未満（`not_yet`）、7 日時点の値が許容幅の外か投稿時のフォロワー数の記録がない（`no_baseline_data`。どちらの基準でも「—」。Q11） |
 | プロフィール遷移率 | プロフィール訪問 ÷ リーチ | 分母: リーチ | リール |
 | フォロー転換率 | フォロー ÷ プロフィール訪問 | 分母: プロフィール訪問 | リール |
 | 閲覧数／リーチ | 閲覧数 ÷ リーチ | — | — |
 | 視聴維持率 | 平均視聴時間 ÷ 動画の長さ | — | フィード、カルーセル。R3 ではリールも「—」（動画の長さは R4） |
-| スキップ率 | API の `reels_skip_rate`。API の単位は percent なので、ビューで 100 で割って 0〜1 にそろえる（4.3 節）。実値が 0〜100 か 0〜1 かは未確認なので、マイグレーションの前に本番の値で確かめる | — | フィード、カルーセル |
+| スキップ率 | API の `reels_skip_rate`。API の単位は percent なので、ビューで 100 で割って 0〜1 にそろえる（4.3 節）。実値は 0〜100 の単位（実データで 28.6〜49.4）で、/100 は正しい（確認済み） | — | フィード、カルーセル |
 | 非フォロワーリーチ比率 | 非フォロワーのリーチ ÷ 分母（アカウント単位。分母は確認事項 Q9） | 分母を明示 | 内訳が未取得の日 |
 
 - 分母が 0 または null の率は「—」にする（0% と書かない）。
@@ -115,15 +116,17 @@
 |---|---|---|---|
 | `unsupported` | その種類では API で取れない | 種類の規則（上の表の右端の列） | 「この種類では API で取れない」 |
 | `missing` | 取れるはずが取れなかった（欠損） | 種類の規則では取れるのに値が null | 「取得できなかった」 |
-| `not_yet` | まだその時点に達していない | 経過時間が区分に届いていない（7 日未満のリーチ率など） | 「7 日経過後に表示」 |
-| `no_baseline_data` | 計算に要る別の記録がない | 投稿時のフォロワー数の記録がない、区分の値が許容幅の外、分母が 0 | 「投稿時のフォロワー数の記録がない」 |
+| `not_yet` | まだその時点に達していない | 経過時間が区分に届いていない。7 日時点の値は `elapsed_latest` < 7 日のとき、最新の値の基準は `elapsed_latest` < 30 日のとき | 「—」だけ（説明の文言は付けない） |
+| `no_baseline_data` | 計算に要る記録がない | 投稿時のフォロワー数の記録がない、分母が 0、`elapsed_latest` ≧ 7 日なのに 7 日時点の値が許容内にない | 「投稿時のフォロワー数の記録がない」「計算に要る記録がない」 |
+
+判定の順は `unsupported` → `not_yet` → `no_baseline_data` → `missing`。判定は `lib/metrics.ts` の 1 か所に置く。収集開始より前の投稿のための専用の理由や説明の文言は作らない（2026-10-05 のユーザーの指示）。7 日時点の値が許容内にない投稿は、7 日時点の比較の対象に入らないだけで、画面に専用の説明を出さない。
 
 スナップショットの JSON は、取れない指標はキーなし、取得の失敗は値 null。`metric_value()` はどちらも null を返すので、`unsupported` と `missing` は DB の値ではなく種類の規則で分ける（`follows` と `profile_visits` はフィード（カルーセルを含む）だけ、`ig_reels_avg_watch_time`、`ig_reels_video_view_total_time`、`reels_skip_rate` はリールだけ）。
 
 #### 基準値（F-UI-24）
 
 - 比べる母集団は「同じ種類の投稿」。削除やアーカイブで消えた投稿（`gone_at` あり）も含める（R1 の方針「データは残す」。消えるまでの値は実績なので）。特殊な投稿の除外の設定（8 章）を作れば、それが効く。
-- 値は、経過時間をそろえた区分（既定は 7 日）の値で、**実際の経過時間が許容幅に入るものだけ**を使う（4.3 節。収集前からある投稿や収集が止まった投稿の、生涯や 25 日目の値が「7 日」に混ざらないように）。
+- 値は、下の「比較の基準」で決めた値を使う。7 日時点の基準では**実際の経過時間が許容幅に入るものだけ**を使う（4.3 節。収集前からある投稿や収集が止まった投稿の、生涯や 25 日目の値が「7 日」に混ざらないように）。
 - 出す値は平均、中央値、上位 25%（75 パーセンタイル）、下位 25%（25 パーセンタイル）。分位は `percentile_cont`（線形補間）で計算する。
 - 件数（n）は**指標ごと**に数えて添える（同じ母集団でも、指標によって null の投稿があるため。例: リーチは 12 件、リーチ率は 5 件）。n によって出し方を変える。
 
@@ -134,14 +137,30 @@
 | 3〜9 | 帯と中央値を出すが、`opacity` を下げて薄く描き「n = 7（少ないので目安）」と添える（README のグラフの決まり「件数が少ない区分は薄く表示し、件数を添える」） |
 | 10 以上 | 通常の表示 |
 
-本番は投稿 24 件程度で、種類ごとに分けると 1 種類あたり数件〜十数件になる。R3 の開始時点では多くの比較が「薄い表示」になる前提で作る。
+本番は投稿 24 件程度で、種類ごとに分けると 1 種類あたり数件〜十数件になる（カルーセルはまだない）。R3 の開始時点では多くの比較が「薄い表示」になる前提で作る。
+
+#### 比較の基準（Q21。2026-10-05 にユーザーが採用）
+
+実データでは、収集開始（2026-10-01）より前の投稿 24 件が 1h〜7d の全区分で許容幅を外れ（30d は 1 件、90d は 3 件だけ許容内）、投稿時のフォロワー数の記録も 24 件中 0 件だった。7 日時点だけで比べると、基準値、帯グラフ、リーチ率がすべて「—」になる。そこで比較の基準を 2 つ持ち、自動で選ぶ。
+
+| 基準 | 使う値 | 画面の表記 |
+|---|---|---|
+| 7 日時点 | `media_horizon_metrics` の `horizon = '7d'` かつ `within_tolerance` | 「投稿から 7 日時点で比較」 |
+| 最新の値 | `horizon = 'latest'` かつ `elapsed_seconds >= 2592000`（投稿から 30 日以上たった投稿の最新のスナップショット） | 「最新の値で比較（投稿から 30 日以上の投稿）」 |
+
+- **選び方**: 比較相手のうち、7 日時点の値が許容内の投稿が 3 件以上（n の表で帯を出せる数）あれば「7 日時点」、なければ「最新の値」。数えるのは指標ごとではなく、`7d` の行が許容内の投稿の数。利用者の切り替えは置かない。
+- **当てはめる範囲**: 投稿詳細（比較相手は同じ種類。自分の値も同じ基準で取る）、投稿一覧の `tfoot`（全投稿）、期間比較の投稿の基準値の表（期間ごと）。それぞれの母集団で選ぶ。
+- **自分の値**: 「最新の値」の基準のとき、自分が投稿から 30 日未満なら、自分の値は「—」（`not_yet`）にし、帯と中央値だけを描く。
+- **表示**: どちらの基準で比べたかを、カードの見出しの横（投稿詳細）、`tfoot` の見出し（投稿一覧）、表の下（期間比較）に必ず書く。「最新の値」のときは、ヒントに「7 日時点の値が許容内の投稿が n 件しかないため」と理由を書く。
+- **リーチ率**はどちらの基準でも 7 日時点の定義のまま（3.1 節の表）。投稿時のフォロワー数の記録がない投稿は「—」（Q11）。今の実データでは全件が「—」になる。
+- **当面の見込み**: 収集開始（2026-10-01）より後の投稿がたまるまで、7 日時点の比較は使えない（ほとんどの母集団で「最新の値」が選ばれる）。収集開始後の投稿が種類ごとに 3 件を超え、投稿から 7 日を過ぎたものから、7 日時点に切り替わる。
 
 #### 最終更新時刻と古いデータの警告（F-UI-26）
 
 - ページの見出しの下に「最終更新 2026-10-05 08:30」を出す。値はその画面が使うデータの取得時刻の最大値（概要: `account_daily_metrics.fetched_at` と `media_insight_snapshots.fetched_at`、投稿一覧と詳細: スナップショットの `fetched_at`）。
 - カードごとにデータの時点と日付の区切りが違うので、カードの下に必ず書く。例: 「日次指標: 2026-10-04（米国太平洋時間の日付）まで・取得 2026-10-05 08:30」「フォロワー数: 2026-10-05（日本時間の日付）の記録」。
 - 投稿ごとの指標は「最新の取得 2026-10-05 08:30（投稿から 12 日）」を投稿詳細に出す。投稿一覧では取得時刻の列は出さず、CSV に入れる。
-- **古いデータの警告**: 日次指標の最新の日（`max(metric_date)`）が、太平洋時間の今日から数えて N 日より前なら、概要と期間比較の見出しの下に `callout`（`data-state="warn"`）で「日次指標が 2026-10-01 で止まっています」と `/jobs` へのリンクを出す。N は確認事項 Q10（推奨 3 日）。
+- **古いデータの警告**: 日次指標の最新の日（`reach` のある最新の日。3.2 節）が、太平洋時間の今日から数えて N 日より前なら、概要と期間比較の見出しの下に `callout`（`data-state="warn"`）で「日次指標が 2026-10-01 で止まっています」と `/jobs` へのリンクを出す。N は確認事項 Q10（推奨 3 日）。
 
 #### 指標変更の注記（F-UI-25）
 
@@ -173,7 +192,7 @@
 
 #### 期間
 
-- クエリ `?range=7|30|90`（既定 30。ほかの値は既定に戻す）。期間の終わりは「日次指標がそろっている最後の日」（`account_daily_wide` の `max(metric_date)`。太平洋時間の日付。今日の日付を起点にしない）、始まりはそこから `range - 1` 日前。比較する前期間は、その直前の同じ日数。
+- クエリ `?range=7|30|90`（既定 30。ほかの値は既定に戻す）。期間の終わりは「日次指標がそろっている最後の日」（`account_daily_wide` の `max(metric_date) filter (where reach is not null)`。太平洋時間の日付。今日の日付を起点にしない。実データでは最新の日に `follower_count` の行しかなく `reach` が null の日があるため、単純な `max(metric_date)` にしない）、始まりはそこから `range - 1` 日前。比較する前期間は、その直前の同じ日数。
 - 見出しの下に「過去 30 日（2026-09-05 〜 2026-10-04、日付は米国太平洋時間）・最終更新 …」。
 - 期間の中で日次指標がそろっている日数を「30 日中 28 日分」と書く（欠けがあるとき）。前期間も同じ。
 - 期間の切り替えは `<select>` ではなく、3 つのリンク（チップ）にする（JS なしで動き、現在の値に印を付ける）。
@@ -255,7 +274,7 @@
 #### 基準値の行（F-UI-24）
 
 - 表の `tfoot` に「中央値」「平均」「上位 25%」「下位 25%」の 4 行を置く（全投稿。種類別にはしない。種類別の比較は投稿詳細で行う）。
-- 基準値は行の「最新の値」では計算しない（投稿ごとに経過時間が違うため）。**7 日時点の値で、許容幅に入るものだけ**で計算し、`tfoot` の見出しに「投稿から 7 日時点の値（n は列ごと）」と明記する。列ごとに n を添える（3.1 節）。
+- 基準値は行の値（全投稿の最新の値）では計算しない（投稿ごとに経過時間が違うため）。3.1 節「比較の基準」で選んだ基準（全投稿を母集団にして選ぶ）の値で計算し、`tfoot` の見出しに「投稿から 7 日時点の値（n は列ごと）」または「最新の値（投稿から 30 日以上の投稿。n は列ごと）」と明記する。列ごとに n を添える（3.1 節）。
 - 特殊な投稿の除外の設定があれば効く。削除済みの投稿も含める。スマートフォンのカードの並びには出さない。
 
 #### 空、エラー
@@ -289,9 +308,11 @@
 
 - 1 行は「指標名（ヒント付き）・この投稿の値（右寄せ）・帯グラフ」。帯グラフは、線 = 同じ種類の最小〜最大、帯 = 25〜75%、縦線 = 中央値（`--chart-ref`）、点 = この投稿（種類の色、8px 以上、面の色の縁取り）。目盛は行ごと。右ほどよい側で、スキップ率だけ向きを逆にする（カードの下に注記）。
 - 下位 25%、中央値、上位 25% と n は SVG の `<title>` とヒントで出す（画面の数字はこの投稿の値だけ。各指標は画面に 1 回だけ）。
-- **比べる時点**: 経過時間をそろえる。この投稿が 7 日を過ぎていれば、自分も比較相手も「7 日時点」の値で比べる。7 日に満たなければ、この投稿が到達した最大の区分（24h、3d など）で比べ、比較相手もその区分の値を使う。どちらも**許容幅に入る値だけ**を使う（4.3 節）。カードの見出しの横に「投稿から 7 日時点で比較」と書き、この投稿の値の実際の経過時間（例: 「実際は 7 日 3 時間時点」）をヒントに出す。この投稿の値が許容幅の外なら、点を描かず「—」（`no_baseline_data`。「7 日時点の値がない」）。
-- 比較相手は同じ種類（3.1 節）で、比べる区分の値が許容幅に入る投稿。この投稿自身は母集団から除く。n は指標ごとに数える。件数による出し方は 3.1 節の表に従う。
-- **リーチ率**は常に 7 日時点（`media_list_metrics.reach_rate`）。この投稿が 7 日未満なら「—（7 日経過後に表示）」（`not_yet`）。比較相手の分位も `media_list_metrics.reach_rate` で計算する。投稿時のフォロワー数は、投稿日時より前（`captured_at <= posted_at`）で 3 日以内の `profile_daily` の記録を使う。記録がない投稿（R1 の収集開始より前の投稿）は「—」と「投稿時のフォロワー数の記録がない」。本番の 24 件の多くはこれに当たる見込み（確認事項 Q11）。
+- **比べる基準**: 3.1 節「比較の基準」で、同じ種類の比較相手（この投稿を除く）を母集団にして「7 日時点」か「最新の値」を選ぶ。自分の値も同じ基準で取る。カードの見出しの横に「投稿から 7 日時点で比較」または「最新の値で比較（投稿から 30 日以上の投稿）」と書き、この投稿の値の実際の経過時間（例: 「実際は 7 日 3 時間時点」「投稿から 412 日時点」）をヒントに出す。
+  - 「7 日時点」の基準で、この投稿が 7 日未満なら、この投稿が到達した最大の区分（24h、3d など）で比べ、比較相手もその区分の許容内の値を使う（カードの見出しを「投稿から 3 日時点で比較」にする）。
+  - この投稿の値が取れなければ点を描かず「—」と理由（最新の値の基準で 30 日未満なら `not_yet`、7 日時点の基準で自分の 7 日時点の値が許容内にないなら `no_baseline_data`）。
+- 比較相手は同じ種類（3.1 節）で、選んだ基準の値がある投稿。この投稿自身は母集団から除く。n は指標ごとに数える。件数による出し方は 3.1 節の表に従う。
+- **リーチ率**は常に 7 日時点（`media_list_metrics.reach_rate`）で、比較の基準によらない。この投稿が 7 日未満なら「—（7 日経過後に表示）」（`not_yet`）、7 日時点が許容外なら `no_baseline_data`。比較相手の分位も `media_list_metrics.reach_rate` で計算する。投稿時のフォロワー数は、投稿日時より前（`captured_at <= posted_at`）で 3 日以内の `profile_daily` の記録を使う。記録がない投稿（R1 の収集開始より前の投稿）は「—」と「投稿時のフォロワー数の記録がない」。本番の 24 件の多くはこれに当たる見込み（確認事項 Q11）。
 - 平均視聴時間は API の値（ミリ秒）を秒に直して表示する。視聴維持率は R4 まで「—」と「動画の長さは R4 で取得」。スキップ率はビューで 0〜1 にそろえた値を % で表示する。
 
 #### 投稿単位のファネル（フィードとカルーセル）
@@ -301,8 +322,9 @@
 #### リーチの伸び方
 
 - X 軸は経過時間の区分（1 時間、3 時間、6 時間、24 時間、3 日、7 日、30 日、90 日）を等間隔に置く。Y 軸はリーチ（1 軸）。
-- この投稿の線（種類の色、2px、点付き、右端に最新の値）、同じ種類の中央値（破線）、25〜75% の帯。区分ごとに許容幅に入る値だけを使い、許容幅の外の区分は線を切る（点を描かない）。点のヒントに実際の経過時間を出す。
-- グラフの上に 2 つの数字（基準の区分は量の指標と同じ）:
+- この投稿の線（種類の色、2px、点付き、右端に最新の値）、同じ種類の中央値（破線）、25〜75% の帯。区分ごとに許容幅に入る値だけを使う。`getMediaHorizons` が区分ごとに `within_tolerance` と実際の経過時間を返し、偽の区分は点を描かず線を切る。説明の文言は添えない（収集開始前の投稿のための文言は増やさない。2026-10-05 ユーザー）。
+- 収集開始より前の投稿は、ほとんどの区分が許容外で線がほぼ描かれないが、専用の説明は出さない（3.1 節の「—」の理由の注記）。
+- グラフの上に 2 つの数字（基準は量の指標と同じ。「最新の値」の基準なら最新の値どうしで比べる）:
   - 「中央値に対する倍率」= この投稿の値 ÷ 同じ区分の中央値（小数 1 桁）。中央値が 0、または n = 0 なら「—」。
   - 「同じ種類の中で上位 n%」: 順位 k = 1 + （この投稿より値が**大きい**比較相手の数）（同じ値は同じ順位）、母数 m = 比較相手の数 + 1（自分を含む）、表示は「上位 ⌈k ÷ m × 100⌉%（m 件中 k 位）」。m = 1（比較相手なし）なら「—」。
 - 90 日の区分は今のビューにない（`30d` まで）。足すかは確認事項 Q16。
@@ -337,7 +359,7 @@
 
 1. **主要指標の表**: 行 = リーチ（日別合計）、閲覧数（日別合計）、フォロワー純増、非フォロワーリーチ比率、投稿数（種類別）、ER、保存率、シェア率、プロフィール訪問（参考）。列 = A、B、差（件数は %、率は pt、純増は確認事項 Q8）。差の色は増が `--color-pos`、減が `--color-neg`、変化なしが `--color-neutral`（記号 ▲▼ も付け、色だけに頼らない）。合計の比は 3.2 節と同じく欠損のない投稿だけで計算し「n 件中 m 件」を書く。行ごとの日付の区切り（太平洋時間／日本時間）を表の下に書く。
 2. **日次の重ね合わせ**: リーチの日次を、期間の 1 日目をそろえて A（`--color-primary`、実線）と B（`--color-neutral`、破線）の折れ線で重ねる。X 軸は「1 日目、2 日目…」、ヒントに実際の日付。日数が違うときは長い方に合わせ、短い方は途中で終わる。
-3. **投稿の基準値の表**（F-UI-24）: A と B のそれぞれの期間に投稿した投稿について、7 日時点（許容幅内）のリーチ、保存率、ER の平均、中央値、上位 25%、下位 25% と、指標ごとの n。種類別のタブは置かず、表の下に種類ごとの件数を書く。
+3. **投稿の基準値の表**（F-UI-24）: A と B のそれぞれの期間に投稿した投稿について、3.1 節「比較の基準」で期間ごとに選んだ基準の値で、リーチ、保存率、ER の平均、中央値、上位 25%、下位 25% と、指標ごとの n。どちらの基準かを表の下に期間ごとに書く。種類別のタブは置かず、表の下に種類ごとの件数を書く。
 
 #### 件数が少ないとき、空のとき
 
@@ -376,7 +398,7 @@
 - 今までどおり、Server Component から `web_app` ロールで Postgres に直結し（`dbFromEnv`、postgres.js のタグ付きテンプレート）、読み出し関数は `apps/web/src/lib/queries/` に置く。関数は `QueryResult` を返し、例外を投げない（R1 の `media.ts` の形）。`React.cache` で同じリクエスト内の重複を除く（Next.js 16「Fetching Data」の「Reusing data with React.cache」）。
 - 派生指標は**ビューで計算する**（投稿一覧の並べ替えを SQL の `order by` でできるようにするため。画面、CSV、テストが同じ式を使う）。分位（基準値）は、特殊な投稿の除外の条件で母集団が変わりうるので、ビューにせずクエリで `percentile_cont` を使う。
 - ビューはすべて `security_invoker = true`。基のテーブルの select とポリシーは R2 で `web_app` に与え済みなので、足すのはビューの select と関数の execute だけ。
-- **対象のアカウント**: `META_TARGET_IG_USER_ID`（サーバーだけの環境変数。`NEXT_PUBLIC_` を付けない。Vercel にも置く）と一致する `accounts` の行を `getTargetAccount()`（`lib/queries/account.ts`）で選ぶ。未設定、または一致する行がなければ、ほかのアカウントを代わりに選ばず「対象のアカウントが設定されていません」を返す（3.1 節）。読み出し関数はすべて `accountId` を第 1 引数に取り（シグネチャに出す）、SQL で `account_id = ${accountId}` を必ず付ける。`accounts` のどの列と照らすか（Instagram のユーザー ID の列）は R1／R2 の実装に合わせる。
+- **対象のアカウント**: `META_TARGET_IG_USER_ID`（サーバーだけの環境変数。`NEXT_PUBLIC_` を付けない。Vercel にも置く）と一致する `accounts` の行を `getTargetAccount()`（`lib/queries/account.ts`）で選ぶ。未設定、または一致する行がなければ、ほかのアカウントを代わりに選ばず「対象のアカウントが設定されていません」を返す（3.1 節）。読み出し関数はすべて `accountId` を第 1 引数に取り（シグネチャに出す）、SQL で `account_id = ${accountId}` を必ず付ける。照らす列は `accounts.ig_user_id`（`text not null unique`。確認済み）。
 
 ### 4.2 使うテーブルとビュー
 
@@ -396,7 +418,7 @@
 | データ | 名前 |
 |---|---|
 | 日次指標（内訳なし） | `reach`、`views`、`accounts_engaged`、`total_interactions`、`likes`、`comments`、`shares`、`saves`、`replies`、`reposts`、`follows_and_unfollows`、`profile_links_taps`。`follower_count`（1 日ごとの新規フォロワー。直近 30 日のみ、バックフィル対象外）。`online_followers`（`breakdown = 'hour'`） |
-| 日次指標の内訳 | `follow_type`（`reach`、`views`、`follows_and_unfollows`。値は `FOLLOWER`／`NON_FOLLOWER`）、`media_product_type`、`contact_button_type`。値が 0 の区分は行がなく、印の行 `(metric, breakdown, breakdown_value = '')` があれば 0、なければ未取得。`follows_and_unfollows` の印の行の `value` は null |
+| 日次指標の内訳 | `follow_type`（`reach`、`views`、`follows_and_unfollows`。値は `FOLLOWER`／`NON_FOLLOWER`）、`media_product_type`、`contact_button_type`。値が 0 の区分は行がない。印の行 `(metric, breakdown, breakdown_value = '')` は、`reach` と `views` の `follow_type` では `value` に合計値が入る（区分の行がない日は印の値が 0）。`value` が null なのは `follows_and_unfollows` の印の行だけ。印の行がなければ未取得（実データで確認） |
 | スナップショットの JSON | `reach`、`views`、`likes`、`comments`、`saved`、`shares`、`profile_visits`、`follows`（FEED のみ）、`ig_reels_avg_watch_time`、`ig_reels_video_view_total_time`、`reels_skip_rate`（REELS のみ。unit は percent）。取れない指標はキーなし、取得の失敗は null |
 
 日次は `saves`、投稿の JSON は `saved` と名前が違う。ビューの列名は `saved` にそろえる。
@@ -422,14 +444,14 @@
 
 -- ---------------------------------------------------------------
 -- 1. 投稿の種類（フィード、カルーセル、リール、ストーリーズ）
--- set search_path を付けると SQL 関数がインライン展開されなくなる（R-7）ので付けない。
+-- インライン展開させるため、set search_path も strict も付けない（R-7、再レビュー軽-1。strict があると
+-- CASE を含む本体は展開されない）。引数の列（media_product_type、media_type）は NOT NULL なので、strict を外しても結果は同じ。
 -- 本体は引数の比較だけでテーブルを参照しない。Supabase の linter の function_search_path_mutable の警告は受け入れる
 -- ---------------------------------------------------------------
 create or replace function public.media_kind(p_product_type text, p_media_type text)
 returns text
 language sql
 immutable
-strict
 parallel safe
 as $$
   select case
@@ -512,7 +534,7 @@ with base as (
     public.metric_value(h.metrics, '{profile_visits}') as profile_visits,
     public.metric_value(h.metrics, '{follows}') as follows,
     public.metric_value(h.metrics, '{ig_reels_avg_watch_time}') as avg_watch_time_ms,
-    -- API の unit は percent。0〜1 にそろえる（実値の範囲はマイグレーションの前に本番で確かめる。R-5）
+    -- API の unit は percent で、実値は 0〜100（実データで 28.6〜49.4。確認済み）。0〜1 にそろえる（R-5）
     public.metric_value(h.metrics, '{reels_skip_rate}') / 100 as skip_rate
   from public.media_metrics_at_horizon h
   join public.media m on m.id = h.media_id
@@ -586,7 +608,10 @@ comment on view public.media_list_metrics is
 
 -- ---------------------------------------------------------------
 -- 5. account_daily_wide: アカウント日次指標を 1 日 1 行にする（日付は API の日付 = 米国太平洋時間）
--- 内訳の値が 0 の区分は行がない。印の行 (metric, breakdown, '') があれば 0、なければ未取得（null）（R-2）
+-- 内訳の列の決め方（R-2、再レビュー中-1、軽-3）:
+--   区分の行がある            → その値（value が null なら null のまま。0 にしない）
+--   区分の行がなく、同じ指標・内訳の別の区分の行がある、または印の行の value が 0 → 0（値が 0 の区分は行がない）
+--   それ以外（印の値が正なのに区分の行が 1 つもない、印の行がない） → null（未取得）
 -- ---------------------------------------------------------------
 create view public.account_daily_wide
 with (security_invoker = true) as
@@ -602,17 +627,33 @@ select
   max(d.value) filter (where d.metric = 'shares' and d.breakdown = '') as shares,
   max(d.value) filter (where d.metric = 'saves' and d.breakdown = '') as saved,
   max(d.value) filter (where d.metric = 'follower_count' and d.breakdown = '') as new_followers,
-  case when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = '')
-    then coalesce(max(d.value) filter (where d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER'), 0)
+  case
+    when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER')
+      then max(d.value) filter (where d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER')
+    when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value <> '')
+      or bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = '' and d.value = 0)
+      then 0
   end as reach_follower,
-  case when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = '')
-    then coalesce(max(d.value) filter (where d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER'), 0)
+  case
+    when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER')
+      then max(d.value) filter (where d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER')
+    when bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value <> '')
+      or bool_or(d.metric = 'reach' and d.breakdown = 'follow_type' and d.breakdown_value = '' and d.value = 0)
+      then 0
   end as reach_non_follower,
-  case when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = '')
-    then coalesce(max(d.value) filter (where d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER'), 0)
+  case
+    when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER')
+      then max(d.value) filter (where d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'FOLLOWER')
+    when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value <> '')
+      or bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = '' and d.value = 0)
+      then 0
   end as views_follower,
-  case when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = '')
-    then coalesce(max(d.value) filter (where d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER'), 0)
+  case
+    when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER')
+      then max(d.value) filter (where d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = 'NON_FOLLOWER')
+    when bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value <> '')
+      or bool_or(d.metric = 'views' and d.breakdown = 'follow_type' and d.breakdown_value = '' and d.value = 0)
+      then 0
   end as views_non_follower,
   max(d.fetched_at) as fetched_at
 from public.account_daily_metrics d
@@ -620,7 +661,8 @@ group by d.account_id, d.metric_date;
 
 comment on view public.account_daily_wide is
   'アカウント日次指標の横持ち。metric_date は API の日付（米国太平洋時間の 0 時区切り）。行がない日は欠け。'
-  '内訳の列は、印の行があれば値のない区分を 0、印の行がなければ null（未取得）。saved は API の saves。new_followers は直近 30 日のみ';
+  '内訳の列は、区分の行があればその値、別の区分の行があるか印の値が 0 なら 0、それ以外は null（未取得）。'
+  'saved は API の saves。new_followers は直近 30 日のみ。最新の日は follower_count だけで reach が null のことがある';
 
 -- ---------------------------------------------------------------
 -- 6. web_app への権限（R2 の決まり: 列挙する）
@@ -633,7 +675,8 @@ grant select on table
 to web_app;
 ```
 
-- **内訳の 0 の限界**: 印の行の `value` は null なので（`follows_and_unfollows` で確認）、「その日に指標そのものが返らなかった」と「全区分が 0」を印の行だけでは区別できない。印の行がある日は全区分を 0 とみなす。画面では、内訳の列が 0 で、内訳なしの合計（`reach`）が 0 より大きい日に、非フォロワーリーチ比率を出さず「—」（`missing`）にする。
+- **内訳の 0 と未取得**: `reach` と `views` の `follow_type` の印の行には合計値が入るので、印の値が 0 なら全区分 0、印の値が正なのに区分の行が 1 つもなければ区分は未取得（null）と分けられる。`follows_and_unfollows` の印の行だけは `value` が null で、この区別ができない（R3 では `follows_and_unfollows` の内訳を使わないので列を作らない）。
+- 非フォロワーリーチ比率は、`reach_follower` か `reach_non_follower` が null の日は「—」（`missing`）にする。
 - `media_list_metrics` は `media_horizon_metrics` を 2 回（`latest` と `7d`）結合する。投稿 24 件では問題にならないのでこの形のままにする（R-8）。数百件を超えて遅ければ、`media` と lateral 2 本で直接書く形に変える。確認は 9.2 節の手動の計測で行う。
 
 #### ロールバック（R-13）
@@ -645,9 +688,56 @@ drop view if exists public.media_horizon_metrics;
 drop view if exists public.account_daily_wide;
 
 -- media_metrics_at_horizon は足した列を create or replace で消せないので、消して R1 の定義
--- （20261001100400_r1_views.sql の同じ節）で作り直し、comment と grant をやり直す
+-- （20261001100400_r1_views.sql の 94〜139 行をそのまま）で作り直し、comment と grant をやり直す
 drop view if exists public.media_metrics_at_horizon;
--- ここに R1 の create view public.media_metrics_at_horizon … をそのまま貼る
+
+create view public.media_metrics_at_horizon
+with (security_invoker = true) as
+with horizons (horizon, horizon_seconds) as (
+  values
+    ('1h', 3600),
+    ('3h', 10800),
+    ('6h', 21600),
+    ('24h', 86400),
+    ('3d', 259200),
+    ('7d', 604800),
+    ('30d', 2592000)
+)
+select
+  m.id as media_id,
+  h.horizon,
+  h.horizon_seconds,
+  s.fetched_at,
+  s.elapsed_seconds,
+  s.metrics
+from public.media m
+cross join horizons h
+cross join lateral (
+  select s.fetched_at, s.elapsed_seconds, s.metrics
+  from public.media_insight_snapshots s
+  where s.media_id = m.id and s.elapsed_seconds >= h.horizon_seconds
+  order by s.elapsed_seconds
+  limit 1
+) s
+union all
+select
+  m.id as media_id,
+  'latest'::text as horizon,
+  null::integer as horizon_seconds,
+  s.fetched_at,
+  s.elapsed_seconds,
+  s.metrics
+from public.media m
+cross join lateral (
+  select s.fetched_at, s.elapsed_seconds, s.metrics
+  from public.media_insight_snapshots s
+  where s.media_id = m.id
+  order by s.fetched_at desc
+  limit 1
+) s;
+
+comment on view public.media_metrics_at_horizon is '投稿からの経過時間をそろえた指標。horizon は 1h, 3h, 6h, 24h, 3d, 7d, 30d, latest';
+
 grant select on table public.media_metrics_at_horizon to web_app;
 
 drop function if exists public.media_kind(text, text);
@@ -668,10 +758,11 @@ drop function if exists public.media_kind(text, text);
 | ファイル | 関数 | 中身 | 既存との関係 |
 |---|---|---|---|
 | `account.ts` | `getTargetAccount()` | 対象のアカウント 1 件。決まらなければ理由つきの失敗 | 新規 |
-| `period-summary.ts` | `getDailyRange(accountId)`、`getDailySeries(accountId, from, to)`、`getFollowerSeries(accountId, from, to)`、`getPostTotals(accountId, from, to, opts)` | 概要と期間比較で共通の期間集計（10 章の段階 0） | 新規 |
+| `period-summary.ts` | `getDailyRange(accountId)`（最新の日は `max(metric_date) filter (where reach is not null)`）、`getDailySeries(accountId, from, to)`、`getFollowerSeries(accountId, from, to)`、`getPostTotals(accountId, from, to, opts)` | 概要と期間比較で共通の期間集計（10 章の段階 0） | 新規 |
 | `overview.ts` | 概要のカードごとの組み立て | `period-summary.ts` を使う | 新規 |
 | `media.ts` | `listMedia(accountId, { sort, order, page, opts })`、`countMedia(accountId, opts)`、`getMediaBaseline(accountId, opts)`、`getMediaPage(…)` | 一覧、総件数、`tfoot` の基準値、サムネイルの署名 | 作り直し。`listMedia` と `getMediaPage` は名前を残し、引数を変える |
-| `media-detail.ts` | `getMedia(accountId, id)`、`getMediaHorizons(accountId, id)`、`getPeerStats(accountId, kind, horizon, excludeId, opts)` | 投稿 1 件、区分ごとの値、同じ種類の分位と最小・最大と指標ごとの n | 新規 |
+| `media-detail.ts` | `getMedia(accountId, id)`、`getMediaHorizons(accountId, id)`（区分ごとの値と `within_tolerance`、実際の経過時間）、`getPeerStats(accountId, kind, basis, excludeId, opts)` | 投稿 1 件、区分ごとの値、同じ種類の分位と最小・最大と指標ごとの n | 新規 |
+| `baseline.ts` | `chooseBasis(accountId, scope, opts)` | 比較の基準（`{ kind: '7d', horizon }` か `{ kind: 'latest30' }`）を、母集団の 7 日時点が許容内の投稿の数（3 件以上か）で選ぶ（3.1 節）。詳細、一覧、期間比較が共通に使う | 新規 |
 | `compare.ts` | `getPeriodComparison(accountId, a, b, opts)` | `period-summary.ts` を組み合わせる | 新規 |
 | `connection-status.ts` | `getConnectionStatus(accountId)` | 接続状態 | 既存。`/jobs` から使う。引数に `accountId` を足す |
 | `jobs.ts` | `getLatestRuns(accountId)`、`listRecentRuns(accountId, { job, status, page })`、`getJobStats(accountId)` | 収集ログ | 既存の 2 つは名前を残し、引数を足す。`getJobStats` は新規 |
@@ -689,9 +780,13 @@ select
   percentile_cont(array[0.25, 0.5, 0.75]) within group (order by save_rate) as save_rate_q
   -- 指標ごとに同じ形を並べる
 from public.media_horizon_metrics
-where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
-  and media_id <> $4;
+where account_id = $1 and kind = $2 and media_id <> $4
+  -- 7 日時点の基準
+  and horizon = $3 and within_tolerance;
+  -- 最新の値の基準では、上の 1 行の代わりに: and horizon = 'latest' and elapsed_seconds >= 2592000
 ```
+
+- **7 日時点の基準では `latest` の行を使わない**。`latest` を使うのは「最新の値」の基準だけで、必ず `elapsed_seconds >= 2592000`（投稿から 30 日以上）の条件を付ける（条件なしの `latest` は投稿一覧の行の表示にだけ使う）。基準の分岐は SQL の文字列を組み立てず、2 本のクエリを分けて書く。
 
 - リーチ率の分位は `media_list_metrics.reach_rate` に対して同じ形で計算する（3.4 節）。
 - 並べ替えはキー → 列名の固定の対応表で列名を決め、postgres.js の識別子ヘルパー（`db(column)`）で埋める。向きは `asc`／`desc` の 2 値だけを分岐で書く（文字列を連結しない）。
@@ -776,7 +871,7 @@ where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
 | `profile_daily.captured_on` | 記録した日（日本時間の日付） | 「日本時間の日付」 |
 | `media.posted_at`、`fetched_at`、`profile_daily.captured_at`、`job_runs.started_at` など | UTC の時刻 | 日本時間の `YYYY-MM-DD HH:mm`（既存の `formatJst`） |
 
-- **期間の起点**: 概要と期間比較の「最新の日」は、今日の日付ではなく `account_daily_wide` の `max(metric_date)` にする（日次指標は太平洋時間の前日分を毎日取るので、今日の分はまだない）。
+- **期間の起点**: 概要と期間比較の「最新の日」は、今日の日付ではなく `account_daily_wide` の `max(metric_date) filter (where reach is not null)` にする（日次指標は太平洋時間の前日分を毎日取るので今日の分はまだなく、最新の日に `follower_count` の行しかない日もある）。
 - **投稿の期間への入れ方**: 投稿単位の値（ER、保存率、投稿数、基準値）は、投稿日時の日本時間の日付（`posted_date_jst`）が期間（日付の範囲）に入る投稿を数える（要件 5.5「投稿単位の分析は日本時間」）。日次指標の期間と最大 17 時間ずれることを、概要と期間比較の注記（見本の `PT_NOTE`）で説明する。
 - **グラフの投稿の印**: 日次推移のグラフの ▲ は、`media_list_metrics.posted_date_pt`（投稿日時を太平洋時間の日付に直したもの）の位置に置く（例: 日本時間 10-05 10:00 の投稿は太平洋時間 10-04 18:00 なので 10-04）。ヒントには日本時間の投稿日時を書く。
 - **変換は 1 か所**: 日本時間と太平洋時間の日付への変換は SQL（`at time zone`）で行い、ビューの列（`posted_date_jst`、`posted_date_pt`）として返す。JS では日付の変換をせず、時刻の表示（`formatJst`）と、時刻を持たない日付の計算（下）だけを行う。
@@ -859,9 +954,9 @@ where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
 
 | 対象 | ファイル | 確かめること |
 |---|---|---|
-| 派生指標と書式（`lib/format.ts`、`lib/metrics.ts`） | `test/metrics.test.ts` | 分母 0 と null で「—」、% の桁、pt の差（2.0% → 3.0% は +1.0 pt）、増減率、前期 0。合計の比で、分子か分母が null の投稿を除き「n 件中 m 件」の m が合う。m = 0 で「—」。倍率の中央値 0 で「—」。順位で同じ値が同じ順位、m = 1 で「—」 |
+| 派生指標と書式（`lib/format.ts`、`lib/metrics.ts`） | `test/metrics.test.ts` | 分母 0 と null で「—」、% の桁、pt の差（2.0% → 3.0% は +1.0 pt）、増減率、前期 0。合計の比で、分子か分母が null の投稿を除き「n 件中 m 件」の m が合う。m = 0 で「—」。倍率の中央値 0 で「—」。順位で同じ値が同じ順位、m = 1 で「—」。「—」の理由の判定: `elapsed_latest` が 7 日未満で `not_yet`、7 日以上で 7 日時点が許容外なら `no_baseline_data`、最新の値の基準で 30 日未満の自分の値が `not_yet` |
 | 「—」の理由 | 同上 | 種類ごとの `unsupported`（リールのプロフィール訪問とフォロー、フィードとカルーセルの視聴系）、`missing`、`not_yet`（7 日未満のリーチ率）、`no_baseline_data` |
-| 件数による基準値の出し方 | `test/baseline.test.ts` | 比較相手の数 n = 0、1、2、3、9、10 の境目（自分を含めない数で数える）。指標ごとに n が違うとき |
+| 件数による基準値の出し方と比較の基準の選び方 | `test/baseline.test.ts` | 比較相手の数 n = 0、1、2、3、9、10 の境目（自分を含めない数で数える）。指標ごとに n が違うとき。7 日時点が許容内の比較相手が 2 件で「最新の値」、3 件で「7 日時点」が選ばれる。表示の見出しが基準に合う |
 | 期間の計算（`lib/period.ts`） | `test/period.test.ts` | 前 7 日、前 30 日、前月（月末が 28／29／30／31 日）、前年同月（うるう年）、同じ日の 1 日の期間、最新の日より後の切り詰め、データの始まりより前 |
 | 入力の検査（`lib/params.ts`） | `test/params.test.ts` | 4.7 節の表の全行。日付の形、暦（2026-02-30、2025-02-29）、逆順、366 日と 367 日、`page` の 0、負、7 桁、数字以外、許可リスト外の `sort`、`job`、`status`、`range`、`er`、`preset`、投稿 ID の 26 桁と数字以外 |
 | CSV（`lib/csv.ts`） | `test/csv.test.ts` | 引用符、カンマ、CR、LF、BOM、CRLF。数式の注入（`=`、`+`、`-`、`@`、タブ、CR、LF、全角の `＝＋－＠`、先頭の空白のあとの `=`）。数値の列の負の数は対象外。投稿と日次の見出しの並びを固定（`thumbnail_path`、`account_id` がない） |
@@ -876,10 +971,11 @@ where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
 | `test/db/views.test.ts` | マイグレーションが `supabase db reset` で通る。`web_app` で新しいビュー 3 本を select でき、`media_kind` を実行できる。R2 の「関数の PUBLIC の実行権の棚卸し」に `media_kind` が引っかからない。`anon` と `authenticated` からは読めない。新しいビュー 3 本と作り直した `media_metrics_at_horizon` の `pg_class.reloptions` に `security_invoker=true` がある |
 | 同上（区分） | `media_metrics_at_horizon` が区分ごとに「初めて超えた」スナップショットを選ぶ。収集前からある投稿（最初のスナップショットが 200 日後）と、収集が 25 日目で止まった投稿で、`7d` の `within_tolerance` が偽になり、分位とリーチ率に入らない。許容幅の境目（7d + 42 時間ちょうどと 1 秒超え） |
 | 同上（JSON） | キーがない指標と値が null の指標がともに null になる。`reels_skip_rate` が 0〜1 になる |
-| 同上（日次） | `account_daily_wide`: 印の行があって区分の行がない日に 0、印の行がない日に null。行のない日は返らない。`saves` が `saved` の列に入る |
+| 同上（日次） | `account_daily_wide`: 印の値が 0 で区分の行なし → 区分は 0。印の行なし → null。印の値が正で区分の行なし → null。区分の片方だけ行がある → もう片方は 0。区分の行があって value が null → null。行のない日は返らない。`saves` が `saved` の列に入る |
+| `test/db/period-summary.test.ts`（範囲） | 最新の日に `follower_count` の行しかない（`reach` が null）とき、`getDailyRange` の終わりがその前日になる |
 | 同上（フォロワー） | `media_list_metrics.followers_at_post` が、投稿より前で 3 日以内の記録だけを使う（投稿の後の記録、4 日前の記録は使わない）。日本時間 0 時をまたぐ投稿（UTC 14:59 と 15:00）で `posted_date_jst` と `posted_date_pt` が正しい |
-| `test/db/media.test.ts`（`queries.test.ts` から分ける） | `listMedia`、`getMediaPage`、`countMedia`、`getMediaBaseline`。並べ替えで null が最後、同値の順が固定。`gone_at` のある投稿が一覧と基準値に入る。別のアカウントの投稿が出ない（2 アカウントのデータで分離） |
-| `test/db/media-detail.test.ts` | `getPeerStats` が `percentile_cont` の期待値と合い、自分を除き、指標ごとに n が違う。別のアカウントの投稿が比較相手に入らない |
+| `test/db/media.test.ts`（`queries.test.ts` から分ける） | `listMedia`、`getMediaPage`、`countMedia`、`getMediaBaseline`。`getMediaBaseline` が、選んだ基準の値だけを使う（7 日時点の基準で `latest` や他の区分の値が混ざらない）、`within_tolerance` が偽の投稿を含めない、最新の値の基準で投稿から 30 日未満の投稿を含めない。並べ替えで null が最後、同値の順が固定。`gone_at` のある投稿が一覧と基準値に入る。別のアカウントの投稿が出ない（2 アカウントのデータで分離） |
+| `test/db/media-detail.test.ts` | `getPeerStats` が `percentile_cont` の期待値と合い、自分を除き、指標ごとに n が違う。基準が「最新の値」のとき 30 日未満の投稿を含めない。`getMediaHorizons` が区分ごとに `within_tolerance` と実際の経過時間を返し、偽の区分も行として返す（画面が点を描かずに経過時間を添えられる）。`chooseBasis` が実データに近い形（収集前の投稿だけ）で「最新の値」を選ぶ。別のアカウントの投稿が比較相手に入らない |
 | `test/db/period-summary.test.ts`、`test/db/compare.test.ts` | 期間の合計、欠けた日の数え方、合計の比の欠損の扱い、純増の端の記録（1 日を超えて離れた記録を使わない）。2 アカウントの分離 |
 | `test/db/jobs.test.ts`（`queries.test.ts` から分ける） | `getConnectionStatus`、`getLatestRuns`、`listRecentRuns`、`getJobStats`。`job` と `status` の絞り込み。2 アカウントの分離 |
 | `test/db/account.test.ts` | `META_TARGET_IG_USER_ID` が未設定、一致なし、一致ありで `getTargetAccount` が正しく返し、未設定と一致なしでほかのアカウントを選ばない |
@@ -898,7 +994,7 @@ where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
   5. アカウント単位: アプリの「過去 7 日」のリーチと閲覧数を、概要の過去 7 日（太平洋時間の日付の合計）と比べる。期間の区切りと集計の定義が違うので差の率を記録するだけにし、合否は付けない。
   6. 画面と DB の照合は別の手順にする。同じ投稿について、画面（一覧と詳細）の数字が SQL の値と表示の丸め以外で一致することを確かめる（ここは完全一致で合格）。
   7. 記録の列: 確認日時、種類、経過の区分（7 日超／未満）、指標、DB の値、アプリの値、差、差の率、合否。実数（DB の値、アプリの値、差）と投稿の ID は `.local/` にだけ置く。`doc/` には種類、区分、指標、差の率、合否だけを表で残す（ID、ユーザー名、実数を書かない）。
-- **件数が少ないとき**: 本番の 24 件で、薄い表示、n の表示、「—」と理由が意図どおりに出ることを確かめる。空の DB（ローカル）で各画面の空の表示、`META_TARGET_IG_USER_ID` が未設定のときの表示を確かめる。
+- **件数が少ないとき**: 本番の 24 件（すべて収集開始より前の投稿）で、投稿詳細と投稿一覧の基準値が「最新の値で比較（投稿から 30 日以上の投稿）」と明記されて帯と n が出ること、7 日時点の比較が使われないこと（7 日時点の値は既存の理由の「—」で、収集開始前の投稿のための専用の説明が出ないこと）、リーチ率が全件「—」になること、薄い表示と n の表示を確かめる。空の DB（ローカル）で各画面の空の表示、`META_TARGET_IG_USER_ID` が未設定のときの表示を確かめる。
 - **アクセシビリティ**: キーボードだけでナビ、並べ替え、ページ送り、ヒント、期間の入力を操作できる。表の `aria-sort`、グラフの `aria-label`。黄と緑の系列に数値ラベルか表が添えてある（design-system.md の注意）。
 - **ビルドと静的検査**: `next build`、ESLint、型検査、vitest が通る。
 
@@ -914,7 +1010,7 @@ where account_id = $1 and kind = $2 and horizon = $3 and within_tolerance
 |---|---|
 | DB（`postgres-sql-reviewer` が設計とレビュー） | `supabase/migrations/…_r3_analysis_views.sql`、`test/db/views.test.ts`、`scripts/` の性能計測のスクリプト |
 | 画面の土台（`nextjs-developer`） | `apps/web/src/app/globals.css`、`apps/web/src/app/layout.tsx`、`apps/web/src/components/`（5.2 節の共通部品と `charts/` の 4 種）、`lib/format.ts`（書式の追加）、`lib/metrics.ts`（派生指標の表示規則、「—」の理由、基準値の出し方）、`lib/period.ts`、`lib/params.ts`、`lib/csv.ts`、`test/metrics.test.ts`、`test/baseline.test.ts`、`test/period.test.ts`、`test/params.test.ts`、`test/csv.test.ts`、`test/charts.test.ts` |
-| 共通のクエリと移動（`nextjs-developer`。画面の土台のあと） | `lib/queries/account.ts`、`lib/queries/period-summary.ts`、R1 の `/` の接続状態の部品を `/jobs` 側へ移す作業、`test/db/queries.test.ts` を `test/db/media.test.ts` と `test/db/jobs.test.ts` に分ける作業、`test/db/account.test.ts`、`test/db/period-summary.test.ts`、`test/routes.test.ts` への新しい URL の追加（proxy の設定は変えない） |
+| 共通のクエリと移動（`nextjs-developer`。画面の土台のあと） | `lib/queries/account.ts`、`lib/queries/period-summary.ts`、`lib/queries/baseline.ts`（比較の基準の選び方。B、C、D が読むだけ）、R1 の `/` の接続状態の部品を `/jobs` 側へ移す作業、`test/db/queries.test.ts` を `test/db/media.test.ts` と `test/db/jobs.test.ts` に分ける作業、`test/db/account.test.ts`、`test/db/period-summary.test.ts`、`test/routes.test.ts` への新しい URL の追加（proxy の設定は変えない） |
 
 DB と画面の土台は触るファイルが違うので並列にしてよい。共通のクエリは DB のマイグレーションのあと。段階 0 の終わりに、部品の見た目を概要の骨組みでユーザーに見せる。
 
@@ -970,6 +1066,7 @@ DB と画面の土台は触るファイルが違うので並列にしてよい�
 | Q18 | CSV の列の見出しを英字にするか日本語にするか | 英字のスネークケース（ビューの列名と同じ）。日本語の対応表を README に置く |
 | Q19 | CSV の Route Handler の未ログインの応答（proxy は 303、ハンドラーは 401） | ハンドラーは 401 のままにする（proxy を通った後に未ログインになるのは異常で、ダウンロードの途中でログイン画面の HTML を CSV として保存させないため） |
 | Q20 | 数値の照合の許容差 | 7 日を過ぎた投稿で「差が 5% 以内、または差の絶対値が 3 以内」。7 日未満とアカウント単位は記録だけ |
+| Q21 | 比較の基準に「最新の値（投稿から 30 日以上の投稿）」を足し、7 日時点と自動で切り替える（7 日時点が許容内の比較相手が 3 件以上なら 7 日時点） | 回答: 採用（2026-10-05）。3.1 節「比較の基準」。収集開始前の投稿のための新しい理由や文言は足さない |
 
 ---
 
@@ -997,6 +1094,8 @@ DB と画面の土台は触るファイルが違うので並列にしてよい�
 
 ### 未確認のまま残るもの
 
-`doc/design-lab/v3/lab.css`、`next/font` の文書（`13-fonts.md`）、`reels_skip_rate` の実値の範囲（0〜100 か 0〜1 か）、90 日時点まで収集が続くか。
+`doc/design-lab/v3/lab.css`、`next/font` の文書（`13-fonts.md`）、90 日時点まで収集が続くか。
+
+0.4 で確認済みにしたこと（再レビューと親による実データの確認）: `reels_skip_rate` は 0〜100 の単位（28.6〜49.4）。`reach` と `views` の `follow_type` の印の行には合計値が入る。最新の日は `follower_count` の行だけで `reach` が null のことがある。収集開始前の投稿 24 件は 1h〜7d が全区分で許容外（30d は 1 件、90d は 3 件が許容内）、`followers_at_post` は 0 件。カルーセルの投稿はまだない。0.4 で読んだのはこの設計書と `supabase/migrations/20261001100400_r1_views.sql` の 94〜139 行（ロールバックに載せた）だけ。
 
 親が確かめたこと（2026-10-05）: `next.config` は `cacheComponents` を設定していない（従来のモデル。動的描画は `src/lib/dynamic.ts` の `connection()`）。全ルートの `Referrer-Policy` は `same-origin`（R1 で `no-referrer` から変更）。`META_TARGET_IG_USER_ID` と照らすのは `accounts.ig_user_id`（`text not null unique`）。
