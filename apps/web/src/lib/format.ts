@@ -408,12 +408,14 @@ export function elapsedDaysLabel(hours: number | null | undefined): string {
 export const TITLE_MAX_CHARS = 40;
 
 /**
- * 投稿の題名（投稿一覧と投稿詳細）。キャプションの 1 行目の先頭 40 文字。
+ * 投稿の題名（投稿一覧と投稿詳細）。キャプションの、空白と句読点だけではない最初の行の先頭 40 文字（絵文字だけの行は題名にする）。
+ * 「.」だけの行（キャプションの頭で行を空けて見せる書き方）や空行は飛ばす。
  * `Array.from` で文字（コードポイント）単位に切り、サロゲートペアを割らない。
- * キャプションがない、または 1 行目が空なら「（キャプションなし）」
+ * キャプションがない、またはそういう行がなければ「（キャプションなし）」
  */
 export function mediaTitle(caption: string | null | undefined): string {
-  const first = typeof caption === "string" ? (caption.split(/\r\n|\r|\n/, 1)[0] ?? "").trim() : "";
+  const lines = typeof caption === "string" ? caption.split(/\r\n|\r|\n/) : [];
+  const first = lines.map((l) => l.trim()).find((l) => /[^\s\p{P}]/u.test(l)) ?? "";
   if (first === "") return "（キャプションなし）";
   return Array.from(first).slice(0, TITLE_MAX_CHARS).join("");
 }

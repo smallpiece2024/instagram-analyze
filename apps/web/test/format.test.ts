@@ -297,7 +297,14 @@ describe("mediaTitle", () => {
     expect(mediaTitle("題名\r本文")).toBe("題名");
     expect(mediaTitle(null)).toBe("（キャプションなし）");
     expect(mediaTitle("")).toBe("（キャプションなし）");
-    expect(mediaTitle("  \n二行目")).toBe("（キャプションなし）");
+    expect(mediaTitle("  \n.\n")).toBe("（キャプションなし）");
+  });
+
+  it("空行と「.」などの句読点だけの行は飛ばす。絵文字だけの行は題名にする", () => {
+    expect(mediaTitle("  \n二行目")).toBe("二行目");
+    expect(mediaTitle(".\n\n題名\n本文")).toBe("題名");
+    expect(mediaTitle("・\n。\n題名")).toBe("題名");
+    expect(mediaTitle("☕️\n本文")).toBe("☕️");
   });
 
   it("サロゲートペアを割らない", () => {
