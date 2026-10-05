@@ -1,18 +1,20 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Noto_Sans_JP } from "next/font/google";
+import { AppShell } from "@/components/AppShell";
 import { checkAccess, currentClaims } from "@/lib/auth";
 import { signOutAction } from "./login/actions";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+/**
+ * 書体（R3 設計 5.1 節）。ビルド時に取り込み、ブラウザから Google へのリクエストを出さない。
+ * Noto Sans JP の `subsets` に日本語はない（latin、latin-ext、cyrillic、vietnamese だけ）。
+ * 日本語の字形は unicode-range で分けたファイルを必要なときに読むので、先読み（preload）は latin だけにする
+ */
+const notoSansJp = Noto_Sans_JP({
+  weight: ["400", "500", "700"],
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-noto-sans-jp",
 });
 
 export const metadata: Metadata = {
@@ -20,17 +22,12 @@ export const metadata: Metadata = {
   description: "自分の Instagram プロアカウントのデータを蓄積して分析するツール",
 };
 
-/** 共通のナビゲーション（設計 1.1 章）。レイアウトは DB を読まない */
-const NAV = [
-  { href: "/", label: "接続状態" },
-  { href: "/jobs", label: "収集ログ" },
-  { href: "/media", label: "投稿一覧" },
-  { href: "/connect", label: "接続設定" },
-] as const;
+/** ブランドの表示。レイアウトは DB を読まないので、アカウント名ではなくツール名を出す */
+const BRAND = "Instagram 分析";
 
 /**
  * ナビゲーションは本人（JWT の検証に通り、`WEB_ALLOWED_USER_ID` と一致）にだけ出す。ログアウトはログイン済みなら誰にでも出す
- * （許可外の利用者が自分で抜けられるように）（R2 設計 4.3 章）。
+ * （許可外の利用者が自分で抜けられるように）（R2 設計 4.3 章、R3 設計 2.2 節）。
  * ログアウトは POST の Server Action（`signOut({ scope: 'global' })` → `/login`）
  */
 export default async function RootLayout({ children }: LayoutProps<"/">) {
@@ -38,39 +35,21 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const signedIn = claims !== undefined;
   const allowed = signedIn && (await checkAccess("/")) === "pass";
   return (
-    <html lang="ja" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="ja" className={`${notoSansJp.variable} h-full`}>
       <body className="flex min-h-full flex-col">
-        <header className="border-b border-neutral-200 bg-white">
-          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-            <Link href="/" className="font-semibold">
-              Instagram 分析ツール
-            </Link>
-            {allowed && (
-              <nav aria-label="主要">
-                <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                  {NAV.map((item) => (
-                    <li key={item.href}>
-                      <Link href={item.href} className="text-blue-700 underline-offset-2 hover:underline">
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            )}
-            {signedIn && (
-              <form action={signOutAction} className="ml-auto">
-                <button type="submit" className="text-sm text-neutral-700 underline-offset-2 hover:underline">
-                  ログアウト
-                </button>
+        <AppShell
+          brand={BRAND}
+          showNav={allowed}
+          actions={
+            signedIn ? (
+              <form action={signOutAction}>
+                <button type="submit">ログアウト</button>
               </form>
-            )}
-          </div>
-        </header>
-        {children}
-        <footer className="mt-auto px-4 py-6 text-center text-xs text-neutral-500">
-          R1: 最小限の画面。時刻はすべて日本時間（JST）。
-        </footer>
+            ) : undefined
+          }
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );

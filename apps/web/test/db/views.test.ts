@@ -38,6 +38,8 @@ function isLocal(url: string): boolean {
 
 function webUrlFrom(adminUrl: string): string {
   if (process.env.TEST_WEB_DATABASE_URL) return process.env.TEST_WEB_DATABASE_URL;
+  // skipIf で飛ばす場合も describe の本体は評価されるので、空なら URL を作らない
+  if (!adminUrl) return "";
   const u = new URL(adminUrl);
   u.username = "web_app";
   u.password = "web_app_local";
