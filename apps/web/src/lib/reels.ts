@@ -4,6 +4,7 @@
  * - 計算（順位相関、ブートストラップ、中央値、分位）はサーバーでここを呼び、数値だけを描画に渡す
  * - 入力の行は DB の読み出し（`queries/reels.ts`）の形。ここでは DB を使わない
  */
+import { PAGE_SIZE } from "./format";
 import { percentileCont } from "./metrics";
 import type { ParamValue, SortOrder } from "./params";
 
@@ -160,6 +161,25 @@ export function sortReels(rows: readonly ReelRow[], key: ReelSortKey, dir: SortO
     const t = b.posted_at.getTime() - a.posted_at.getTime();
     return t !== 0 ? t : compareId(b.media_id, a.media_id);
   });
+}
+
+export interface ReelPage {
+  pageRows: ReelRow[];
+  /** 1〜pageCount に丸めたページ */
+  currentPage: number;
+  /** 0 件でも 1 */
+  pageCount: number;
+}
+
+/**
+ * 一覧の 1 ページ分（投稿一覧と同じく 1 ページ PAGE_SIZE 件）。全件を並べ替えてから切り出す。
+ * 範囲外の page は最後のページに丸める（`page` は `parsePageNumber` で 1 以上の整数にしたもの）
+ */
+export function paginateReels(rows: readonly ReelRow[], sort: ReelSortKey, dir: SortOrder, page: number): ReelPage {
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), pageCount);
+  const pageRows = sortReels(rows, sort, dir).slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  return { pageRows, currentPage, pageCount };
 }
 
 /* ------------------------------------------------------------------

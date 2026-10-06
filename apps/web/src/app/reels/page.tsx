@@ -23,9 +23,9 @@ import {
   buildReelsView,
   objectiveOptionLabel,
   OBJECTIVES,
+  paginateReels,
   parseReelsParams,
   reelsQuery,
-  sortReels,
   type Objective,
   type ReelsParams,
 } from "@/lib/reels";
@@ -120,9 +120,7 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
   const urls = await signWithSession(paths);
   const analyzed = view.analyzedCount > 0;
   // 一覧は投稿一覧と同じく 1 ページ PAGE_SIZE 件。並べ替えと指標の選択のリンクは page を持たない（1 ページ目に戻る）
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const pageRows = sortReels(rows, params.sort, params.dir).slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const { pageRows, currentPage, pageCount } = paginateReels(rows, params.sort, params.dir, page);
 
   return (
     <main className="main main--wide stack">

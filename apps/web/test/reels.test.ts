@@ -11,7 +11,7 @@ import { Forest, type ForestRow } from "@/components/charts/Forest";
 import { Scatter, scatterDomain, type ScatterPoint } from "@/components/charts/Scatter";
 import { activeNavHref, NAV_ITEMS } from "@/components/NavLinks";
 import { sortHeaderHref } from "@/components/SortHeader";
-import { JOB_ORDER } from "@/lib/format";
+import { JOB_ORDER, PAGE_SIZE } from "@/lib/format";
 import {
   analyzedWithObjective,
   bootstrapIndexSets,
@@ -24,6 +24,7 @@ import {
   groupFactorSummary,
   lengthBucket,
   objectiveOptionLabel,
+  paginateReels,
   parkMiller,
   parseReelsParams,
   ranks,
@@ -300,6 +301,60 @@ describe("区分の境界", () => {
     expect(dayType(new Date("2026-10-04T15:00:00Z"))).toBe("weekday");
   });
 
+  it("長さの残りの境目: 19999 と 20000、39999 と 40000、49999 と 50000。負の長さは lt10", () => {
+    expect(lengthBucket(19999)).toBe("lt20");
+    expect(lengthBucket(20000)).toBe("lt30");
+    expect(lengthBucket(39999)).toBe("lt40");
+    expect(lengthBucket(40000)).toBe("lt50");
+    expect(lengthBucket(49999)).toBe("lt50");
+    expect(lengthBucket(50000)).toBe("lt60");
+    expect(lengthBucket(-1)).toBe("lt10");
+    expect(lengthBucket(-60000)).toBe("lt10");
+  });
+
+  it("冒頭と最後 3 秒: 負の値は null、2.5 は c2", () => {
+    expect(edgeCutBucket(-1)).toBeNull();
+    expect(edgeCutBucket(-0.5)).toBeNull();
+    expect(edgeCutBucket(2.5)).toBe("c2");
+  });
+
+  it("1 週間 7 日分の曜日（日本時間の正午）", () => {
+    // 2026-10-05 は月曜。03:00 UTC = 12:00 JST
+    const days = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2026, 9, 5 + i, 3, 0)));
+    expect(days.map(weekdayOf)).toEqual(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+    expect(days.map(dayType)).toEqual(["weekday", "weekday", "weekday", "weekday", "weekday", "weekend", "weekend"]);
+    // 日本時間の月曜 08:59（日曜 23:59 UTC）も月曜（UTC の曜日で数えない）
+    expect(weekdayOf(new Date("2026-10-04T23:59:00Z"))).toBe("mon");
+  });
+
+  it("土曜 23:59 JST は土、日曜 00:00 JST は日（どちらも土日）", () => {
+    const sat = new Date("2026-10-10T14:59:00Z");
+    const sun = new Date("2026-10-10T15:00:00Z");
+    expect(weekdayOf(sat)).toBe("sat");
+    expect(weekdayOf(sun)).toBe("sun");
+    expect(dayType(sat)).toBe("weekend");
+    expect(dayType(sun)).toBe("weekend");
+    // 金曜 23:59 JST は金
+    expect(weekdayOf(new Date("2026-10-09T14:59:00Z"))).toBe("fri");
+  });
+
+  it("最後 3 秒のグループは cuts_in_last_3s で分ける（冒頭 3 秒と取り違えない）", () => {
+    const rows = [
+      reel(1, { cuts_in_first_3s: 0, cuts_in_last_3s: 2, views: 10 }),
+      reel(2, { cuts_in_first_3s: 0, cuts_in_last_3s: 2, views: 30 }),
+      reel(3, { cuts_in_first_3s: 2, cuts_in_last_3s: 0, views: 100 }),
+      reel(4, { cuts_in_first_3s: 1, cuts_in_last_3s: 3, views: 50 }),
+      reel(5, { cuts_in_first_3s: 1, cuts_in_last_3s: null, views: 70 }),
+    ];
+    const g = groupCards(rows, "views");
+    expect(g.last3s.map((b) => b.label)).toEqual(["0 回", "1 回", "2 回", "3 回以上"]);
+    expect(g.last3s.map((b) => b.n)).toEqual([1, 0, 2, 1]);
+    expect(g.last3s.map((b) => b.value)).toEqual([100, null, 20, 50]);
+    // 冒頭 3 秒は別の分かれ方
+    expect(g.first3s.map((b) => b.n)).toEqual([2, 2, 1, 0]);
+    expect(g.first3s.map((b) => b.value)).toEqual([20, 60, 100, null]);
+  });
+
   it("区分の中央値と件数。値がない区分は null", () => {
     const rows = [reel(1, { duration_ms: 10000, views: 10 }), reel(2, { duration_ms: 12000, views: 30 }), reel(3, { duration_ms: 61000 })];
     const g = groupCards(rows, "views");
@@ -346,6 +401,48 @@ describe("検索パラメータ", () => {
     expect(sortReels(rows, "duration", "asc").map((r) => r.duration_ms)).toEqual([3000, 9000, null]);
     expect(sortReels(rows, "duration", "desc").map((r) => r.duration_ms)).toEqual([9000, 3000, null]);
     expect(sortReels(rows, "posted", "desc").map((r) => r.media_id)).toEqual([reel(3).media_id, reel(2).media_id, reel(1).media_id]);
+  });
+});
+
+describe("一覧のページ送り", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => reel(i));
+
+  it("0 件、ちょうど 10 件は 1 ページ。11 件は 2 ページで、2 ページ目は 1 件", () => {
+    expect(PAGE_SIZE).toBe(10);
+    const zero = paginateReels([], "posted", "desc", 1);
+    expect(zero).toEqual({ pageRows: [], currentPage: 1, pageCount: 1 });
+    const ten = paginateReels(many(10), "posted", "desc", 1);
+    expect(ten.pageCount).toBe(1);
+    expect(ten.pageRows).toHaveLength(10);
+    const eleven1 = paginateReels(many(11), "posted", "desc", 1);
+    expect(eleven1.pageCount).toBe(2);
+    expect(eleven1.pageRows).toHaveLength(10);
+    const eleven2 = paginateReels(many(11), "posted", "desc", 2);
+    expect(eleven2.currentPage).toBe(2);
+    // 新しい順の最後は最も古い reel(0)
+    expect(eleven2.pageRows.map((r) => r.media_id)).toEqual([reel(0).media_id]);
+  });
+
+  it("範囲外の page は最後のページに丸める", () => {
+    const far = paginateReels(many(11), "posted", "desc", 99);
+    expect(far.currentPage).toBe(2);
+    expect(far.pageCount).toBe(2);
+    expect(far.pageRows.map((r) => r.media_id)).toEqual([reel(0).media_id]);
+    const tenFar = paginateReels(many(10), "posted", "desc", 2);
+    expect(tenFar.currentPage).toBe(1);
+    expect(tenFar.pageRows).toHaveLength(10);
+  });
+
+  it("全件を並べ替えてから切り出す（ページの中だけの並べ替えにしない）", () => {
+    // 入力の順と長さの順をずらす（i × 7 mod 15 は 0〜14 の並べ替え）
+    const rows = Array.from({ length: 15 }, (_, i) => reel(i, { duration_ms: 1000 + ((i * 7) % 15) * 1000 }));
+    const p1 = paginateReels(rows, "duration", "desc", 1);
+    const p2 = paginateReels(rows, "duration", "desc", 2);
+    const d = (rs: readonly ReelRow[]) => rs.map((r) => r.duration_ms as number);
+    expect(d(p1.pageRows)).toEqual([15000, 14000, 13000, 12000, 11000, 10000, 9000, 8000, 7000, 6000]);
+    expect(d(p2.pageRows)).toEqual([5000, 4000, 3000, 2000, 1000]);
+    const asc = paginateReels(rows, "duration", "asc", 1);
+    expect(d(asc.pageRows)).toEqual([1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]);
   });
 });
 
