@@ -87,6 +87,8 @@ describe("VBars", () => {
     expect(html).toContain("指標変更");
     expect(html).toContain("<title>投稿 1</title>");
     expect(html).toContain("<title>投稿 2</title>");
+    // ヒントは ▲ の周りの透明な四角に付ける（一辺 18px）
+    expect(html.match(/<rect[^>]*width="18"[^>]*height="18"[^>]*fill="transparent"/g)).toHaveLength(2);
   });
 });
 

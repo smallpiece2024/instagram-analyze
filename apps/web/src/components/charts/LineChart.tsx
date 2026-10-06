@@ -1,5 +1,5 @@
 import { formatAxis, formatValue, type ValueFormat } from "@/lib/format";
-import { coord, dimRuns, finiteValues, labelStep, segments, ticks, yDomain } from "./scale";
+import { coord, dimRuns, MARKER_HIT, finiteValues, labelStep, segments, ticks, yDomain } from "./scale";
 
 /** 件数が少ない区分を薄く描くときの不透明度（`BandRow` と同じ） */
 const DIM_OPACITY = ".45";
@@ -156,9 +156,13 @@ export function LineChart({
       {(markers ?? []).map((i, k) => (
         <g key={`m${i}`}>
           <line className="chart-marker" x1={coord(x(i))} x2={coord(x(i))} y1={m.t} y2={m.t + ih} />
-          <path d={`M${coord(x(i))} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)">
-            {markerTips?.[k] && <title>{markerTips[k]}</title>}
-          </path>
+          <path d={`M${coord(x(i))} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)" />
+          {/* ヒントを出す範囲。小さな ▲ だけでは合わせにくいので、周りを透明な四角で覆う */}
+          {markerTips?.[k] && (
+            <rect x={coord(x(i) - MARKER_HIT / 2)} y={m.t + ih} width={MARKER_HIT} height={MARKER_HIT} fill="transparent">
+              <title>{markerTips[k]}</title>
+            </rect>
+          )}
         </g>
       ))}
       {(refLines ?? []).map((r) => (

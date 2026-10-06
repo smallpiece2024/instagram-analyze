@@ -98,6 +98,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/overview（結合）", () => {
     if (!result.ok) return;
     expect(result.data.map((m) => m.posted_date_pt)).toEqual(["2026-09-02", "2026-09-04"]);
     expect(result.data[0]?.posted_at.toISOString()).toBe("2026-09-03T01:00:00.000Z");
+    // 題名のためのキャプション（テストのデータには入れていないので null）
+    expect(result.data[0]?.caption).toBeNull();
   });
 
   it("getMetricChangeDates: 範囲に入る定義の変更日だけ（views の 2025-04-21）", async () => {
