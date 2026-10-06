@@ -65,6 +65,15 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
   followers: { label: "フォロワー数", hint: "フォロワー数 = 最新の記録のフォロワー数。選んだ期間には関係しない" },
   er: { label: "エンゲージメント率", hint: METRIC_DEFINITIONS.er.hint },
   save_rate: { label: "保存率", hint: METRIC_DEFINITIONS.save_rate.hint },
+  // 概要のタイル。アカウント全体の日次の値どうしで割る（2026-10-06 ユーザーの決定。期間比較は投稿単位のまま）
+  er_account: {
+    label: "エンゲージメント率",
+    hint: "エンゲージメント率 = 期間中の（いいね + コメント + 保存 + シェア）÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+  },
+  save_rate_account: {
+    label: "保存率",
+    hint: "保存率 = 期間中の保存 ÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+  },
   share_rate: { label: "シェア率", hint: METRIC_DEFINITIONS.share_rate.hint },
   non_follower_reach_rate: {
     label: "非フォロワーリーチ比率",

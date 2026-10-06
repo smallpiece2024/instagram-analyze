@@ -121,12 +121,20 @@ export interface DailyTotals {
    * `used` はその日数、`total` は期間の日数
    */
   nonFollowerReachRate: RatioOfSums;
+  /**
+   * アカウント全体の ER（Σ（いいね + コメント + 保存 + シェア）÷ Σリーチ）。4 指標とリーチがそろう日だけで計算する。
+   * 日次の反応にストーリーズへの反応が含まれるかは未確認（2026-10-06）
+   */
+  er: RatioOfSums;
+  /** アカウント全体の保存率（Σ保存 ÷ Σリーチ）。保存とリーチがそろう日だけで計算する */
+  saveRate: RatioOfSums;
 }
 
 /** 期間（両端を含む）の日次指標の合計 */
 export const getDailyTotals = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<DailyTotals>> =>
     runQuery(async (db) => {
+      const erDayPresent = db`reach is not null and likes is not null and comments is not null and saved is not null and shares is not null`;
       const [row] = await db<
         {
           reach_sum: number | null;
@@ -136,6 +144,12 @@ export const getDailyTotals = cache(
           nf_num: number | null;
           nf_den: number | null;
           nf_days: number;
+          er_num: number | null;
+          er_den: number | null;
+          er_days: number;
+          save_num: number | null;
+          save_den: number | null;
+          save_days: number;
         }[]
       >`
         select
@@ -145,13 +159,21 @@ export const getDailyTotals = cache(
           count(views)::int as views_days,
           sum(reach_non_follower) filter (where reach is not null and reach_non_follower is not null)::float8 as nf_num,
           sum(reach) filter (where reach is not null and reach_non_follower is not null)::float8 as nf_den,
-          (count(*) filter (where reach is not null and reach_non_follower is not null))::int as nf_days
+          (count(*) filter (where reach is not null and reach_non_follower is not null))::int as nf_days,
+          sum(likes + comments + saved + shares) filter (where ${erDayPresent})::float8 as er_num,
+          sum(reach) filter (where ${erDayPresent})::float8 as er_den,
+          (count(*) filter (where ${erDayPresent}))::int as er_days,
+          sum(saved) filter (where reach is not null and saved is not null)::float8 as save_num,
+          sum(reach) filter (where reach is not null and saved is not null)::float8 as save_den,
+          (count(*) filter (where reach is not null and saved is not null))::int as save_days
         from public.account_daily_wide
         where account_id = ${accountId}
           and metric_date between ${from}::date and ${to}::date
       `;
       const periodDays = periodLength({ from, to });
       const nfDays = row?.nf_days ?? 0;
+      const erDays = row?.er_days ?? 0;
+      const saveDays = row?.save_days ?? 0;
       return {
         periodDays,
         reach: { sum: row?.reach_sum ?? null, days: row?.reach_days ?? 0 },
@@ -161,6 +183,8 @@ export const getDailyTotals = cache(
           used: nfDays,
           total: periodDays,
         },
+        er: { value: erDays === 0 ? null : ratio(row?.er_num, row?.er_den), used: erDays, total: periodDays },
+        saveRate: { value: saveDays === 0 ? null : ratio(row?.save_num, row?.save_den), used: saveDays, total: periodDays },
       };
     }),
 );
