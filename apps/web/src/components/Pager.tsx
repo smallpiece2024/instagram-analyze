@@ -37,9 +37,9 @@ export function pagerItems(current: number, pageCount: number): PagerItem[] {
   return items;
 }
 
-/** ページ送り（投稿一覧、収集ログ）。1 ページだけなら何も出さない。1 ページ目の URL には `page` を付けない */
-export function Pager({ page, pageCount, path, query, total, pageSize }: PagerProps) {
-  if (pageCount <= 1) return null;
+/** ページ送り（投稿一覧、収集ログ）。1 ページだけでも出す（前へと次へは押せない）。1 ページ目の URL には `page` を付けない */
+export function Pager({ page, pageCount: rawPageCount, path, query, total, pageSize }: PagerProps) {
+  const pageCount = Math.max(1, rawPageCount);
   const current = Math.min(Math.max(1, page), pageCount);
   const href = (p: number) => buildHref(path, query, { page: p > 1 ? p : undefined });
   const prev = current > 1 ? current - 1 : null;

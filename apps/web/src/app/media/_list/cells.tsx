@@ -12,7 +12,6 @@ import {
   ratioMissing,
   valueMissing,
 } from "@/lib/metrics";
-import type { ErDenominator } from "@/lib/params";
 import type { BaselineMetric, MediaListRow } from "@/lib/queries/media";
 
 /** 一覧の数値の列（並べ替えのキーと基準値の指標を兼ねる） */
@@ -31,19 +30,8 @@ function engagement(row: MediaListRow): number | null {
   return likes + comments + saved + shares;
 }
 
-function erDenominatorValue(row: MediaListRow, er: ErDenominator): number | null {
-  switch (er) {
-    case "reach":
-      return row.reach;
-    case "views":
-      return row.views;
-    case "followers":
-      return row.followers_at_post;
-  }
-}
-
 /** 値を出せない理由。値があれば null */
-export function cellMissing(row: MediaListRow, metric: ListMetric, er: ErDenominator): Missing | null {
+export function cellMissing(row: MediaListRow, metric: ListMetric): Missing | null {
   const value = row[metric];
   if (value != null) return null;
   const kind = rowKind(row);
@@ -56,7 +44,7 @@ export function cellMissing(row: MediaListRow, metric: ListMetric, er: ErDenomin
       m = ratioMissing("share_rate", kind, row.shares, row.reach);
       break;
     case "er":
-      m = ratioMissing("er", kind, engagement(row), erDenominatorValue(row, er));
+      m = ratioMissing("er", kind, engagement(row), row.reach);
       break;
     default:
       m = valueMissing(metric, kind, value);
@@ -70,8 +58,8 @@ export function formatMetric(metric: ListMetric, v: number | null): string {
 }
 
 /** 1 つの指標のセルの中身（値か「—」） */
-export function MetricValue({ row, metric, er }: { row: MediaListRow; metric: ListMetric; er: ErDenominator }) {
-  const missing = cellMissing(row, metric, er);
+export function MetricValue({ row, metric }: { row: MediaListRow; metric: ListMetric }) {
+  const missing = cellMissing(row, metric);
   if (missing) return <MissingValue missing={missing} />;
   return <>{formatMetric(metric, row[metric])}</>;
 }

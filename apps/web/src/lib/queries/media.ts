@@ -5,7 +5,6 @@
  * - すべての関数は第 1 引数に対象のアカウントの `accountId` を取る（4.1 節）
  * - 並べ替えはキー → 列名の固定の対応表で列名を決め、postgres.js の識別子ヘルパーで埋める。向きは 2 値の分岐で書く
  * - `numeric` は postgres.js では文字列になるので、SQL で `float8` にして数で返す
- * - 基準値（`tfoot`）は行と同じ各投稿の最新の値で、全投稿から計算する（3.1 節「比較の値」）
  */
 import "server-only";
 import { cache } from "react";
@@ -15,7 +14,7 @@ import { markDynamic } from "@/lib/dynamic";
 import { configMissingReason, readEnv } from "@/lib/env";
 import { PAGE_SIZE } from "@/lib/format";
 import type { MediaCsvRow } from "@/lib/csv";
-import type { ErDenominator, SortOrder } from "@/lib/params";
+import type { SortOrder } from "@/lib/params";
 import { readAuthEnv } from "@/lib/auth-env";
 import { signThumbnailUrls, THUMBNAIL_BUCKET } from "@/lib/storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -48,21 +47,6 @@ function orderBy(db: Db, sort: MediaSortKey, order: SortOrder) {
     : db`order by ${column} desc nulls last, posted_at desc, media_id desc`;
 }
 
-/**
- * ER の式（分母の切り替え。3.1 節）。リーチはビューの `er`、閲覧数は閲覧数、フォロワー数は投稿時のフォロワー数で割る。
- * 分母が 0 なら null
- */
-function erExpression(db: Db, er: ErDenominator) {
-  switch (er) {
-    case "views":
-      return db`(likes + comments + saved + shares) / nullif(views, 0)`;
-    case "followers":
-      return db`(likes + comments + saved + shares) / nullif(followers_at_post, 0)`;
-    case "reach":
-      return db`er`;
-  }
-}
-
 /* ------------------------------------------------------------------
  * 一覧
  * ------------------------------------------------------------------ */
@@ -72,7 +56,6 @@ export interface MediaListParams {
   order: SortOrder;
   /** 1 以上の整数（`parsePageNumber` で検査済み） */
   page: number;
-  er: ErDenominator;
 }
 
 export interface MediaListRow {
@@ -98,7 +81,7 @@ export interface MediaListRow {
   followers_at_post: number | null;
   save_rate: number | null;
   share_rate: number | null;
-  /** 選んだ分母の ER */
+  /** ER（分母はリーチ） */
   er: number | null;
   /** 閲覧数の定義が変わった日（`metric_definitions`）より前の投稿 */
   views_before_change: boolean;
@@ -123,7 +106,7 @@ export const listMedia = cache(
             comments::float8 as comments, saved::float8 as saved, shares::float8 as shares,
             profile_visits::float8 as profile_visits, followers_at_post::float8 as followers_at_post,
             save_rate::float8 as save_rate, share_rate::float8 as share_rate,
-            (${erExpression(db, params.er)})::float8 as er,
+            er::float8 as er,
             coalesce(posted_date_pt < (
               select min(d.available_from) from public.metric_definitions d where d.metric = 'views'
             ), false) as views_before_change
@@ -166,10 +149,10 @@ export const countMedia = cache(async (accountId: string): Promise<QueryResult<M
 });
 
 /* ------------------------------------------------------------------
- * 基準値（tfoot）
+ * 一覧の数値の列
  * ------------------------------------------------------------------ */
 
-/** 基準値を出す列（一覧の数値の列と同じ） */
+/** 一覧の数値の列 */
 export const BASELINE_METRICS = [
   "reach",
   "views",
@@ -182,75 +165,8 @@ export const BASELINE_METRICS = [
 ] as const;
 export type BaselineMetric = (typeof BASELINE_METRICS)[number];
 
-export interface BaselineStats {
-  /** その指標で値のある投稿の数 */
-  n: number;
-  mean: number | null;
-  q25: number | null;
-  median: number | null;
-  q75: number | null;
-}
-
-export type MediaBaseline = Record<BaselineMetric, BaselineStats>;
-
-/** `tfoot` の基準値。全投稿（削除済みを含む）の最新の値の平均と分位（`percentile_cont`）と、指標ごとの n */
-export const getMediaBaseline = cache(
-  async (accountId: string, er: ErDenominator): Promise<QueryResult<MediaBaseline>> => {
-    await markDynamic();
-    const env = readEnv();
-    if (!env.ok) return { ok: false, reason: configMissingReason(env.missing) };
-    try {
-      const db = dbFromEnv(env.env);
-      const parts = BASELINE_METRICS.map((m) => {
-        const c = db(m);
-        return db`
-          count(${c})::int as ${db(`${m}_n`)},
-          avg(${c})::float8 as ${db(`${m}_mean`)},
-          (percentile_cont(0.25) within group (order by ${c}))::float8 as ${db(`${m}_q25`)},
-          (percentile_cont(0.5) within group (order by ${c}))::float8 as ${db(`${m}_median`)},
-          (percentile_cont(0.75) within group (order by ${c}))::float8 as ${db(`${m}_q75`)}
-        `;
-      });
-      const [first, ...rest] = parts;
-      if (first === undefined) return { ok: false, reason: "DB エラー" };
-      const columns = rest.reduce((acc, p) => db`${acc}, ${p}`, first);
-      const [row] = await db<Record<string, number | null>[]>`
-        with r as (
-          select
-            reach::float8 as reach, views::float8 as views, likes::float8 as likes, saved::float8 as saved,
-            save_rate::float8 as save_rate, share_rate::float8 as share_rate,
-            (${erExpression(db, er)})::float8 as er,
-            profile_visits::float8 as profile_visits
-          from public.media_list_metrics
-          where account_id = ${accountId}
-        )
-        select ${columns} from r
-      `;
-      const pick = (key: string): number | null => {
-        const v = row?.[key];
-        return typeof v === "number" && Number.isFinite(v) ? v : null;
-      };
-      const baseline = Object.fromEntries(
-        BASELINE_METRICS.map((m) => [
-          m,
-          {
-            n: pick(`${m}_n`) ?? 0,
-            mean: pick(`${m}_mean`),
-            q25: pick(`${m}_q25`),
-            median: pick(`${m}_median`),
-            q75: pick(`${m}_q75`),
-          },
-        ]),
-      ) as MediaBaseline;
-      return { ok: true, data: baseline };
-    } catch (e) {
-      return { ok: false, reason: describeDbError(e) };
-    }
-  },
-);
-
 /* ------------------------------------------------------------------
- * 画面の 1 ページ分（一覧、総件数、基準値、サムネイルの署名）
+ * 画面の 1 ページ分（一覧、総件数、サムネイルの署名）
  * ------------------------------------------------------------------ */
 
 export interface MediaListRowWithThumbnail extends MediaListRow {
@@ -265,20 +181,14 @@ export interface MediaPage {
   total: number;
   last_fetched_at: Date | null;
   items: MediaListRowWithThumbnail[];
-  baseline: MediaBaseline;
 }
 
-/** 投稿一覧の 1 ページ。3 つのクエリを並べて読み、1 ページ分の投稿に署名付き URL を付ける。署名に失敗してもページは返す */
+/** 投稿一覧の 1 ページ。2 つのクエリを並べて読み、1 ページ分の投稿に署名付き URL を付ける。署名に失敗してもページは返す */
 export const getMediaPage = cache(
   async (accountId: string, params: MediaListParams): Promise<QueryResult<MediaPage>> => {
-    const [list, count, baseline] = await Promise.all([
-      listMedia(accountId, params),
-      countMedia(accountId),
-      getMediaBaseline(accountId, params.er),
-    ]);
+    const [list, count] = await Promise.all([listMedia(accountId, params), countMedia(accountId)]);
     if (!list.ok) return list;
     if (!count.ok) return count;
-    if (!baseline.ok) return baseline;
     const paths = list.data.map((m) => m.thumbnail_path).filter((p): p is string => typeof p === "string");
     const signed = paths.length > 0 ? await signWithSession(paths) : new Map<string, string>();
     const items = list.data.map((m) => ({
@@ -293,7 +203,6 @@ export const getMediaPage = cache(
         total: count.data.total,
         last_fetched_at: count.data.last_fetched_at,
         items,
-        baseline: baseline.data,
       },
     };
   },

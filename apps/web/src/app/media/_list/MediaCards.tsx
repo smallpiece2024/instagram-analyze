@@ -7,7 +7,6 @@ import { Thumb } from "@/components/Thumb";
 import { SpecialTags, TypeTag } from "@/components/TypeTag";
 import { formatElapsedDays, formatJst, mediaTitle } from "@/lib/format";
 import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
-import type { ErDenominator } from "@/lib/params";
 import type { MediaListRowWithThumbnail } from "@/lib/queries/media";
 import { type ListMetric, MetricValue, rowKind } from "./cells";
 
@@ -18,7 +17,7 @@ const CARD_METRICS: readonly { key: ListMetric; label: string }[] = [
   { key: "er", label: METRIC_DEFINITIONS.er.label },
 ];
 
-export function MediaCards({ items, er }: { items: readonly MediaListRowWithThumbnail[]; er: ErDenominator }) {
+export function MediaCards({ items }: { items: readonly MediaListRowWithThumbnail[] }) {
   return (
     <div className="only-m media-cards">
       {items.map((m) => {
@@ -49,7 +48,7 @@ export function MediaCards({ items, er }: { items: readonly MediaListRowWithThum
                 {CARD_METRICS.map((c) => (
                   <div key={c.key}>
                     <b>
-                      <MetricValue row={m} metric={c.key} er={er} />
+                      <MetricValue row={m} metric={c.key} />
                     </b>
                     <span>{c.label}</span>
                   </div>
