@@ -13,8 +13,10 @@
  * 4. 指標: 一覧にある**すべて**のストーリーズについて毎回 `media_insight_snapshots` に 1 行（5.5 章の間隔の規則は使わない。
  *    実行ごとに 1 行で、確定値は消える前の最後の行）。`transient` は行を書かず、`fatal` は null の行
  * 5. 動画解析: `media_type = 'VIDEO'` で、同じ解析条件（`ANALYZER_VERSION`、`DEFAULT_SCENE_THRESHOLD`）の結果が `success`
- *    でないものを `analyzeVideo` → `upsertVideoAnalysis`（1 本 1 トランザクション）。`failed` と `no_video_url` は 3 時間後に
- *    再試行（`isAnalysisRetryDue`）。`media_url` が返らない（P2）ときは `no_video_url` を記録するだけで失敗に数えない
+ *    でないものを `analyzeAndStore`（`jobs/video-store.ts`。解析 → 1 本 1 トランザクションの書き込み → `failed` なら
+ *    `recordFailure`）。`failed` と `no_video_url` は 3 時間後に再試行（`isAnalysisRetryDue`）。打ち切り（`attempt_count`）は
+ *    掛けない（24 時間で一覧から消える。R4 設計 3.6 節）。`media_url` が返らない（P2）ときは `no_video_url` を記録するだけで
+ *    失敗に数えない
  *
  * - `items_fetched` はスナップショットを書いた枚数。ログに `videos_analyzed=` と `no_video_url=` も出す
  * - API の呼び出し（`ctx.graph`）、ダウンロード、Storage は `ctx.db.begin` の外で行う（`max: 2`。`framework.ts` の注意）
@@ -25,16 +27,19 @@
 import { markGone, upsertMedia, type MediaUpsert } from "../db/media.js";
 import { insertSnapshot, listSnapshotCandidates } from "../db/snapshots.js";
 import type { MediaProductType } from "../db/types.js";
-import { latestAnalysis, upsertVideoAnalysis } from "../db/video.js";
-import type { DownloadLimits } from "../lib/download.js";
+import { latestAnalysis } from "../db/video.js";
 import { DEFAULT_SCENE_THRESHOLD } from "../lib/ffmpeg.js";
 import { elapsedSeconds, storyExpiresAt } from "../lib/time.js";
-import { ANALYZER_VERSION, analyzeVideo, isAnalysisRetryDue, type VideoAnalysisDeps } from "../lib/video-analysis.js";
+import { ANALYZER_VERSION, isAnalysisRetryDue, type VideoAnalysisDeps } from "../lib/video-analysis.js";
 import type { SaveThumbnailDeps } from "../storage/thumbnails.js";
 import type { JobContext, JobDefinition } from "./framework.js";
 import type { Tracked } from "./graph-client.js";
 import { fetchMediaInsights } from "./media-metrics.js";
 import { isMediaId, saveItemThumbnail, toMediaRow, type MediaListItem } from "./media-sync.js";
+import { analyzeAndStore } from "./video-store.js";
+
+// R1 から stories.ts が出していた動画の定数と関数（R4 で video-store.ts に移した。既存の import のために出し直す）
+export { VIDEO_ANALYSIS_FAILED_ERROR, VIDEO_DOWNLOAD_TIMEOUT_MS, VIDEO_MAX_BYTES, videoDownloadLimits } from "./video-store.js";
 
 /** 一覧の `fields`（設計 5.6 章） */
 export const STORIES_LIST_FIELDS = "id,media_type,media_product_type,timestamp,caption,permalink,media_url,thumbnail_url";
@@ -42,10 +47,6 @@ export const STORIES_LIST_FIELDS = "id,media_type,media_product_type,timestamp,c
 export const STORY_PRODUCT_TYPES: readonly MediaProductType[] = ["STORY"];
 /** 消失判定の余裕。`expires_at` がこれより先なのに一覧にないものだけを「手で削除」とみなす（設計 5.6 章） */
 export const GONE_GRACE_MS = 10 * 60 * 1000;
-/** 動画のダウンロードの上限（設計 3.7 章、13.3 章） */
-export const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
-/** 動画のダウンロードの制限時間（設計 3.7 章） */
-export const VIDEO_DOWNLOAD_TIMEOUT_MS = 60_000;
 
 /** 一覧の項目を行にできなかったときの `recordFailure` の文言 */
 export const INVALID_STORY_ITEM_ERROR = "ストーリーズの項目を読めない（ID、種類、日時のいずれかが不正）";
@@ -53,8 +54,6 @@ export const INVALID_STORY_ITEM_ERROR = "ストーリーズの項目を読めな
 export const NOT_STORY_WARNING = "ストーリーズの一覧に STORY 以外の項目があった（無視した）";
 /** 動画ストーリーズに `media_url` が返らなかったときの `warn` の文言（P2。失敗には数えない） */
 export const NO_VIDEO_URL_WARNING = "動画ストーリーズに media_url が返らなかった（no_video_url を記録した）";
-/** 動画解析が `failed` で `error` が null だったときの `recordFailure` の文言（通常は `error` に理由が入る） */
-export const VIDEO_ANALYSIS_FAILED_ERROR = "動画の解析に失敗";
 /**
  * 一覧が空（HTTP 200 の `data: []`）なのに、`expires_at` が 10 分以上先のストーリーズが残っているときに消失判定を
  * 見送る `warn` の文言（API の一時的な異常で全部を消失扱いにしないため。`media_sync` と同じ保護）。失敗には数えない
@@ -114,11 +113,6 @@ export function partitionStoryItems(items: MediaListItem[], accountId: string): 
     stories.push({ row, item });
   }
   return { stories, notStory, invalid, invalidIds };
-}
-
-/** 動画のダウンロードの `DownloadLimits`。`allowedHosts` は `config.downloadAllowedHosts` */
-export function videoDownloadLimits(allowedHosts: string[]): DownloadLimits {
-  return { maxBytes: VIDEO_MAX_BYTES, timeoutMs: VIDEO_DOWNLOAD_TIMEOUT_MS, allowedHosts };
 }
 
 /** 空文字と文字列以外は undefined にする（API の JSON なので型を確かめる） */
@@ -254,28 +248,13 @@ export function createStoriesJob(deps: StoriesDeps = {}): JobDefinition {
         if (entry.row.media_type !== "VIDEO") continue;
         const latest = await latestAnalysis(ctx.db, id, ANALYZER_VERSION, DEFAULT_SCENE_THRESHOLD);
         if (!isAnalysisRetryDue(latest, ctx.now())) continue;
-        const result = await analyzeVideo(
-          {
-            mediaId: id,
-            videoUrl: nonEmptyString(entry.item.media_url),
-            limits: videoDownloadLimits(ctx.config.downloadAllowedHosts),
-            sceneThreshold: DEFAULT_SCENE_THRESHOLD,
-            now: ctx.now,
-            mask: ctx.mask,
-          },
-          deps,
-        );
-        await ctx.db.begin((tx) => upsertVideoAnalysis(tx, result.row, result.cuts));
-        if (result.row.status === "success") {
+        // failed の recordFailure は analyzeAndStore の中で済んでいる
+        const { status } = await analyzeAndStore(ctx, { mediaId: id, videoUrl: nonEmptyString(entry.item.media_url) }, deps);
+        if (status === "success") {
           videosAnalyzed += 1;
-        } else if (result.row.status === "no_video_url") {
+        } else if (status === "no_video_url") {
           noVideoUrl += 1;
           ctx.log.warn({ job: "stories", error: NO_VIDEO_URL_WARNING });
-        } else {
-          ctx.recordFailure({
-            errorClass: result.failureClass ?? "unknown",
-            message: result.row.error ?? VIDEO_ANALYSIS_FAILED_ERROR,
-          });
         }
       }
 

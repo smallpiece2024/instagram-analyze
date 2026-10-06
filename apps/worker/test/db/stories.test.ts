@@ -244,6 +244,8 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com", "fbcdn.net"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 
   const STORAGE_PREFIX = "/storage/v1/object/thumbnails/";

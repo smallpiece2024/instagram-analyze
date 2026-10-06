@@ -9,9 +9,12 @@ import {
   ANALYZER_VERSION,
   analyzeVideo,
   isAnalysisRetryDue,
+  MAX_VIDEO_DURATION_MS,
   normalizeCutTimes,
+  normalizeSceneChanges,
   summarizeCuts,
   TEMP_DIR_ERROR,
+  VIDEO_TOO_LONG_ERROR,
   type VideoAnalysisInput,
 } from "../src/lib/video-analysis.js";
 import { TMP_DIR_PREFIX } from "../src/jobs/framework.js";
@@ -586,5 +589,91 @@ describe("analyzeVideo", () => {
     expect(paths).toHaveLength(2);
     expect(paths[0]).toBe(paths[1]);
     expect(paths[0]?.startsWith(join(tmpdir(), VIDEO_TMP_PREFIX))).toBe(true);
+  });
+});
+
+describe("R4: analyzeVideo の入力の制限、制限時間、点数（R4 設計 3.2 節、3.5 節、4.3 節）", () => {
+  it("長さが 15 分を超えたらシーン検出をせず failed（固定文言）。15 分ちょうどは検出する", async () => {
+    let detectCalls = 0;
+    const detect = async () => {
+      detectCalls += 1;
+      return [];
+    };
+    const long = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => ({ ...PROBE, durationMs: MAX_VIDEO_DURATION_MS + 1 }),
+      detect,
+    });
+    expect(long.row).toMatchObject({ status: "failed", error: VIDEO_TOO_LONG_ERROR, duration_ms: null });
+    expect(long.failureClass).toBe("unknown");
+    expect(detectCalls).toBe(0);
+    const edge = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => ({ ...PROBE, durationMs: MAX_VIDEO_DURATION_MS }),
+      detect,
+    });
+    expect(edge.row.status).toBe("success");
+    expect(detectCalls).toBe(1);
+  });
+
+  it("シーン検出の制限時間に max(60 秒, 長さ × 3)（上限 5 分）を渡す。長さ 0 でも 60 秒で、success（avg_scene_ms は null）", async () => {
+    const seen: (number | undefined)[] = [];
+    const detect = async (_p: string, _t: number, timeoutMs?: number) => {
+      seen.push(timeoutMs);
+      return [];
+    };
+    await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 40_000 }), detect });
+    await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 600_000 }), detect });
+    const zero = await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 0 }), detect });
+    expect(seen).toEqual([120_000, 300_000, 60_000]);
+    expect(zero.row).toMatchObject({ status: "success", duration_ms: 0, avg_scene_ms: null, cut_count: 0 });
+  });
+
+  it("ダウンロードの content-type が video/ でなければ failed（download）で、probe も detect も呼ばない", async () => {
+    let probeCalls = 0;
+    const fetchImpl: typeof fetch = async () =>
+      new Response(streamOf([encoder.encode("<html>")]), { status: 200, headers: { "content-type": "text/html" } });
+    const result = await analyzeVideo(baseInput(), {
+      fetchImpl,
+      probe: async () => {
+        probeCalls += 1;
+        return PROBE;
+      },
+      detect: async () => [],
+    });
+    expect(result.row).toMatchObject({ status: "failed", error: "content-type が想定外" });
+    expect(result.failureClass).toBe("download");
+    expect(probeCalls).toBe(0);
+  });
+
+  it("detect の点数を cuts の scene_score に入れる（時刻は normalizeCutTimes と同じ規則で整える）", async () => {
+    const result = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => PROBE,
+      detect: async () => [
+        { atMs: 4200.4, score: 0.5 },
+        { atMs: 1500, score: 0.312345 },
+        { atMs: 1500, score: 0.9 },
+        { atMs: 999_999, score: 0.8 },
+      ],
+    });
+    expect(result.cuts).toEqual([
+      { seq: 1, at_ms: 1500, scene_score: 0.312345 },
+      { seq: 2, at_ms: 4200, scene_score: 0.5 },
+    ]);
+    expect(result.row.cut_count).toBe(2);
+  });
+});
+
+describe("normalizeSceneChanges", () => {
+  it("数値だけの要素は点数 null。時刻は normalizeCutTimes と同じ列になる", () => {
+    const input = [3000, { atMs: -1, score: 0.5 }, { atMs: 2000, score: Number.NaN }, Number.NaN, 2000.6];
+    const out = normalizeSceneChanges(10_000, input);
+    expect(out).toEqual([
+      { at_ms: 2000, scene_score: null },
+      { at_ms: 2001, scene_score: null },
+      { at_ms: 3000, scene_score: null },
+    ]);
+    expect(out.map((c) => c.at_ms)).toEqual(normalizeCutTimes(10_000, [3000, -1, 2000, Number.NaN, 2000.6]));
   });
 });

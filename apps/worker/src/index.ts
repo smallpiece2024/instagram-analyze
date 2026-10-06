@@ -16,6 +16,7 @@ import { registerToken } from "./commands/register-token.js";
 import { groupCommand, jobCommand, type CommandSpec } from "./commands/run-job.js";
 import { schedule } from "./commands/schedule.js";
 import { verifyApi } from "./commands/verify-api.js";
+import { videoTune } from "./commands/video-tune.js";
 import { job as accountBackfillJob } from "./jobs/account-backfill.js";
 import { job as accountDailyJob } from "./jobs/account-daily.js";
 import { cleanOldTempDirs, describeError, processSecrets } from "./jobs/framework.js";
@@ -25,6 +26,7 @@ import { job as mediaSyncJob } from "./jobs/media-sync.js";
 import { job as profileDailyJob } from "./jobs/profile-daily.js";
 import { job as storiesJob } from "./jobs/stories.js";
 import { job as tokenCheckJob } from "./jobs/token-check.js";
+import { job as videoAnalysisJob } from "./jobs/video-analysis.js";
 
 type Command = CommandSpec;
 
@@ -41,7 +43,12 @@ const COMMANDS: Record<string, Command> = {
   "media-sync": jobCommand(mediaSyncJob, "投稿一覧の同期。--full で全ページを読み、消えた投稿を検出する"),
   "media-snapshot": jobCommand(mediaSnapshotJob, "投稿指標のスナップショット"),
   stories: jobCommand(storiesJob, "ストーリーズの一覧、指標、動画解析"),
-  "run-hourly": groupCommand("hourly", HOURLY_JOBS, "stories → media-sync → media-snapshot → account-backfill を順に実行"),
+  "video-analysis": jobCommand(videoAnalysisJob, "リールとフィード動画の解析（1 回の本数と時間に上限あり）"),
+  "run-hourly": groupCommand(
+    "hourly",
+    HOURLY_JOBS,
+    "stories → media-sync → media-snapshot → video-analysis → account-backfill を順に実行",
+  ),
   "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → media-sync --full を順に実行"),
   "daily-due": {
     description: "前回の account-daily の成功から 24 時間を過ぎていれば due=true、そうでなければ due=false を標準出力に書く",
@@ -58,6 +65,10 @@ const COMMANDS: Record<string, Command> = {
   "check-env": {
     description: "ffmpeg / ffprobe の動作と、動画の長さ・カットの取得を検証用動画で確かめる",
     run: () => checkEnv(),
+  },
+  "video-tune": {
+    description: "シーン検出のしきい値ごとのカットの数と時刻を表で出す（手元専用。DB に書かない。--thresholds 0.2,0.3）",
+    run: (args) => videoTune(args),
   },
   "verify-api": {
     description: "Meta API で取得できる項目と制約を実機で検証し、結果を .local/api-verification に書き出す",

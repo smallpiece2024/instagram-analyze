@@ -14,7 +14,15 @@ export interface DownloadLimits {
   timeoutMs: number;
   /** 許可するホスト（後方一致。`cdninstagram.com` は `scontent-xxx.cdninstagram.com` に一致する） */
   allowedHosts: string[];
+  /**
+   * 応答の `content-type` がこれで始まらなければ本文を読まずに `DownloadError`（R4 設計 3.5 節。動画は `video/`）。
+   * 大文字と小文字は区別しない。省略時は検査しない（サムネイル）
+   */
+  contentTypePrefix?: string;
 }
+
+/** `content-type` が `contentTypePrefix` で始まらなかったときの `DownloadError` の文言（値は入れない） */
+export const CONTENT_TYPE_ERROR = "content-type が想定外";
 
 /** ダウンロードの失敗。`message` は固定文言で、URL を含まない */
 export class DownloadError extends Error {
@@ -61,7 +69,8 @@ async function discardBody(res: Response): Promise<void> {
  * - `limits.timeoutMs` で中断する（`AbortSignal.timeout`）
  * - 受信バイト数が `limits.maxBytes` を超えたら中断して `destPath` を消す
  * 失敗はすべて `DownloadError`（`許可されていない URL`、`サイズ上限を超過`、`タイムアウト`、`HTTP <status>`、
- * `本文がない`、`ネットワークエラー`、`ファイルの書き込みに失敗`）。
+ * `本文がない`、`ネットワークエラー`、`ファイルの書き込みに失敗`、`content-type が想定外`）。
+ * - `limits.contentTypePrefix` があれば、`content-type` がそれで始まらない応答を本文を読まずに拒む
  */
 export async function downloadToFile(
   url: string,
@@ -89,6 +98,13 @@ export async function downloadToFile(
     throw new DownloadError("サイズ上限を超過");
   }
   const contentType = res.headers.get("content-type") ?? undefined;
+  if (
+    limits.contentTypePrefix !== undefined &&
+    !(contentType ?? "").trim().toLowerCase().startsWith(limits.contentTypePrefix.toLowerCase())
+  ) {
+    await discardBody(res);
+    throw new DownloadError(CONTENT_TYPE_ERROR);
+  }
   if (!res.body) {
     // 204 などの本文なし。動画や画像のダウンロードでは起きないはずなので失敗にする（空のファイルを作らない）
     throw new DownloadError("本文がない");

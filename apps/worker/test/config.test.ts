@@ -55,6 +55,8 @@ describe("loadWorkerConfig", () => {
       logLevel: "info",
       outputDir: ".local",
       downloadAllowedHosts: [...DOWNLOAD_ALLOWED_HOSTS],
+      videoMaxPerRun: 5,
+      videoBudgetMs: 480_000,
     });
   });
 

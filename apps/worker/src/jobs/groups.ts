@@ -2,9 +2,9 @@
  * ジョブのグループ（設計 1.1 章、6.1 章）。グループの中のジョブは直列に動き、前のジョブが失敗しても次に進む。
  *
  * 実行順（設計 6.1 章）:
- * - hourly（毎時 `WORKER_HOURLY_MINUTE` 分）: `stories` → `media_sync` → `media_snapshot` → `account_backfill`
- *   （ストーリーズは消えるので最優先。投稿一覧を先に同期してから新しい投稿のスナップショットを取る。
- *   バックフィルは余ったレート制限で進める）
+ * - hourly（毎時 `WORKER_HOURLY_MINUTE` 分）: `stories` → `media_sync` → `media_snapshot` → `video_analysis` →
+ *   `account_backfill`（ストーリーズは消えるので最優先。投稿一覧を先に同期してから新しい投稿のスナップショットを取る。
+ *   動画の解析は指標の収集の後（R4 設計 3.2 節。新しい投稿も同じ回に解析できる）。バックフィルは余ったレート制限で進める）
  * - daily（JST `WORKER_DAILY_TIME_JST`）: `token_check` → `profile_daily` → `account_daily` → `media_sync --full`
  *   （トークンの状態を先に更新する。残りは独立）
  *
@@ -18,6 +18,7 @@ import { job as mediaSyncJob } from "./media-sync.js";
 import { job as profileDailyJob } from "./profile-daily.js";
 import { job as storiesJob } from "./stories.js";
 import { job as tokenCheckJob } from "./token-check.js";
+import { job as videoAnalysisJob } from "./video-analysis.js";
 
 export type GroupName = "hourly" | "daily";
 
@@ -32,6 +33,7 @@ export const HOURLY_JOBS: GroupEntry[] = [
   { def: storiesJob },
   { def: mediaSyncJob },
   { def: mediaSnapshotJob },
+  { def: videoAnalysisJob },
   { def: accountBackfillJob },
 ];
 

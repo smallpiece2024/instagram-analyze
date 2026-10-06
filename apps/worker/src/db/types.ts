@@ -40,7 +40,8 @@ export type JobName =
   | "account_backfill"
   | "media_sync"
   | "media_snapshot"
-  | "stories";
+  | "stories"
+  | "video_analysis";
 
 /** `job_runs.status` */
 export type JobStatus = "running" | "success" | "partial" | "failed" | "skipped";
@@ -211,6 +212,8 @@ export interface VideoAnalysisRow {
   avg_scene_ms: number | null;
   first_cut_ms: number | null;
   cuts_in_first_3s: number | null;
+  /** 同じ条件で書いた回数（R4。挿入で 1、同じ条件の上書きごとに 1 増える。DB が数える） */
+  attempt_count: number;
 }
 
 /** `public.video_cuts` */

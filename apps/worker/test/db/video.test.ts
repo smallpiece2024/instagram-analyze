@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { upsertAccount } from "../../src/db/accounts.js";
 import { closeDb, connectDb, type Db } from "../../src/db/client.js";
-import { getVideoAnalysis, latestAnalysis, upsertVideoAnalysis, type VideoAnalysisInsert } from "../../src/db/video.js";
+import {
+  getVideoAnalysis,
+  latestAnalysis,
+  upsertVideoAnalysis,
+  writeVideoAnalysis,
+  type VideoAnalysisInsert,
+} from "../../src/db/video.js";
+import { DEFAULT_SCENE_THRESHOLD } from "../../src/lib/ffmpeg.js";
 import { ANALYZER_VERSION } from "../../src/lib/video-analysis.js";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -132,13 +139,13 @@ describe.skipIf(!TEST_DATABASE_URL)("db/video（結合）", () => {
     ]);
   });
 
-  it("latestAnalysis は status と analyzed_at を返し、なければ undefined", async () => {
+  it("latestAnalysis は status、analyzed_at、attempt_count を返し、なければ undefined", async () => {
     const analyzedAt = new Date("2026-10-01T16:00:00Z");
     await db.begin((tx) =>
       upsertVideoAnalysis(tx, successRow(mediaId, { status: "failed", error: "HTTP 404", analyzed_at: analyzedAt }), []),
     );
     const latest = await latestAnalysis(db, mediaId, ANALYZER_VERSION, THRESHOLD);
-    expect(latest).toEqual({ status: "failed", analyzed_at: analyzedAt });
+    expect(latest).toEqual({ status: "failed", analyzed_at: analyzedAt, attempt_count: expect.any(Number) });
 
     expect(await latestAnalysis(db, mediaId, "999", THRESHOLD)).toBeUndefined();
     expect(await latestAnalysis(db, mediaId, ANALYZER_VERSION, 0.9)).toBeUndefined();
@@ -245,7 +252,7 @@ describe.skipIf(!TEST_DATABASE_URL)("db/video（結合）", () => {
     expect(await countCuts(id)).toBe(0);
 
     const stored = await getVideoAnalysis(db, mediaId, ANALYZER_VERSION, THRESHOLD);
-    expect(stored?.row).toEqual({ id, ...nullRow });
+    expect(stored?.row).toEqual({ id, ...nullRow, attempt_count: expect.any(Number) });
     expect(stored?.cuts).toEqual([]);
 
     await db.begin((tx) => upsertVideoAnalysis(tx, { ...nullRow, status: "failed", error: "タイムアウト" }, []));
@@ -278,5 +285,41 @@ describe.skipIf(!TEST_DATABASE_URL)("db/video（結合）", () => {
     await db`delete from public.media where id = ${victim}`;
     expect(await countAnalyses(victim)).toBe(0);
     expect(await countCuts(id)).toBe(0);
+  });
+  it("attempt_count（R4）: 挿入で 1、同じ条件で書くたびに 1 増え（success で上書きしても増える）、writeVideoAnalysis が書いた後の値を返す。条件が違えば別の行で 1 から", async () => {
+    const id = fakeMediaId();
+    await insertMedia(id);
+    const first = await db.begin((tx) => writeVideoAnalysis(tx, successRow(id, { status: "failed", error: "HTTP 404" }), []));
+    expect(first.attempt_count).toBe(1);
+    const second = await db.begin((tx) => writeVideoAnalysis(tx, successRow(id, { status: "no_video_url", error: null }), []));
+    expect(second).toEqual({ id: first.id, attempt_count: 2 });
+    const third = await db.begin((tx) => writeVideoAnalysis(tx, successRow(id), [{ seq: 1, at_ms: 1500, scene_score: 0.4 }]));
+    expect(third).toEqual({ id: first.id, attempt_count: 3 });
+    expect((await latestAnalysis(db, id, ANALYZER_VERSION, THRESHOLD))?.attempt_count).toBe(3);
+    expect((await getVideoAnalysis(db, id, ANALYZER_VERSION, THRESHOLD))?.row.attempt_count).toBe(3);
+    const other = await db.begin((tx) => writeVideoAnalysis(tx, successRow(id, { scene_threshold: OTHER_THRESHOLD }), []));
+    expect(other.attempt_count).toBe(1);
+    expect(other.id).not.toBe(first.id);
+  });
+
+  it("scene_score は numeric(5, 4) に丸めて入る（ffmpeg の小数 6 桁）", async () => {
+    const id = fakeMediaId();
+    await insertMedia(id);
+    await db.begin((tx) =>
+      writeVideoAnalysis(tx, successRow(id), [
+        { seq: 1, at_ms: 1500, scene_score: 0.312345 },
+        { seq: 2, at_ms: 2500, scene_score: 1 },
+      ]),
+    );
+    const stored = await getVideoAnalysis(db, id, ANALYZER_VERSION, THRESHOLD);
+    expect(stored?.cuts.map((c) => c.scene_score)).toEqual([0.3123, 1]);
+  });
+
+  it("current_video_condition() はワーカーの ANALYZER_VERSION と DEFAULT_SCENE_THRESHOLD と一致する（R4 設計 5.1 節）", async () => {
+    const [row] = await db<{ analyzer_version: string; scene_threshold: string }[]>`
+      select analyzer_version, scene_threshold from public.current_video_condition()
+    `;
+    expect(row?.analyzer_version).toBe(ANALYZER_VERSION);
+    expect(Number(row?.scene_threshold)).toBe(DEFAULT_SCENE_THRESHOLD);
   });
 });

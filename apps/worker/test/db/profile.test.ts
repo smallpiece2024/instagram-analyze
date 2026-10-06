@@ -135,6 +135,8 @@ describe.skipIf(!TEST_DATABASE_URL)("db/profile と jobs/profile-daily（結合�
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 
   const fetchImpl: typeof fetch = async (input, init) => {
