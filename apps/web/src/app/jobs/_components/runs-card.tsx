@@ -9,6 +9,7 @@ import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { buildHref, type Query } from "@/components/href";
 import { Pager } from "@/components/Pager";
+import { PendingMark } from "@/components/PendingMark";
 import { EMPTY, formatCount, formatJst, JOB_ORDER, jobRowView, type JobName, type JobStatus } from "@/lib/format";
 import { listRecentRuns, RUNS_PAGE_SIZE, type JobRunView } from "@/lib/queries/jobs";
 import { runState } from "./schedule";
@@ -19,6 +20,7 @@ function Chip({ href, active, children }: { href: string; active: boolean; child
   return (
     <Link className="chip" href={href} aria-current={active ? "true" : undefined}>
       {children}
+      <PendingMark />
     </Link>
   );
 }
