@@ -61,6 +61,9 @@ export function NoAnalysis({ title, className = "col-12" }: { title: string; cla
  * 要因との関係
  * ------------------------------------------------------------------ */
 
+/** 半幅のカード（上位と下位と横に並べる）で描くフォレストの幅 */
+const FOREST_WIDTH = 280;
+
 export function CorrelationCard({ view }: { view: ReelsView }) {
   const label = OBJECTIVE_LABEL[view.y];
   const rows = view.correlations.map((c) => {
@@ -71,7 +74,7 @@ export function CorrelationCard({ view }: { view: ReelsView }) {
     <Card
       title={`${label}と結び付いている要因`}
       sub={`n = ${view.analyzedN}`}
-      className="col-12"
+      className="col-6"
       foot={`右（+）ほど、その値が大きいリールほど${label}が高い。左（−）ほど、その値が小さいリールほど${label}が高い。線は 95% の幅。`}
     >
       <Legend
@@ -80,7 +83,7 @@ export function CorrelationCard({ view }: { view: ReelsView }) {
           { label: "幅が 0 をまたぐ（まだわからない）", color: "var(--chart-axis)" },
         ]}
       />
-      <Forest rows={rows} />
+      <Forest rows={rows} width={FOREST_WIDTH} />
     </Card>
   );
 }
@@ -91,7 +94,7 @@ export function CorrelationCard({ view }: { view: ReelsView }) {
 
 function Thumbs({ rows, urls, y }: { rows: readonly ReelRow[]; urls: ReadonlyMap<string, string>; y: Objective }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "4px 0 0" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6, margin: "6px 0 0" }}>
       {rows.map((r) => {
         const title = mediaTitle(r.caption);
         const tip = `${title}（${OBJECTIVE_LABEL[y]} ${formatValue(r[y], objectiveFormat(y))}）`;
@@ -110,7 +113,7 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
   const tb = view.topBottom;
   if (tb === null) {
     return (
-      <Card title={`${label}の上位と下位`} sub={`n = ${view.analyzedN}`} className="col-12">
+      <Card title={`${label}の上位と下位`} sub={`n = ${view.analyzedN}`} className="col-6">
         <p className="small muted">n = {view.analyzedN}</p>
       </Card>
     );
@@ -120,29 +123,23 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
     <Card
       title={`${label}の上位と下位`}
       sub={`n = ${tb.n}`}
-      className="col-12"
+      className="col-6"
       foot="値は各群の中央値。冒頭 3 秒の画面変化は 1 回以上のリールの割合。"
     >
-      <div className="grid" style={{ marginBottom: "var(--gap)" }}>
-        <div className="col-6">
-          <p className="small muted">上位 25%（{tb.q} 件）</p>
-          <Thumbs rows={tb.top} urls={urls} y={view.y} />
-        </div>
-        <div className="col-6">
-          <p className="small muted">下位 25%（{tb.q} 件）</p>
-          <Thumbs rows={tb.bottom} urls={urls} y={view.y} />
-        </div>
-      </div>
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th scope="col">項目</th>
-              <th scope="col" className="num">
-                上位 25%
+              <th scope="col" style={{ verticalAlign: "top" }}>
+                項目
               </th>
-              <th scope="col" className="num">
-                下位 25%
+              <th scope="col" className="num" style={{ verticalAlign: "top" }}>
+                上位 25%（{tb.q} 件）
+                <Thumbs rows={tb.top} urls={urls} y={view.y} />
+              </th>
+              <th scope="col" className="num" style={{ verticalAlign: "top" }}>
+                下位 25%（{tb.q} 件）
+                <Thumbs rows={tb.bottom} urls={urls} y={view.y} />
               </th>
             </tr>
           </thead>

@@ -502,7 +502,7 @@
 }
 
 /* ---------- リール分析（R4 設計 6.2 節） ---------- */
-.forest__row { display: grid; grid-template-columns: 11em 6.5em minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 4px 0; }
+.forest__row { display: grid; grid-template-columns: 11em 4em minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 4px 0; }
 .forest__row--axis { padding: 0; }
 .forest__value { text-align: right; white-space: nowrap; }
 /* スクロールの枠の中で、サムネイルと題名の列を固定する */
