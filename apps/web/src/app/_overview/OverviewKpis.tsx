@@ -1,9 +1,9 @@
 import { Card } from "@/components/Card";
 import { Kpi } from "@/components/Kpi";
 import { EMPTY, formatCount, formatPercent, formatSignedCount } from "@/lib/format";
-import { deltaCount, deltaPoint, deltaRate } from "@/lib/metrics";
+import { deltaCount, deltaPoint, deltaRate, type RatioOfSums } from "@/lib/metrics";
 import type { Period } from "@/lib/period";
-import { getDailyTotals, getFollowerChange, getPostTotals, type DailySum } from "@/lib/queries/period-summary";
+import { getDailyTotals, getFollowerChange, type DailySum } from "@/lib/queries/period-summary";
 import { LoadError } from "./states";
 import { ACCOUNT_METRIC_DEFINITIONS as DEF } from "@/lib/metric-definitions";
 
@@ -19,21 +19,24 @@ function coverage(sum: DailySum, periodDays: number, prefix = ""): string | null
   return sum.days < periodDays ? `${prefix}${periodDays} 日中 ${sum.days} 日分` : null;
 }
 
+/** 率の「30 日中 28 日分」。欠けがなければ出さない */
+function rateCoverage(r: RatioOfSums, prefix = ""): string | null {
+  return r.used < r.total ? `${prefix}${r.total} 日中 ${r.used} 日分` : null;
+}
+
 function join(...parts: (string | null | undefined)[]): string {
   return parts.filter((p): p is string => typeof p === "string" && p !== "").join("・");
 }
 
 /** 数字タイル 6 枚（3.2 節「数字タイル」）。読み出しに失敗したら、タイルの代わりにカードの中で理由を出す */
 export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) {
-  const [dailyCur, dailyPrev, follCur, follPrev, postsCur, postsPrev] = await Promise.all([
+  const [dailyCur, dailyPrev, follCur, follPrev] = await Promise.all([
     getDailyTotals(accountId, cur.from, cur.to),
     getDailyTotals(accountId, prev.from, prev.to),
     getFollowerChange(accountId, cur.from, cur.to),
     getFollowerChange(accountId, prev.from, prev.to),
-    getPostTotals(accountId, cur.from, cur.to),
-    getPostTotals(accountId, prev.from, prev.to),
   ]);
-  const failed = [dailyCur, dailyPrev, follCur, follPrev, postsCur, postsPrev].find((r) => !r.ok);
+  const failed = [dailyCur, dailyPrev, follCur, follPrev].find((r) => !r.ok);
   if (failed && !failed.ok) {
     return (
       <Card>
@@ -41,20 +44,12 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
       </Card>
     );
   }
-  if (!dailyCur.ok || !dailyPrev.ok || !follCur.ok || !follPrev.ok || !postsCur.ok || !postsPrev.ok) return null;
+  if (!dailyCur.ok || !dailyPrev.ok || !follCur.ok || !follPrev.ok) return null;
 
   const dc = dailyCur.data;
   const dp = dailyPrev.data;
   const fc = follCur.data;
   const fp = follPrev.data;
-  const pc = postsCur.data;
-  const pp = postsPrev.data;
-  const noPosts = pc.posts === 0;
-  const noPrevPosts = pp.posts === 0;
-
-  // ER（分母はリーチに固定）
-  const erCur = pc.er;
-  const erPrev = pp.er;
 
   return (
     <div className="kpis">
@@ -91,22 +86,18 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         )}
       />
       <Kpi
-        label={DEF.er.label}
-        hint={DEF.er.hint}
-        value={noPosts ? EMPTY : formatPercent(erCur.value, 2)}
-        delta={noPrevPosts ? null : deltaPoint(erCur.value, erPrev.value)}
-        denom={noPosts ? "期間中の投稿なし" : `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`}
+        label={DEF.er_account.label}
+        hint={DEF.er_account.hint}
+        value={formatPercent(dc.er.value, 2)}
+        delta={dp.er.used === 0 ? null : deltaPoint(dc.er.value, dp.er.value)}
+        denom={join("日別の合計で計算", rateCoverage(dc.er), rateCoverage(dp.er, "前期 "))}
       />
       <Kpi
-        label={DEF.save_rate.label}
-        hint={DEF.save_rate.hint}
-        value={noPosts ? EMPTY : formatPercent(pc.saveRate.value, 2)}
-        delta={noPrevPosts ? null : deltaPoint(pc.saveRate.value, pp.saveRate.value)}
-        denom={
-          noPosts
-            ? "期間中の投稿なし"
-            : join(`${pc.saveRate.total} 件中 ${pc.saveRate.used} 件`, "目安 2〜3%")
-        }
+        label={DEF.save_rate_account.label}
+        hint={DEF.save_rate_account.hint}
+        value={formatPercent(dc.saveRate.value, 2)}
+        delta={dp.saveRate.used === 0 ? null : deltaPoint(dc.saveRate.value, dp.saveRate.value)}
+        denom={join("日別の合計で計算", rateCoverage(dc.saveRate), rateCoverage(dp.saveRate, "前期 "))}
       />
       <Kpi
         label={DEF.followers.label}

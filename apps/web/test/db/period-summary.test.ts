@@ -82,6 +82,10 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/period-summary（結合）", () => 
       d(A, "2026-09-01", "reach", 60, "follow_type", "FOLLOWER"),
       d(A, "2026-09-01", "reach", 40, "follow_type", "NON_FOLLOWER"),
       d(A, "2026-09-01", "views", 10),
+      d(A, "2026-09-01", "likes", 3),
+      d(A, "2026-09-01", "comments", 1),
+      d(A, "2026-09-01", "saves", 2),
+      d(A, "2026-09-01", "shares", 1),
       d(A, "2026-09-02", "reach", 200),
       d(A, "2026-09-02", "reach", 200, "follow_type", ""),
       d(A, "2026-09-02", "views", 20),
@@ -201,6 +205,10 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/period-summary（結合）", () => 
         views: { sum: 80, days: 3 },
         // 09-01（40 / 100）と 09-04（400 / 400）だけ
         nonFollowerReachRate: { value: 440 / 500, used: 2, total: 5 },
+        // 反応の 4 指標がそろうのは 09-01 だけ（(3 + 1 + 2 + 1) / 100）
+        er: { value: 7 / 100, used: 1, total: 5 },
+        // 保存のある 09-01（2 / 100）と 09-05（7 / 500）
+        saveRate: { value: 9 / 600, used: 2, total: 5 },
       },
     });
   });
@@ -213,6 +221,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/period-summary（結合）", () => 
         reach: { sum: null, days: 0 },
         views: { sum: null, days: 0 },
         nonFollowerReachRate: { value: null, used: 0, total: 30 },
+        er: { value: null, used: 0, total: 30 },
+        saveRate: { value: null, used: 0, total: 30 },
       },
     });
   });
