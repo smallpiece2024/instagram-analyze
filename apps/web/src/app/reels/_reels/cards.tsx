@@ -350,9 +350,9 @@ export function GroupsCard({ view, analyzed }: { view: ReelsView; analyzed: bool
   const label = OBJECTIVE_LABEL[view.y];
   return (
     <Card
-      title={`区分の要因と${label}`}
+      title={`グループ別${label}`}
       className="col-12"
-      foot={`棒は${label}の中央値。n は件数で、3 件未満の区分は薄く表示する。曜日と時間帯は日本時間（朝は 11 時より前、昼は 11〜17 時、夜は 17 時以降）。`}
+      foot={`棒は${label}の中央値。n は件数で、3 件未満のグループは薄く表示する。曜日と時間帯は日本時間（朝は 11 時より前、昼は 11〜17 時、夜は 17 時以降）。`}
     >
       <div className="grid">
         {analyzed ? (
