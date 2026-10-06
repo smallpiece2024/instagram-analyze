@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { buildHref } from "@/components/href";
+import { PendingMark } from "@/components/PendingMark";
 import { ER_DENOMINATORS, RANGES, type ErDenominator, type Range } from "@/lib/params";
 import { ER_DENOMINATOR_LABEL } from "@/lib/queries/overview";
 
@@ -18,6 +19,7 @@ export function RangeChips({ range, er }: { range: Range; er: ErDenominator }) {
           aria-current={r === range ? "true" : undefined}
         >
           過去 {r} 日
+          <PendingMark />
         </Link>
       ))}
     </nav>
@@ -36,6 +38,7 @@ export function ErChips({ range, er }: { range: Range; er: ErDenominator }) {
           aria-current={d === er ? "true" : undefined}
         >
           {ER_DENOMINATOR_LABEL[d]}
+          <PendingMark />
         </Link>
       ))}
     </nav>

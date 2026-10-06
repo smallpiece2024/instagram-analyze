@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PendingMark } from "@/components/PendingMark";
 import type { ComparePreset } from "@/lib/period";
 
 const PRESET_LABEL: Record<ComparePreset, string> = {
@@ -18,6 +19,7 @@ export function PresetLinks({ current }: { current: ComparePreset }) {
       {PRESETS.map((p) => (
         <Link key={p} href={`/compare?preset=${p}`} aria-current={p === current ? "page" : undefined}>
           {PRESET_LABEL[p]}
+          <PendingMark />
         </Link>
       ))}
     </nav>
