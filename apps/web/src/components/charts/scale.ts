@@ -94,3 +94,6 @@ export function dimRuns<T extends { i: number }>(
   }
   return out;
 }
+
+/** 投稿の印（▲）のヒントを出す透明な四角の一辺（px）。▲ は幅 6px と小さく、カーソルを合わせにくい */
+export const MARKER_HIT = 18;

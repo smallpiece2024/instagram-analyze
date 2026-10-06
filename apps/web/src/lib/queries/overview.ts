@@ -55,6 +55,8 @@ export interface PostMarker {
   posted_date_pt: Ymd;
   /** 投稿日時（ヒントに日本時間で書く） */
   posted_at: Date;
+  /** キャプション（ヒントに題名として 1 行目を書く） */
+  caption: string | null;
 }
 
 /** 期間（両端を含む。太平洋時間の日付）に投稿した投稿の印。ストーリーズはビューに入らないので含まない。日時の古い順 */
@@ -62,7 +64,7 @@ export const getPostMarkers = cache(
   async (accountId: string, from: Ymd, to: Ymd): Promise<QueryResult<PostMarker[]>> =>
     runQuery(async (db) => {
       const rows = await db<PostMarker[]>`
-        select posted_date_pt, posted_at
+        select posted_date_pt, posted_at, caption
         from public.media_list_metrics
         where account_id = ${accountId}
           and posted_date_pt between ${from}::date and ${to}::date

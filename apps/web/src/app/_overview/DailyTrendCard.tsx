@@ -1,7 +1,7 @@
 import { Card } from "@/components/Card";
 import { LineChart } from "@/components/charts/LineChart";
 import { VBars } from "@/components/charts/VBars";
-import { formatCount, formatDateShort, formatJst } from "@/lib/format";
+import { formatCount, formatDateShort, formatJst, mediaTitle } from "@/lib/format";
 import { clampPeriod, eachDay, type Period, type Ymd } from "@/lib/period";
 import { getMetricChangeDates, getPostMarkers } from "@/lib/queries/overview";
 import { getDailySeries, getFollowerSeries } from "@/lib/queries/period-summary";
@@ -65,17 +65,17 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
   const followerValues = dates.map((d) => followerByDate.get(d) ?? null);
   const lastFollower = [...followerValues].reverse().find((v): v is number => v !== null);
 
-  // 同じ日の投稿は印を 1 つにまとめ、ヒントに投稿日時（日本時間）を並べる
+  // 同じ日の投稿は印を 1 つにまとめ、ヒントに投稿ごとの「投稿日時」と「題名」の 2 行を空行で区切って並べる
   const tipsByIndex = new Map<number, string[]>();
   for (const m of markers.data) {
     const i = indexOf.get(m.posted_date_pt);
     if (i === undefined) continue;
     const tips = tipsByIndex.get(i) ?? [];
-    tips.push(formatJst(m.posted_at));
+    tips.push(`${formatJst(m.posted_at)}\n${mediaTitle(m.caption)}`);
     tipsByIndex.set(i, tips);
   }
   const markerIndexes = [...tipsByIndex.keys()].sort((a, b) => a - b);
-  const markerTips = markerIndexes.map((i) => `投稿 ${(tipsByIndex.get(i) ?? []).join("、")}`);
+  const markerTips = markerIndexes.map((i) => (tipsByIndex.get(i) ?? []).join("\n\n"));
   const refLines = changes.data
     .map((d) => indexOf.get(d))
     .filter((i): i is number => i !== undefined)

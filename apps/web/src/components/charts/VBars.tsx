@@ -1,5 +1,5 @@
 import { formatAxis, formatValue, type ValueFormat } from "@/lib/format";
-import { barVPath, coord, labelStep, niceMax, ticks } from "./scale";
+import { barVPath, coord, labelStep, MARKER_HIT, niceMax, ticks } from "./scale";
 
 export interface VBarsProps {
   /** グラフの説明（`aria-label`） */
@@ -149,11 +149,20 @@ export function VBars({
           </g>
         );
       })}
-      {(markers ?? []).map((i, k) => (
-        <path key={`m${i}`} d={`M${coord(m.l + slot * i + slot / 2)} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)">
-          {markerTips?.[k] && <title>{markerTips[k]}</title>}
-        </path>
-      ))}
+      {(markers ?? []).map((i, k) => {
+        const cx = m.l + slot * i + slot / 2;
+        return (
+          <g key={`m${i}`}>
+            <path d={`M${coord(cx)} ${m.t + ih + 2}l-3 5h6z`} fill="var(--chart-marker)" />
+            {/* ヒントを出す範囲。小さな ▲ だけでは合わせにくいので、周りを透明な四角で覆う */}
+            {markerTips?.[k] && (
+              <rect x={coord(cx - MARKER_HIT / 2)} y={m.t + ih} width={MARKER_HIT} height={MARKER_HIT} fill="transparent">
+                <title>{markerTips[k]}</title>
+              </rect>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
