@@ -13,7 +13,7 @@ export interface MetricDefinition {
 /** 投稿単位の指標（API の指標と派生指標） */
 export const METRIC_DEFINITIONS = {
   reach: { label: "リーチ数", hint: "リーチ数 = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）" },
-  views: { label: "閲覧数", hint: "閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える（2025-04-21 から views に統一）" },
+  views: { label: "閲覧数", hint: "閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える" },
   likes: { label: "いいね", hint: "いいね = いいねされた数" },
   saved: { label: "保存", hint: "保存 = 保存された数" },
   shares: { label: "シェア", hint: "シェア = シェアされた数" },
@@ -59,7 +59,7 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
   },
   views: {
     label: "閲覧数",
-    hint: "閲覧数 = 投稿やストーリーズが表示された回数。同じ人が何度見ても数える（2025-04-21 から views に統一）",
+    hint: "閲覧数 = 投稿やストーリーズが表示された回数。同じ人が何度見ても数える",
   },
   follower_gain: { label: "フォロワー純増", hint: "フォロワー純増 = 期間中にフォローされた数 − フォローを外された数" },
   followers: { label: "フォロワー数", hint: "フォロワー数 = 最新の記録のフォロワー数。選んだ期間には関係しない" },
