@@ -30,6 +30,16 @@ export class CommandError extends Error {
   }
 }
 
+/**
+ * 子プロセスの標準出力と標準エラーをため込む上限（文字数。それぞれ）。壊れた動画で警告が 1 フレームごとに出ても
+ * メモリを使い切らないため。超えたら止めて `CommandError`（`code` null）にする（切り詰めて解析を続けると、
+ * シーン検出の結果が黙って欠けるので失敗にする）
+ */
+export const MAX_OUTPUT_CHARS = 8 * 1024 * 1024;
+
+/** `ffmpeg -version` の制限時間（R4 のセキュリティレビュー。固まってもジョブ全体を止めない） */
+export const VERSION_TIMEOUT_MS = 10_000;
+
 /** `resizeImage` の制限時間。シーン検出の制限時間の上限にも使う（R4 設計 3.2 節） */
 export const TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -60,7 +70,8 @@ export const SAFE_INPUT_ARGS: readonly string[] = ["-protocol_whitelist", "file"
 /**
  * 子プロセスを起動して終了を待つ。終了コードが 0 でなくても resolve する（判断は呼び出し側）。
  * 起動の失敗（コマンドがない、など）は `spawn` の `error` で reject する。
- * `options.timeoutMs` を超えたら `SIGKILL` で止め、`CommandError`（`code` null、固定文言）で reject する
+ * `options.timeoutMs` を超えたら `SIGKILL` で止め、`CommandError`（`code` null、固定文言）で reject する。
+ * 出力が `MAX_OUTPUT_CHARS` を超えたときも同じ（固定文言）
  */
 export function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
@@ -68,6 +79,7 @@ export function runCommand(command: string, args: string[], options: RunCommandO
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let overflowed = false;
     const timer =
       options.timeoutMs === undefined
         ? undefined
@@ -75,11 +87,20 @@ export function runCommand(command: string, args: string[], options: RunCommandO
             timedOut = true;
             child.kill("SIGKILL");
           }, options.timeoutMs);
+    const overflow = () => {
+      if (overflowed) return;
+      overflowed = true;
+      child.kill("SIGKILL");
+    };
     child.stdout.on("data", (chunk: Buffer) => {
+      if (overflowed) return;
       stdout += chunk.toString("utf8");
+      if (stdout.length > MAX_OUTPUT_CHARS) overflow();
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (overflowed) return;
       stderr += chunk.toString("utf8");
+      if (stderr.length > MAX_OUTPUT_CHARS) overflow();
     });
     child.on("error", (error) => {
       clearTimeout(timer);
@@ -89,6 +110,10 @@ export function runCommand(command: string, args: string[], options: RunCommandO
       clearTimeout(timer);
       if (timedOut) {
         reject(new CommandError(command, null, `${command} が制限時間を超えた`));
+        return;
+      }
+      if (overflowed) {
+        reject(new CommandError(command, null, `${command} の出力が上限を超えた`));
         return;
       }
       resolve({ code, stdout, stderr });
@@ -108,7 +133,7 @@ async function runOrThrow(command: string, args: string[], timeoutMs?: number): 
 
 /** `ffmpeg -version` の 1 行目（例: "ffmpeg version 5.1.6-0+deb12u1 ..."） */
 export async function toolVersion(tool: "ffmpeg" | "ffprobe"): Promise<string> {
-  const { stdout } = await runOrThrow(tool, ["-hide_banner", "-version"]);
+  const { stdout } = await runOrThrow(tool, ["-hide_banner", "-version"], VERSION_TIMEOUT_MS);
   return stdout.split("\n")[0]?.trim() ?? "";
 }
 

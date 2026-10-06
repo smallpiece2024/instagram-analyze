@@ -49,7 +49,7 @@ const LAST_SECONDS_MS = 3000;
 const VIDEO_FILE_NAME = "video.mp4";
 
 /** `Error` でないものが投げられたときの `error` 列の文言 */
-const UNKNOWN_ERROR = "不明なエラー";
+export const UNKNOWN_ERROR = "不明なエラー";
 
 /** `mkdtemp` に失敗したときの `error` 列の文言（例外にはパスが入るので固定文言にする） */
 export const TEMP_DIR_ERROR = "一時ディレクトリの作成に失敗";
@@ -238,13 +238,13 @@ export function failedAnalysisRow(
  * - `DownloadError`: 固定文言（URL を含まない）
  * - `CommandError`（ffprobe、ffmpeg の失敗）: `動画の解析に失敗（<command>、終了コード <code>）`。`message` には stderr の
  *   末尾（一時ファイルのパスを含みうる）が入るので使わない。制限時間の超過などで `code` が null なら `なし`
- * - それ以外の `Error`: `mask(message)`
+ * - それ以外: 固定文言 `UNKNOWN_ERROR`。`message` は秘密を消しても一時ディレクトリのパスなどが残りうるので使わない
+ *   （R4 のセキュリティレビュー。以前は `mask(message)` だった）
  * `stack`、`cause` は参照しない（設計 10.5 章）
  */
-function describeAnalysisError(error: unknown, mask: (text: string) => string): string {
+function describeAnalysisError(error: unknown): string {
   if (error instanceof DownloadError) return error.message;
   if (error instanceof CommandError) return `動画の解析に失敗（${error.command}、終了コード ${error.code ?? "なし"}）`;
-  if (error instanceof Error) return mask(error.message);
   return UNKNOWN_ERROR;
 }
 
@@ -316,7 +316,7 @@ export async function analyzeVideo(
     };
   } catch (error) {
     return {
-      row: emptyRow(input.mediaId, threshold, "failed", describeAnalysisError(error, input.mask), input.now()),
+      row: emptyRow(input.mediaId, threshold, "failed", describeAnalysisError(error), input.now()),
       cuts: [],
       failureClass: error instanceof DownloadError ? "download" : "unknown",
     };

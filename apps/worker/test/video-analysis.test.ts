@@ -14,6 +14,7 @@ import {
   normalizeSceneChanges,
   summarizeCuts,
   TEMP_DIR_ERROR,
+  UNKNOWN_ERROR,
   VIDEO_TOO_LONG_ERROR,
   type VideoAnalysisInput,
 } from "../src/lib/video-analysis.js";
@@ -444,7 +445,7 @@ describe("analyzeVideo", () => {
     expect(result.failureClass).toBe("download");
   });
 
-  it("probe が投げると failed で、error は mask を通した message。一時ディレクトリは残らない", async () => {
+  it("probe が投げると failed で、error は固定文言（message を使わない）。一時ディレクトリは残らない", async () => {
     const { fetchImpl } = fakeFetch();
     const { mask, inputs } = fakeMask();
     let probePath: string | undefined;
@@ -463,10 +464,10 @@ describe("analyzeVideo", () => {
       }),
     );
     expect(result.row.status).toBe("failed");
-    expect(result.row.error).toBe("ffprobe が終了コード 1 で失敗しました: <url>");
+    expect(result.row.error).toBe(UNKNOWN_ERROR);
     expect(result.row.error).not.toContain("cdninstagram");
     expect(result.failureClass).toBe("unknown");
-    expect(inputs).toHaveLength(1);
+    expect(inputs).toHaveLength(0);
     expect(result.row).toMatchObject(NULL_METRICS);
     expect(result.cuts).toEqual([]);
     expect(detectCalls).toBe(0);
@@ -542,7 +543,7 @@ describe("analyzeVideo", () => {
       }),
     );
     expect(result.row.status).toBe("failed");
-    expect(result.row.error).toBe("ffmpeg が終了コード 1 で失敗しました");
+    expect(result.row.error).toBe(UNKNOWN_ERROR);
     expect(result.row).toMatchObject(NULL_METRICS);
     expect(result.cuts).toEqual([]);
     expect(await exists(dirname(detectPath ?? ""))).toBe(false);
