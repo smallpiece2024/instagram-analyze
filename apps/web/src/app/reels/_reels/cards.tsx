@@ -215,14 +215,15 @@ function ScatterCell({
   const common = { title, points: pts, xFormat, yFormat: objectiveFormat(y), color: COLOR, refY };
   return (
     <div className={`${className} scatter-cell`}>
-      <div className="small muted">
-        <MetricHint label={label} text={hint} />
-      </div>
       <div className="chart only-d">
         <Scatter {...common} width={width} height={190} />
       </div>
       <div className="chart only-m">
         <Scatter {...common} width={170} height={150} />
+      </div>
+      {/* 横軸の名前は横軸の下の右端（2026-10-06、ユーザー） */}
+      <div className="small muted" style={{ textAlign: "right" }}>
+        <MetricHint label={label} text={hint} />
       </div>
     </div>
   );
