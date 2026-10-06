@@ -29,6 +29,7 @@ export interface ReelRow {
   avg_scene_ms: number | null;
   first_cut_ms: number | null;
   cuts_in_first_3s: number | null;
+  cuts_in_last_3s: number | null;
   reach: number | null;
   views: number | null;
   avg_watch_time_ms: number | null;
@@ -73,6 +74,7 @@ export const REEL_SORT_KEYS = [
   "cut_count",
   "avg_scene",
   "cuts_in_first_3s",
+  "cuts_in_last_3s",
   "views",
   "reach",
   "avg_watch_time",
@@ -134,6 +136,8 @@ function sortValue(row: ReelRow, key: ReelSortKey): number | null {
       return n(row.avg_scene_ms);
     case "cuts_in_first_3s":
       return n(row.cuts_in_first_3s);
+    case "cuts_in_last_3s":
+      return n(row.cuts_in_last_3s);
     case "avg_watch_time":
       return n(row.avg_watch_time_ms);
     default:
@@ -167,6 +171,7 @@ export const FACTOR_KEYS = [
   "cut_count",
   "avg_scene",
   "cuts_in_first_3s",
+  "cuts_in_last_3s",
   "first_cut",
   "caption_chars",
   "elapsed_days",
@@ -202,6 +207,13 @@ export const FACTORS: readonly FactorDef[] = [
     scatter: true,
   },
   {
+    key: "cuts_in_last_3s",
+    label: "最後 3 秒の画面変化",
+    hint: "最後 3 秒の画面変化 = 終わりの 3 秒に画面が大きく切り替わった回数",
+    unit: "times",
+    scatter: true,
+  },
+  {
     key: "first_cut",
     label: "最初の画面変化まで",
     hint: "最初の画面変化まで = 動画の開始から最初に画面が大きく切り替わるまでの秒数。画面変化がなければ値なし",
@@ -213,7 +225,7 @@ export const FACTORS: readonly FactorDef[] = [
 ];
 
 /** 要因の値の元。動画の特徴量だけの行（投稿詳細）も受け取れるように、投稿の列は省略可 */
-export type FactorSource = Pick<ReelRow, "duration_ms" | "cut_count" | "avg_scene_ms" | "first_cut_ms" | "cuts_in_first_3s"> &
+export type FactorSource = Pick<ReelRow, "duration_ms" | "cut_count" | "avg_scene_ms" | "first_cut_ms" | "cuts_in_first_3s" | "cuts_in_last_3s"> &
   Partial<Pick<ReelRow, "caption_chars" | "elapsed_hours">>;
 
 /** 要因の値（ミリ秒は秒に直す。計算し直さない） */
@@ -229,6 +241,8 @@ export function factorValue(row: FactorSource, key: FactorKey): number | null {
       return sec(row.avg_scene_ms);
     case "cuts_in_first_3s":
       return n(row.cuts_in_first_3s);
+    case "cuts_in_last_3s":
+      return n(row.cuts_in_last_3s);
     case "first_cut":
       return sec(row.first_cut_ms);
     case "caption_chars":
@@ -445,10 +459,15 @@ function median(values: readonly (number | null)[]): number | null {
   return percentileCont(v, 0.5);
 }
 
-/** 群の要因の中央値。冒頭 3 秒の画面変化は「1 回以上の割合」（0〜1） */
+/** 冒頭と最後 3 秒の画面変化。上位と下位の表では中央値でなく「1 回以上の割合」で比べる */
+export function isEdgeCutFactor(key: FactorKey): key is "cuts_in_first_3s" | "cuts_in_last_3s" {
+  return key === "cuts_in_first_3s" || key === "cuts_in_last_3s";
+}
+
+/** 群の要因の中央値。冒頭と最後 3 秒の画面変化は「1 回以上の割合」（0〜1） */
 export function groupFactorSummary(group: readonly ReelRow[], key: FactorKey): number | null {
-  if (key === "cuts_in_first_3s") {
-    const v = group.map((r) => r.cuts_in_first_3s).filter((x): x is number => typeof x === "number");
+  if (isEdgeCutFactor(key)) {
+    const v = group.map((r) => r[key]).filter((x): x is number => typeof x === "number");
     return v.length === 0 ? null : v.filter((x) => x >= 1).length / v.length;
   }
   return median(group.map((r) => factorValue(r, key)));
@@ -527,11 +546,12 @@ function bars<T extends string>(
 export interface GroupCards {
   length: GroupBar[];
   first3s: GroupBar[];
+  last3s: GroupBar[];
   day: GroupBar[];
   band: GroupBar[];
 }
 
-/** 区分ごとの目的変数の中央値。長さと冒頭 3 秒は解析済みの母集団、曜日と時間帯は目的変数の値がある母集団 */
+/** 区分ごとの目的変数の中央値。長さと冒頭・最後 3 秒は解析済みの母集団、曜日と時間帯は目的変数の値がある母集団 */
 export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
   const analyzed = analyzedWithObjective(rows, y);
   const all = withObjective(rows, y);
@@ -545,6 +565,15 @@ export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
         { key: "some", label: "1 回以上" },
       ] as const,
       (r) => (r.cuts_in_first_3s === null ? null : r.cuts_in_first_3s >= 1 ? "some" : "zero"),
+    ),
+    last3s: bars(
+      analyzed,
+      y,
+      [
+        { key: "zero", label: "0 回" },
+        { key: "some", label: "1 回以上" },
+      ] as const,
+      (r) => (r.cuts_in_last_3s === null ? null : r.cuts_in_last_3s >= 1 ? "some" : "zero"),
     ),
     day: bars(
       all,

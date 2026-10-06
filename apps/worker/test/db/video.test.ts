@@ -45,6 +45,7 @@ function successRow(mediaId: string, overrides: Partial<VideoAnalysisInsert> = {
     avg_scene_ms: 3750,
     first_cut_ms: 1500,
     cuts_in_first_3s: 1,
+    cuts_in_last_3s: 0,
     ...overrides,
   };
 }
@@ -246,6 +247,7 @@ describe.skipIf(!TEST_DATABASE_URL)("db/video（結合）", () => {
       avg_scene_ms: null,
       first_cut_ms: null,
       cuts_in_first_3s: null,
+      cuts_in_last_3s: null,
     };
     const again = await db.begin((tx) => upsertVideoAnalysis(tx, nullRow, []));
     expect(again).toBe(id);

@@ -56,8 +56,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
 
     const [a1] = await sql<{ id: string }[]>`
       insert into public.video_analyses
-        (media_id, analyzer_version, scene_threshold, status, duration_ms, cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s)
-      values (${ids.r1}, '1', 0.300, 'success', 12000, 2, 4000, 3000, 1)
+        (media_id, analyzer_version, scene_threshold, status, duration_ms, cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s, cuts_in_last_3s)
+      values (${ids.r1}, '1', 0.300, 'success', 12000, 2, 4000, 3000, 1, 0)
       returning id::text as id
     `;
     await sql`insert into public.video_cuts (analysis_id, seq, at_ms) values (${a1?.id ?? ""}::bigint, 1, 3000), (${a1?.id ?? ""}::bigint, 2, 7000)`;
@@ -120,6 +120,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
       avg_scene_ms: 4000,
       first_cut_ms: 3000,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
       cut_times_ms: [3000, 7000],
     });
     const r2 = await getVideoFeatures(accountId, ids.r2);

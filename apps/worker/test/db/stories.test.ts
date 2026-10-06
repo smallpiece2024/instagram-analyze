@@ -570,6 +570,7 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
       avg_scene_ms: 4000,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
     expect(analysis?.cuts.map((c) => [c.seq, c.at_ms, c.scene_score])).toEqual([
       [1, 1500, null],

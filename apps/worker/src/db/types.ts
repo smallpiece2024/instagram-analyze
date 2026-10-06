@@ -212,6 +212,8 @@ export interface VideoAnalysisRow {
   avg_scene_ms: number | null;
   first_cut_ms: number | null;
   cuts_in_first_3s: number | null;
+  /** 最後 3 秒のカット数（R4 で追加。R1 のストーリーズの行はマイグレーションで video_cuts から埋めた） */
+  cuts_in_last_3s: number | null;
   /** 同じ条件で書いた回数（R4。挿入で 1、同じ条件の上書きごとに 1 増える。DB が数える） */
   attempt_count: number;
 }

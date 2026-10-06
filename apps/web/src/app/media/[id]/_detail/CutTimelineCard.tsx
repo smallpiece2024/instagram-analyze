@@ -18,7 +18,7 @@ const WIDTH_D = 1140;
 const WIDTH_M = 340;
 
 /** 上段の数字（6.1 節の順） */
-const TOP_FACTORS: readonly FactorKey[] = ["duration", "cut_count", "avg_scene", "cuts_in_first_3s", "first_cut"];
+const TOP_FACTORS: readonly FactorKey[] = ["duration", "cut_count", "avg_scene", "cuts_in_first_3s", "cuts_in_last_3s", "first_cut"];
 
 function TopNumbers({ video, missing }: { video: VideoFeatures | null; missing: Missing | null }) {
   const show = video !== null && missing === null;

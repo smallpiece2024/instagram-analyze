@@ -42,6 +42,9 @@ export const ANALYSIS_RETRY_AFTER_MS = 3 * 60 * 60 * 1000;
 /** 「冒頭 3 秒」の境界。`at_ms < 3000` を冒頭に含める（3000 ちょうどは含めない） */
 const FIRST_SECONDS_MS = 3000;
 
+/** 「最後 3 秒」の幅。`at_ms > 長さ − 3000` を最後に含める（`長さ − 3000` ちょうどは含めない） */
+const LAST_SECONDS_MS = 3000;
+
 /** 一時ファイルの名前。拡張子はダウンロード元に関係なく固定（ffmpeg は中身で判定する） */
 const VIDEO_FILE_NAME = "video.mp4";
 
@@ -91,6 +94,8 @@ export interface CutSummary {
   first_cut_ms: number | null;
   /** 冒頭 3 秒（`at_ms < 3000`）のカット数 */
   cuts_in_first_3s: number;
+  /** 最後 3 秒（`at_ms > 長さ − 3000`）のカット数 */
+  cuts_in_last_3s: number;
 }
 
 /**
@@ -112,6 +117,7 @@ export function normalizeCutTimes(durationMs: number, cutTimesMs: readonly numbe
  * - `avg_scene_ms`: `durationMs / (cut_count + 1)` を四捨五入。`durationMs` が 0 以下なら null
  * - `first_cut_ms`: 最初のカット。なければ null
  * - `cuts_in_first_3s`: `at_ms < 3000` のカット数
+ * - `cuts_in_last_3s`: `at_ms > durationMs − 3000` のカット数（`durationMs − 3000` ちょうどは含めない。冒頭と同じく境目の 1 点を外す）
  */
 export function summarizeCuts(durationMs: number, cutTimesMs: readonly number[]): CutSummary {
   const cuts = normalizeCutTimes(durationMs, cutTimesMs);
@@ -121,6 +127,7 @@ export function summarizeCuts(durationMs: number, cutTimesMs: readonly number[])
     avg_scene_ms: durationMs > 0 ? Math.round(durationMs / (cutCount + 1)) : null,
     first_cut_ms: cuts[0] ?? null,
     cuts_in_first_3s: cuts.filter((t) => t < FIRST_SECONDS_MS).length,
+    cuts_in_last_3s: cuts.filter((t) => t > durationMs - LAST_SECONDS_MS).length,
   };
 }
 
@@ -209,6 +216,7 @@ function emptyRow(
     avg_scene_ms: null,
     first_cut_ms: null,
     cuts_in_first_3s: null,
+    cuts_in_last_3s: null,
   };
 }
 

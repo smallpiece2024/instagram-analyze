@@ -29,6 +29,7 @@
 | 3.6 | `VIDEO_MAX_ATTEMPTS`（5）は環境変数でなくジョブの定数。`writeVideoAnalysis` が `{ id, attempt_count }` を返す（`upsertVideoAnalysis` は id だけを返す薄い包みとして残す） |
 | 3.3 | ffmpeg の有無は、候補の有無にかかわらず毎回最初に確かめる（ないと毎回 `failed` になり通知で分かる） |
 | 3.5 | `content-type` の検査は動画のダウンロードだけ（`DownloadLimits.contentTypePrefix`）。サムネイルは検査しない |
+| 5.1、5.2、6 | 「最後 3 秒の画面変化」を足す（2026-10-06、ユーザー）。`video_analyses.cuts_in_last_3s`（`at_ms > duration_ms − 3000`。境目ちょうどは含めない）をワーカーの `summarizeCuts` で計算し、既存の行はマイグレーションで `video_cuts` から埋める。`media_video_features` と `media_analysis_dataset`（末尾）に列を足す。画面では「冒頭 3 秒」と同じ所（投稿詳細の数字、要因、上位と下位は 1 回以上の割合、散布図、区分、一覧）に出す。区分は長さ・冒頭・最後を 3 等分、曜日と時間帯を 2 等分の幅にした |
 | 4.1 | `video-tune` の出力は投稿の ID でなく「引数の何番目」で示す。生の応答は保存しない（`persist: false`） |
 | 6.1 | リールの視聴維持率の「—」: 解析なしは `not_yet`、`failed` と `no_video_url` は `missing`、長さ 0 は `no_baseline_data` |
 | 6.2 | 並べ替えの向きは `dir`（`SortHeader` に `orderParam` を足した。`/media` は `order` のまま）。ナビゲーションは投稿一覧の次。散布図に目的変数の中央値の破線（見本どおり）。点のリンクは SVG の中なので `<a>`。解析済みが 0 件のときは要因の 3 枚を 1 枚にまとめて「—」と収集ログへのリンク。ブートストラップの再標本は母集団全体に 1 回作り、各回でその要因が null の行を除く。一覧の値なしは向きによらず最後。`/reels` はサムネイルの署名付き URL を含むので `Cache-Control: private, no-store` の対象 |

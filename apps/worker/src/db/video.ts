@@ -75,6 +75,7 @@ interface RawVideoAnalysisRow {
   avg_scene_ms: number | null;
   first_cut_ms: number | null;
   cuts_in_first_3s: number | null;
+  cuts_in_last_3s: number | null;
   attempt_count: number;
 }
 
@@ -109,6 +110,7 @@ function toVideoAnalysisRow(raw: RawVideoAnalysisRow): VideoAnalysisRow {
     avg_scene_ms: raw.avg_scene_ms,
     first_cut_ms: raw.first_cut_ms,
     cuts_in_first_3s: raw.cuts_in_first_3s,
+    cuts_in_last_3s: raw.cuts_in_last_3s,
     attempt_count: raw.attempt_count,
   };
 }
@@ -136,11 +138,11 @@ export async function writeVideoAnalysis(
     insert into public.video_analyses
       (media_id, analyzer_version, scene_threshold, status, error, analyzed_at,
        duration_ms, width, height, fps, bitrate, file_size, has_audio,
-       cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s)
+       cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s, cuts_in_last_3s)
     values
       (${row.media_id}, ${row.analyzer_version}, ${row.scene_threshold}, ${row.status}, ${row.error}, ${row.analyzed_at},
        ${row.duration_ms}, ${row.width}, ${row.height}, ${row.fps}, ${row.bitrate}, ${row.file_size}, ${row.has_audio},
-       ${row.cut_count}, ${row.avg_scene_ms}, ${row.first_cut_ms}, ${row.cuts_in_first_3s})
+       ${row.cut_count}, ${row.avg_scene_ms}, ${row.first_cut_ms}, ${row.cuts_in_first_3s}, ${row.cuts_in_last_3s})
     on conflict (media_id, analyzer_version, scene_threshold) do update set
       status = excluded.status,
       error = excluded.error,
@@ -156,6 +158,7 @@ export async function writeVideoAnalysis(
       avg_scene_ms = excluded.avg_scene_ms,
       first_cut_ms = excluded.first_cut_ms,
       cuts_in_first_3s = excluded.cuts_in_first_3s,
+      cuts_in_last_3s = excluded.cuts_in_last_3s,
       attempt_count = public.video_analyses.attempt_count + 1
     returning id, attempt_count
   `;
@@ -247,7 +250,7 @@ export async function getVideoAnalysis(
   const rows = await db<RawVideoAnalysisRow[]>`
     select id, media_id, analyzer_version, scene_threshold, status, error, analyzed_at,
            duration_ms, width, height, fps, bitrate, file_size, has_audio,
-           cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s, attempt_count
+           cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s, cuts_in_last_3s, attempt_count
     from public.video_analyses
     where media_id = ${mediaId} and analyzer_version = ${version} and scene_threshold = ${threshold}
   `;

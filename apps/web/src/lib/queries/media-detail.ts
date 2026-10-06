@@ -315,6 +315,7 @@ export interface VideoFeatures {
   avg_scene_ms: number | null;
   first_cut_ms: number | null;
   cuts_in_first_3s: number | null;
+  cuts_in_last_3s: number | null;
   retention_rate: number | null;
   /** 画面変化の時刻（ミリ秒、`seq` の順）。`success` でなければ空 */
   cut_times_ms: number[];
@@ -328,7 +329,7 @@ export const getVideoFeatures = cache(async (accountId: string, id: string): Pro
   runQuery(async (db) => {
     const rows = await db<VideoFeatures[]>`
       select
-        f.analysis_status, f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s,
+        f.analysis_status, f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s, f.cuts_in_last_3s,
         f.retention_rate::float8 as retention_rate,
         coalesce(
           (

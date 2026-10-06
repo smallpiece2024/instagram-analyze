@@ -6,6 +6,7 @@
 -- 3. media_video_features: 画面用。動画の投稿 1 件 1 行で、今の条件の解析結果だけをつなぐ
 -- 4. media_analysis_dataset に retention_rate を足す（確認事項 Q5）
 -- 5. video_cuts.scene_score の comment を R4 の保存の仕方に合わせる
+-- 6. video_analyses.cuts_in_last_3s: 最後 3 秒のカット数（2026-10-06 にユーザーが追加を決めた）。既存の行は video_cuts から埋める
 
 -- ---------------------------------------------------------------
 -- 1. 今の解析条件。ワーカーの ANALYZER_VERSION と DEFAULT_SCENE_THRESHOLD と一致させる（結合テストで突き合わせる）。
@@ -33,6 +34,24 @@ alter table public.video_analyses
 
 comment on column public.video_analyses.attempt_count is
   '同じ条件で書いた回数。success 以外で上限（ワーカーの VIDEO_MAX_ATTEMPTS）に達したら video_analysis の対象外。ストーリーズは打ち切らない';
+
+-- ---------------------------------------------------------------
+-- 6. cuts_in_last_3s。ワーカーの summarizeCuts と同じ定義（at_ms > duration_ms − 3000。境目ちょうどは含めない）。
+-- 既存の success の行（R1 のストーリーズ）は video_cuts から計算して埋める。success 以外は null のまま
+-- ---------------------------------------------------------------
+alter table public.video_analyses add column cuts_in_last_3s integer;
+
+comment on column public.video_analyses.cuts_in_last_3s is
+  '最後 3 秒（at_ms > duration_ms − 3000）のカット数。R4 の前の行はこのマイグレーションで video_cuts から埋めた';
+
+update public.video_analyses va
+set cuts_in_last_3s = (
+  select count(*)::integer
+  from public.video_cuts c
+  where c.analysis_id = va.id
+    and c.at_ms > va.duration_ms - 3000
+)
+where va.status = 'success' and va.duration_ms is not null;
 
 -- ---------------------------------------------------------------
 -- 5. scene_score（R4 から保存する）
@@ -68,6 +87,7 @@ select
   va.avg_scene_ms,
   va.first_cut_ms,
   va.cuts_in_first_3s,
+  va.cuts_in_last_3s,
   lt.avg_watch_time_ms::numeric / nullif(va.duration_ms, 0) as retention_rate
 from public.media m
 cross join public.current_video_condition() c
@@ -89,7 +109,7 @@ revoke all on table public.media_video_features from public, anon, authenticated
 grant select on table public.media_video_features to web_app;
 
 -- ---------------------------------------------------------------
--- 4. media_analysis_dataset に retention_rate を足す（確認事項 Q5。create or replace では列は末尾にだけ足せる）。
+-- 4. media_analysis_dataset に retention_rate と cuts_in_last_3s を足す（確認事項 Q5。create or replace では列は末尾にだけ足せる）。
 -- 定義は 20261001100400_r1_views.sql の 145〜288 行と同じで、末尾に 1 列を足しただけ。
 -- 既存の grant（web_app の select）と comment は create or replace で残る。
 -- 動画の特徴量は R1 と同じく「最新の success（条件をまたぐ）」で、分母の duration_ms もその行のもの
@@ -187,7 +207,9 @@ select
   public.metric_value(lt.metrics, '{navigation,swipe_forward}') as swipe_forward_latest,
   public.metric_value(lt.metrics, '{link_clicks}') as link_clicks_latest,
   -- 視聴維持率（R4。media_video_features.retention_rate と同じ式）
-  public.metric_value(lt.metrics, '{ig_reels_avg_watch_time}')::numeric / nullif(v.duration_ms, 0) as retention_rate
+  public.metric_value(lt.metrics, '{ig_reels_avg_watch_time}')::numeric / nullif(v.duration_ms, 0) as retention_rate,
+  -- 最後 3 秒のカット数（R4。create or replace では列を末尾にしか足せないので、cuts_in_first_3s の隣でなくここに置く）
+  v.cuts_in_last_3s
 from public.media m
 left join lateral (
   select
@@ -256,5 +278,6 @@ comment on column public.media_analysis_dataset.retention_rate is
 -- --   grant select on table public.media_analysis_dataset to web_app;
 -- drop function if exists public.current_video_condition();
 -- alter table public.video_analyses drop column if exists attempt_count;
+-- alter table public.video_analyses drop column if exists cuts_in_last_3s;
 -- comment on column public.video_cuts.scene_score is '画面変化の大きさ（0〜1）。取れれば保存する';
 -- delete from supabase_migrations.schema_migrations where version = '20261007000000';

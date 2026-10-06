@@ -18,6 +18,7 @@ import {
   formatFactor,
   GROUP_FAINT_MIN,
   groupFactorSummary,
+  isEdgeCutFactor,
   groupObjectiveMedian,
   OBJECTIVE_LABEL,
   type FactorDef,
@@ -124,7 +125,7 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
       title={`${label}の上位と下位`}
       sub={`n = ${tb.n}`}
       className="col-6"
-      foot={'値は各群の中央値。"冒頭 3 秒の画面変化"は 1 回以上のリールの割合。'}
+      foot={'値は各群の中央値。"冒頭 3 秒の画面変化"と"最後 3 秒の画面変化"は 1 回以上のリールの割合。'}
     >
       <div className="table-wrap">
         <table className="table">
@@ -154,7 +155,7 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
             {FACTORS.map((f) => {
               const show = (g: readonly ReelRow[]) => {
                 const v = groupFactorSummary(g, f.key);
-                return f.key === "cuts_in_first_3s" ? (v === null ? "—" : `${formatPercent(v, 0)} が 1 回以上`) : formatFactor(v, f.unit);
+                return isEdgeCutFactor(f.key) ? (v === null ? "—" : `${formatPercent(v, 0)} が 1 回以上`) : formatFactor(v, f.unit);
               };
               return (
                 <tr key={f.key}>
@@ -300,10 +301,20 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
  * 区分
  * ------------------------------------------------------------------ */
 
-function GroupCell({ label, bars, y }: { label: string; bars: readonly GroupBar[]; y: Objective }) {
+function GroupCell({
+  label,
+  bars,
+  y,
+  className,
+}: {
+  label: string;
+  bars: readonly GroupBar[];
+  y: Objective;
+  className: string;
+}) {
   const fmt = objectiveFormat(y);
   return (
-    <div className="col-3">
+    <div className={className}>
       <p className="small muted">
         {label}
       </p>
@@ -338,8 +349,9 @@ export function GroupsCard({ view, analyzed }: { view: ReelsView; analyzed: bool
       <div className="grid">
         {analyzed ? (
           <>
-            <GroupCell label="動画の長さ" bars={view.groups.length} y={view.y} />
-            <GroupCell label="冒頭 3 秒の画面変化" bars={view.groups.first3s} y={view.y} />
+            <GroupCell label="動画の長さ" bars={view.groups.length} y={view.y} className="col-4" />
+            <GroupCell label="冒頭 3 秒の画面変化" bars={view.groups.first3s} y={view.y} className="col-4" />
+            <GroupCell label="最後 3 秒の画面変化" bars={view.groups.last3s} y={view.y} className="col-4" />
           </>
         ) : (
           <div className="col-6">
@@ -348,8 +360,8 @@ export function GroupsCard({ view, analyzed }: { view: ReelsView; analyzed: bool
             </p>
           </div>
         )}
-        <GroupCell label="投稿の曜日" bars={view.groups.day} y={view.y} />
-        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} />
+        <GroupCell label="投稿の曜日" bars={view.groups.day} y={view.y} className="col-6" />
+        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} className="col-6" />
       </div>
     </Card>
   );

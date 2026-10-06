@@ -30,7 +30,7 @@ export const getReels = cache(async (accountId: string): Promise<QueryResult<Ree
         (extract(epoch from (now() - l.posted_at)) / 3600)::float8 as elapsed_hours,
         char_length(coalesce(l.caption, ''))::int as caption_chars,
         f.analysis_status,
-        f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s,
+        f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s, f.cuts_in_last_3s,
         l.reach::float8 as reach, l.views::float8 as views, l.avg_watch_time_ms::float8 as avg_watch_time_ms,
         f.retention_rate::float8 as retention_rate, l.skip_rate::float8 as skip_rate,
         l.share_rate::float8 as share_rate, l.save_rate::float8 as save_rate, l.reach_rate::float8 as reach_rate

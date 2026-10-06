@@ -116,6 +116,7 @@ const NULL_METRICS = {
   avg_scene_ms: null,
   first_cut_ms: null,
   cuts_in_first_3s: null,
+  cuts_in_last_3s: null,
 };
 
 describe("normalizeCutTimes", () => {
@@ -138,6 +139,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 12_345,
       first_cut_ms: null,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -147,6 +149,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 3333,
       first_cut_ms: 3000,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
     expect(summarizeCuts(10_001, [5000]).avg_scene_ms).toBe(5001); // 5000.5 → 5001
   });
@@ -157,12 +160,21 @@ describe("summarizeCuts", () => {
     expect(summarizeCuts(10_000, [1000, 2999, 3000, 3001]).cuts_in_first_3s).toBe(2);
   });
 
+  it("最後 3 秒: 長さ − 3000ms ちょうどは含めず、それより後は含める。長さちょうども含める", () => {
+    expect(summarizeCuts(10_000, [7000]).cuts_in_last_3s).toBe(0);
+    expect(summarizeCuts(10_000, [7001]).cuts_in_last_3s).toBe(1);
+    expect(summarizeCuts(10_000, [1000, 6999, 7000, 7001, 10_000]).cuts_in_last_3s).toBe(2);
+    // 3 秒より短い動画は、すべてのカットが冒頭にも最後にも入る
+    expect(summarizeCuts(2000, [500, 1500])).toMatchObject({ cuts_in_first_3s: 2, cuts_in_last_3s: 2 });
+  });
+
   it("0ms のカットは有効で、first_cut_ms は 0 になり、冒頭 3 秒に含まれる", () => {
     expect(summarizeCuts(10_000, [0, 5000])).toEqual({
       cut_count: 2,
       avg_scene_ms: 3333,
       first_cut_ms: 0,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -172,6 +184,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 5000,
       first_cut_ms: 4000,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
     expect(summarizeCuts(10_000, [10_000]).cut_count).toBe(1);
   });
@@ -182,6 +195,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 3333,
       first_cut_ms: 2000,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -191,12 +205,13 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 2500,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 1,
     });
   });
 
   it("durationMs が 0 なら avg_scene_ms は null（0ms のカットは数える）", () => {
-    expect(summarizeCuts(0, [])).toEqual({ cut_count: 0, avg_scene_ms: null, first_cut_ms: null, cuts_in_first_3s: 0 });
-    expect(summarizeCuts(0, [0, 100])).toEqual({ cut_count: 1, avg_scene_ms: null, first_cut_ms: 0, cuts_in_first_3s: 1 });
+    expect(summarizeCuts(0, [])).toEqual({ cut_count: 0, avg_scene_ms: null, first_cut_ms: null, cuts_in_first_3s: 0, cuts_in_last_3s: 0 });
+    expect(summarizeCuts(0, [0, 100])).toEqual({ cut_count: 1, avg_scene_ms: null, first_cut_ms: 0, cuts_in_first_3s: 1, cuts_in_last_3s: 1 });
   });
 
   it("入力の配列を変更しない", () => {
@@ -326,6 +341,7 @@ describe("analyzeVideo", () => {
       avg_scene_ms: 3750,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
     expect(result.cuts).toEqual([
       { seq: 1, at_ms: 1500, scene_score: null },

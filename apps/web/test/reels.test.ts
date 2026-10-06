@@ -59,6 +59,7 @@ function reel(i: number, over: Partial<ReelRow> = {}): ReelRow {
     avg_scene_ms: 2000 + i * 100,
     first_cut_ms: i === 0 ? null : 500 + i * 10,
     cuts_in_first_3s: i % 3,
+    cuts_in_last_3s: (i + 1) % 2,
     reach: 100 + i * 10,
     views: 200 + i * 20,
     avg_watch_time_ms: 3000,
@@ -171,6 +172,7 @@ describe("ブートストラップ", () => {
       "cut_count",
       "avg_scene",
       "cuts_in_first_3s",
+      "cuts_in_last_3s",
       "first_cut",
       "caption_chars",
       "elapsed_days",
@@ -204,7 +206,7 @@ describe("カードごとの母集団", () => {
     expect(v.groups.length.reduce((a, b) => a + b.n, 0)).toBe(2);
     expect(v.groups.day.reduce((a, b) => a + b.n, 0)).toBe(4);
     expect(v.responseScatter.find((s) => s.key === "retention_rate")?.points).toHaveLength(4);
-    expect(v.factorScatter).toHaveLength(6);
+    expect(v.factorScatter).toHaveLength(7);
     expect(v.topBottom).toBeNull();
     // n = 2 なので相関はすべて「—」
     expect(v.correlations.every((c) => c.r === null && c.lo === null)).toBe(true);
@@ -246,6 +248,9 @@ describe("上位と下位", () => {
     const g = [reel(1, { cuts_in_first_3s: 0 }), reel(2, { cuts_in_first_3s: 2 }), reel(3, { cuts_in_first_3s: 1 })];
     expect(groupFactorSummary(g, "cuts_in_first_3s")).toBeCloseTo(2 / 3, 10);
     expect(groupFactorSummary(g, "duration")).toBe(11);
+    // 最後 3 秒も 1 回以上の割合（0、1、1 → 2/3）
+    const h = [reel(1, { cuts_in_last_3s: 0 }), reel(2, { cuts_in_last_3s: 1 }), reel(3, { cuts_in_last_3s: 3 })];
+    expect(groupFactorSummary(h, "cuts_in_last_3s")).toBeCloseTo(2 / 3, 10);
     expect(groupFactorSummary([], "duration")).toBeNull();
   });
 });

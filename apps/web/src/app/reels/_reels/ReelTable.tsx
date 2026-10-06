@@ -36,6 +36,7 @@ export const REEL_COLUMNS: readonly Column[] = [
   { key: "cut_count", label: "画面変化", hint: factorDef("cut_count").hint, cell: factorCell("cut_count") },
   { key: "avg_scene", label: "平均シーン長", hint: factorDef("avg_scene").hint, hideM: true, cell: factorCell("avg_scene") },
   { key: "cuts_in_first_3s", label: "冒頭 3 秒", hint: factorDef("cuts_in_first_3s").hint, cell: factorCell("cuts_in_first_3s") },
+  { key: "cuts_in_last_3s", label: "最後 3 秒", hint: factorDef("cuts_in_last_3s").hint, cell: factorCell("cuts_in_last_3s") },
   { key: "views", label: METRIC_DEFINITIONS.views.label, hint: METRIC_DEFINITIONS.views.hint, cell: (r) => formatCount(r.views) },
   { key: "reach", label: METRIC_DEFINITIONS.reach.label, hint: METRIC_DEFINITIONS.reach.hint, cell: (r) => formatCount(r.reach) },
   {
