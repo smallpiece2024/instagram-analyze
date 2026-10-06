@@ -4,7 +4,7 @@ import { Callout, Note } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { PageHead } from "@/components/PageHead";
 import { lastUpdatedLabel } from "@/lib/format";
-import { parseEr, parseRange } from "@/lib/params";
+import { parseRange } from "@/lib/params";
 import { isStale, lastNDays, previousPeriod, todayPacific } from "@/lib/period";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { getOverviewUpdatedAt } from "@/lib/queries/overview";
@@ -20,13 +20,12 @@ const TITLE = "概要";
 
 /**
  * 概要（R3 設計 3.2 節）。期間の終わりは今日ではなく、日次指標（`reach`）のある最新の日（太平洋時間の日付）。
- * 期間（`?range=`）と ER の分母（`?er=`）は `lib/params` で検査し、外れた値は既定に戻す（4.7 節）。
+ * 期間（`?range=`）は `lib/params` で検査し、外れた値は既定に戻す（4.7 節）。ER の分母はリーチに固定（2026-10-06、ユーザーの判断）。
  * カードごとに `<Suspense>` で包み、1 枚の失敗でほかを止めない（4.5 節）
  */
 export default async function OverviewPage(props: PageProps<"/">) {
   const searchParams = await props.searchParams;
   const range = parseRange(searchParams.range);
-  const er = parseEr(searchParams.er);
 
   const account = await getTargetAccount();
   if (!account.ok) {
@@ -51,7 +50,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
   if (!dailyRange.ok || dailyRange.data === null) {
     return (
       <main className="main">
-        <PageHead title={TITLE} sub={lastUpdatedLabel(updated.latest)} tools={<RangeChips range={range} er={er} />} />
+        <PageHead title={TITLE} sub={lastUpdatedLabel(updated.latest)} tools={<RangeChips range={range} />} />
         {!dailyRange.ok ? (
           <Card>
             <LoadError reason={dailyRange.reason} />
@@ -81,7 +80,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
       <PageHead
         title={TITLE}
         sub={`過去 ${range} 日（${cur.from} 〜 ${cur.to}）・${lastUpdatedLabel(updated.latest)}`}
-        tools={<RangeChips range={range} er={er} />}
+        tools={<RangeChips range={range} />}
       />
       {stale && (
         <Callout state="warn">
@@ -90,7 +89,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
       )}
       {!updatedAt.ok && <LoadError reason={updatedAt.reason} />}
       <Suspense fallback={<div className="kpis" aria-busy="true" />}>
-        <OverviewKpis accountId={accountId} cur={cur} prev={prev} range={range} er={er} />
+        <OverviewKpis accountId={accountId} cur={cur} prev={prev} />
       </Suspense>
       <div className="grid">
         <Suspense fallback={<CardLoading title="リーチとフォロワー数の日次推移" className="col-8" />}>

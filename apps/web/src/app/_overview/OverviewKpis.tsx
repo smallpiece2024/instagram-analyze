@@ -2,11 +2,8 @@ import { Card } from "@/components/Card";
 import { Kpi } from "@/components/Kpi";
 import { EMPTY, formatCount, formatPercent, formatSignedCount } from "@/lib/format";
 import { deltaCount, deltaPoint, deltaRate } from "@/lib/metrics";
-import type { ErDenominator, Range } from "@/lib/params";
 import type { Period } from "@/lib/period";
-import { ER_DENOMINATOR_LABEL, erFor } from "@/lib/queries/overview";
 import { getDailyTotals, getFollowerChange, getPostTotals, type DailySum } from "@/lib/queries/period-summary";
-import { ErChips } from "./Chips";
 import { LoadError } from "./states";
 import { ACCOUNT_METRIC_DEFINITIONS as DEF } from "@/lib/metric-definitions";
 
@@ -15,8 +12,6 @@ export interface OverviewKpisProps {
   /** 今の期間と前期間（太平洋時間の日付。投稿単位の値は同じ日付の範囲を日本時間の投稿日で数える） */
   cur: Period;
   prev: Period;
-  range: Range;
-  er: ErDenominator;
 }
 
 /** 「30 日中 28 日分」。欠けがなければ出さない */
@@ -29,7 +24,7 @@ function join(...parts: (string | null | undefined)[]): string {
 }
 
 /** 数字タイル 6 枚（3.2 節「数字タイル」）。読み出しに失敗したら、タイルの代わりにカードの中で理由を出す */
-export async function OverviewKpis({ accountId, cur, prev, range, er }: OverviewKpisProps) {
+export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) {
   const [dailyCur, dailyPrev, follCur, follPrev, postsCur, postsPrev] = await Promise.all([
     getDailyTotals(accountId, cur.from, cur.to),
     getDailyTotals(accountId, prev.from, prev.to),
@@ -57,11 +52,9 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
   const noPosts = pc.posts === 0;
   const noPrevPosts = pp.posts === 0;
 
-  // ER（分母の切り替え）
-  const erCur = erFor(er, pc, fc);
-  const erPrev = erFor(er, pp, fp);
-  const erDenom =
-    er === "followers" ? "分母: 期間末のフォロワー数・1 投稿あたり" : `分母: ${ER_DENOMINATOR_LABEL[er]}`;
+  // ER（分母はリーチに固定）
+  const erCur = pc.er;
+  const erPrev = pp.er;
 
   return (
     <div className="kpis">
@@ -102,10 +95,8 @@ export async function OverviewKpis({ accountId, cur, prev, range, er }: Overview
         hint={DEF.er.hint}
         value={noPosts ? EMPTY : formatPercent(erCur.value, 2)}
         delta={noPrevPosts ? null : deltaPoint(erCur.value, erPrev.value)}
-        denom={noPosts ? "期間中の投稿なし" : join(erDenom, `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`)}
-      >
-        <ErChips range={range} er={er} />
-      </Kpi>
+        denom={noPosts ? "期間中の投稿なし" : join("分母: リーチ", `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`)}
+      />
       <Kpi
         label={DEF.save_rate.label}
         hint={DEF.save_rate.hint}
