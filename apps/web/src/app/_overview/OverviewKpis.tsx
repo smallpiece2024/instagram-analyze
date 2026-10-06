@@ -80,10 +80,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         hint={DEF.follower_gain.hint}
         value={fc.net === null ? EMPTY : formatSignedCount(fc.net)}
         delta={deltaCount(fc.net, fp.net)}
-        denom={join(
-          "日本時間の記録",
-          fc.net === null && fc.firstCapturedOn !== null ? `記録は ${fc.firstCapturedOn} から` : null,
-        )}
+        denom={fc.net === null && fc.firstCapturedOn !== null ? `記録は ${fc.firstCapturedOn} から` : undefined}
       />
       <Kpi
         label={DEF.er_account.label}
