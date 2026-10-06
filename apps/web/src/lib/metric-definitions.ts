@@ -62,6 +62,7 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
     hint: "閲覧数 = 投稿やストーリーズが表示された回数。同じ人が何度見ても数える（2025-04-21 から views に統一）",
   },
   follower_gain: { label: "フォロワー純増", hint: "フォロワー純増 = 期間中にフォローされた数 − フォローを外された数" },
+  followers: { label: "フォロワー数", hint: "フォロワー数 = 最新の記録のフォロワー数。選んだ期間には関係しない" },
   er: { label: "エンゲージメント率", hint: METRIC_DEFINITIONS.er.hint },
   save_rate: { label: "保存率", hint: METRIC_DEFINITIONS.save_rate.hint },
   share_rate: { label: "シェア率", hint: METRIC_DEFINITIONS.share_rate.hint },

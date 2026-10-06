@@ -86,7 +86,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         value={fc.net === null ? EMPTY : formatSignedCount(fc.net)}
         delta={deltaCount(fc.net, fp.net)}
         denom={join(
-          `現在 ${formatCount(fc.latest?.followers_count)}・日本時間の記録`,
+          "日本時間の記録",
           fc.net === null && fc.firstCapturedOn !== null ? `記録は ${fc.firstCapturedOn} から` : null,
         )}
       />
@@ -109,11 +109,10 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         }
       />
       <Kpi
-        label={DEF.profile_visits.label}
-        hint={DEF.profile_visits.hint}
-        value={noPosts ? EMPTY : formatCount(pc.profileVisits.sum)}
-        delta={noPrevPosts ? null : deltaRate(pc.profileVisits.sum, pp.profileVisits.sum)}
-        denom={noPosts ? "期間中の投稿なし" : "フィード（カルーセルを含む）の投稿単位の合計。リールとアカウント全体は含まない"}
+        label={DEF.followers.label}
+        hint={DEF.followers.hint}
+        value={formatCount(fc.latest?.followers_count)}
+        denom={fc.latest ? `${fc.latest.captured_on} の記録` : undefined}
       />
     </div>
   );
