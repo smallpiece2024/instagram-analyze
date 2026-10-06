@@ -11,9 +11,11 @@ import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
 import { MetricHint } from "@/components/MetricHint";
 import { PageHead } from "@/components/PageHead";
+import { Pager } from "@/components/Pager";
 import { PendingMark } from "@/components/PendingMark";
 import { buildHref, type Query } from "@/components/href";
-import { lastUpdatedLabel } from "@/lib/format";
+import { lastUpdatedLabel, PAGE_SIZE } from "@/lib/format";
+import { parsePageNumber } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { signWithSession } from "@/lib/queries/media";
 import { getReels } from "@/lib/queries/reels";
@@ -68,7 +70,9 @@ function ObjectiveChips({ params, counts }: { params: ReelsParams; counts: Recor
 }
 
 export default async function ReelsPage(props: PageProps<"/reels">) {
-  const params = parseReelsParams(await props.searchParams);
+  const sp = await props.searchParams;
+  const params = parseReelsParams(sp);
+  const page = parsePageNumber(sp.page);
 
   const account = await getTargetAccount();
   if (!account.ok) {
@@ -115,6 +119,10 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
   const paths = Array.from(new Set(rows.flatMap((r) => (r.thumbnail_path ? [r.thumbnail_path] : []))));
   const urls = await signWithSession(paths);
   const analyzed = view.analyzedCount > 0;
+  // 一覧は投稿一覧と同じく 1 ページ PAGE_SIZE 件。並べ替えと指標の選択のリンクは page を持たない（1 ページ目に戻る）
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = sortReels(rows, params.sort, params.dir).slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <main className="main main--wide stack">
@@ -136,7 +144,8 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
         <GroupsCard view={view} analyzed={analyzed} />
         <ResponseScatterCard view={view} />
         <Card title="リールの一覧" sub={`${view.total} 件`} className="col-12">
-          <ReelTable rows={sortReels(rows, params.sort, params.dir)} urls={urls} sort={params.sort} dir={params.dir} query={query} />
+          <ReelTable rows={pageRows} urls={urls} sort={params.sort} dir={params.dir} query={query} />
+          <Pager page={currentPage} pageCount={pageCount} path="/reels" query={query} total={rows.length} pageSize={PAGE_SIZE} />
         </Card>
       </div>
     </main>
