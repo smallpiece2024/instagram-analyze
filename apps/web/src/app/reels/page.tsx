@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { Callout } from "@/components/Callout";
 import { Card } from "@/components/Card";
+import { MetricHint } from "@/components/MetricHint";
 import { PageHead } from "@/components/PageHead";
 import { PendingMark } from "@/components/PendingMark";
 import { buildHref, type Query } from "@/components/href";
@@ -38,10 +39,17 @@ import { ReelTable } from "./_reels/ReelTable";
 
 const TITLE = "リール分析";
 
+/** 選択の見出しのヒント。何を選ぶのかを示す（見出しだけでは分からないと 2026-10-06 にユーザー） */
+const OBJECTIVE_SELECT_HINT =
+  "比べる指標 = 動画の長さや画面変化の回数などの要因と、どの指標の関係を見るか。要因との関係、上位と下位、散布図の縦軸、区分の棒は、ここで選んだ指標で計算する";
+
 /** 目的変数の選択（投稿時刻の画面の指標の選択と同じ形。リンクで JS なしに動く）。`sort` と `dir` は保つ */
 function ObjectiveChips({ params, counts }: { params: ReelsParams; counts: Record<Objective, number> }) {
   return (
-    <nav className="chips" aria-label="目的変数">
+    <nav className="chips" aria-label="比べる指標" style={{ alignItems: "center" }}>
+      <span className="small muted">
+        <MetricHint label="比べる指標" text={OBJECTIVE_SELECT_HINT} />
+      </span>
       {OBJECTIVES.map((y) => (
         <Link
           key={y}
