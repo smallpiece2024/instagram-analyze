@@ -95,7 +95,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         hint={DEF.er.hint}
         value={noPosts ? EMPTY : formatPercent(erCur.value, 2)}
         delta={noPrevPosts ? null : deltaPoint(erCur.value, erPrev.value)}
-        denom={noPosts ? "期間中の投稿なし" : join("分母: リーチ", `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`)}
+        denom={noPosts ? "期間中の投稿なし" : `期間中の投稿 ${erCur.total} 件中 ${erCur.used} 件で計算`}
       />
       <Kpi
         label={DEF.save_rate.label}
@@ -105,7 +105,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         denom={
           noPosts
             ? "期間中の投稿なし"
-            : join("分母: リーチ", `${pc.saveRate.total} 件中 ${pc.saveRate.used} 件`, "目安 2〜3%")
+            : join(`${pc.saveRate.total} 件中 ${pc.saveRate.used} 件`, "目安 2〜3%")
         }
       />
       <Kpi
