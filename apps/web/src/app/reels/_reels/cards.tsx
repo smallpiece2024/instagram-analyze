@@ -215,6 +215,10 @@ function ScatterCell({
   const common = { title, points: pts, xFormat, yFormat: objectiveFormat(y), color: COLOR, refY };
   return (
     <div className={`${className} scatter-cell`}>
+      {/* 縦軸の名前（選んでいる指標）は図の上の左端 */}
+      <div className="small muted">
+        <MetricHint label={OBJECTIVE_LABEL[y]} text={objectiveHint(y)} />
+      </div>
       <div className="chart only-d">
         <Scatter {...common} width={width} height={190} />
       </div>
