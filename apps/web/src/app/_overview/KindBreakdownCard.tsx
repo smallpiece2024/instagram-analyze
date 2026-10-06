@@ -47,7 +47,7 @@ export async function KindBreakdownCard({ accountId, period, mediaFetchedAt, cla
     <Card
       title={TITLE}
       className={className}
-      foot={`投稿日: 日本時間の日付・投稿ごとの最新の取得 ${formatJst(mediaFetchedAt)}`}
+      foot={`投稿ごとの最新の取得 ${formatJst(mediaFetchedAt)}`}
     >
       <KindLegend kinds={POST_KINDS} />
       {posts >= MIN_POSTS_FOR_BARS && (

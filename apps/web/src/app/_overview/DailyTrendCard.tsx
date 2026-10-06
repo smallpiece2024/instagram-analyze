@@ -75,7 +75,7 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
     tipsByIndex.set(i, tips);
   }
   const markerIndexes = [...tipsByIndex.keys()].sort((a, b) => a - b);
-  const markerTips = markerIndexes.map((i) => `投稿 ${(tipsByIndex.get(i) ?? []).join("、")}（日本時間）`);
+  const markerTips = markerIndexes.map((i) => `投稿 ${(tipsByIndex.get(i) ?? []).join("、")}`);
   const refLines = changes.data
     .map((d) => indexOf.get(d))
     .filter((i): i is number => i !== undefined)
@@ -91,7 +91,7 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
         <>
           <span style={{ color: "var(--chart-marker)" }}>▲</span> は投稿のあった日・日次指標: {axis.to}
           まで・取得 {formatJst(dailyFetchedAt)}
-          {shortened && `・${shortened}`}・フォロワー数: 日本時間の日付の記録
+          {shortened && `・${shortened}`}
         </>
       }
     >

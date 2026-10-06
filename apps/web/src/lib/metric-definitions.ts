@@ -79,7 +79,7 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
     label: "非フォロワーリーチ比率",
     hint: "非フォロワーリーチ比率 = フォロワー以外へのリーチ ÷（フォロワーへのリーチ + フォロワー以外へのリーチ）",
   },
-  posts: { label: "投稿数", hint: "投稿数 = 期間中に投稿した数（投稿日時の日本時間の日付）" },
+  posts: { label: "投稿数", hint: "投稿数 = 期間中に投稿した数" },
   profile_visits: {
     label: "プロフィール訪問（参考）",
     // 集計は `media_list_metrics`（ストーリーズを含まない）の投稿単位の値の合計。リールは API で取れない
@@ -93,4 +93,4 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
  * 画面では冬時間のかっこ書きと「米国太平洋時間」の語を出さない（2026-10-05 ユーザーの決定）
  */
 export const DAY_BOUNDARY_NOTE =
-  "リーチ、閲覧数、非フォロワーリーチ比率の 1 日は、日本時間の 16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";
+  "リーチ、閲覧数、非フォロワーリーチ比率の 1 日は、16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";

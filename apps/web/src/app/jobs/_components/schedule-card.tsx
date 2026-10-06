@@ -11,7 +11,7 @@ import { JOB_SCHEDULE, runState } from "./schedule";
 export async function ScheduleCard({ accountId, className }: { accountId: string; className?: string }) {
   const latest = await getLatestRuns(accountId);
   return (
-    <Card title="収集スケジュール" sub="日本時間" className={className}>
+    <Card title="収集スケジュール" className={className}>
       {!latest.ok ? (
         <Callout state="bad">読み出せません（{latest.reason}）</Callout>
       ) : (

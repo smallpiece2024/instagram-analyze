@@ -69,7 +69,7 @@ export async function OverlayCard({ accountId, a, b }: { accountId: string; a: P
   const title = `リーチの日次。A ${periodLabel(a)} と B ${periodLabel(b)} を 1 日目をそろえて重ねた折れ線`;
 
   return (
-    <Card title="リーチ" className="col-12" foot="1 日は日本時間の 16 時から翌日の 16 時まで。">
+    <Card title="リーチ" className="col-12" foot="1 日は 16 時から翌日の 16 時まで。">
       <Legend
         items={[
           { label: `A ${periodLabel(a)}`, color: "var(--color-primary)", shape: "line" },
