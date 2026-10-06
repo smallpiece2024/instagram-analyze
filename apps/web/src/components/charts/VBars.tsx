@@ -131,6 +131,10 @@ export function VBars({
                 {formatValue(raw, format)}
               </text>
             )}
+            {/* ヒントを出す範囲。低い棒でも出せるように、棒の列の全体を透明な四角で覆う */}
+            <rect x={coord(m.l + slot * i)} y={m.t} width={coord(slot)} height={ih} fill="transparent">
+              <title>{tip}</title>
+            </rect>
           </g>
         );
       })}
