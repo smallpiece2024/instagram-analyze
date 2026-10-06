@@ -215,7 +215,7 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 
 ## 6. R3（基本分析）
 
-ブランチは `r3/stage0`（main に未マージ、未 push）。設計は `doc/design/r3-analysis-screens.md`。
+ブランチ `r3/stage0` は main にマージ済み（2026-10-06）。設計は `doc/design/r3-analysis-screens.md`。
 
 - **段階 0（土台）**: 分析用のビュー（`supabase/migrations/20261005000000_r3_analysis_views.sql`）、画面の土台と共通部品（`components/`、`components/charts/`）、共通のクエリ（`period-summary.ts` など）、R1 の接続状態の部品の `/jobs` への移動
 - **段階 1（画面）**: 概要、投稿一覧、投稿詳細、期間比較、接続と収集ログ、CSV 2 本。その後、期間比較を design-lab v4 の見本の形に直し、プリセットに前 3 か月を足し、投稿の題名で空行と句読点だけの行を飛ばすようにした
@@ -223,7 +223,8 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 - **段階 2 の 2. セキュリティレビュー（2026-10-06。`security-engineer`、約 1.5 分、25 回の呼び出し、8 万トークン）**: 高・中なし、低 3 件をすべて直した（日次の CSV のハンドラー全体を try で包む、ログに出すエラーコードを形で検査する、CSV の数値の列で空の文字列を空欄にする）
 - **段階 2 の 3. 性能計測（2026-10-06）**: `scripts/r3-perf-check.sql` を手元の Supabase で実行。合成の投稿 1,000 件（スナップショット 14 件ずつ、日次 2 年分）で、主なクエリ 11 本の実行時間は 0.1〜85 ms（最大は投稿一覧のリーチ率の順、85 ms）。判定の 500 ms 以下を満たす
 - **静的検査（2026-10-06）**: `next build`（全ルート `ƒ`）、ESLint、型検査が通る
-- **残り（段階 2 の 4・5）**: 本番での数値の照合（設計 9.3 節。収集の直後に DB の値を `.local/r3-check/` に書き出し、30 分以内にユーザーが Instagram アプリの値を写す）、PC とスマートフォンでの画面の確認（ユーザー）、main へのマージと本番への反映（マイグレーションの適用を含む）
+- **本番への反映（2026-10-06）**: main にマージして push。クラウドの Supabase に `db push` 済み（`20261005000000_r3_analysis_views.sql`、ユーザー）。管理 API のログイン用ロールの作成が 403 になったため、`SUPABASE_DB_PASSWORD` に DB パスワードを入れて直接つないだ
+- **残り（段階 2 の 4・5）**: 本番での数値の照合（設計 9.3 節。収集の直後に DB の値を `.local/r3-check/` に書き出し、30 分以内にユーザーが Instagram アプリの値を写す）、PC とスマートフォンでの画面の確認（ユーザー）
 
 ## 7. 作業の決まりごと
 
