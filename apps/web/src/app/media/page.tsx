@@ -80,7 +80,7 @@ export default async function MediaPage(props: PageProps<"/media">) {
   }
 
   return (
-    <main className="main stack">
+    <main className="main main--wide stack">
       <PageHead
         title={TITLE}
         sub={sub}
