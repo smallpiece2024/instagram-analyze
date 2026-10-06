@@ -129,6 +129,18 @@ export async function latestStartedAt(db: Db, jobName: JobName): Promise<Date | 
   return rows[0]?.started_at ?? undefined;
 }
 
+/**
+ * そのジョブ（全アカウント）が最後に `success` か `partial` で終わった実行の `started_at`。行がなければ undefined。
+ * `daily-due`（日次の取りこぼしの補い）に使う
+ */
+export async function latestCompletedStartedAt(db: Db, jobName: JobName): Promise<Date | undefined> {
+  const rows = await db<{ started_at: Date | null }[]>`
+    select max(started_at) as started_at from public.job_runs
+    where job_name = ${jobName} and status in ('success', 'partial')
+  `;
+  return rows[0]?.started_at ?? undefined;
+}
+
 /** `job_state.state`。行がなければ undefined。型は呼び出し側が指定する（検証はしない） */
 export async function getJobState<T>(db: Db, accountId: string, jobName: JobName): Promise<T | undefined> {
   const rows = await db<{ state: unknown }[]>`

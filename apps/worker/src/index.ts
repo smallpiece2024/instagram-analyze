@@ -11,6 +11,7 @@
  */
 import { checkAlerts } from "./commands/check-alerts.js";
 import { checkEnv } from "./commands/check-env.js";
+import { dailyDue } from "./commands/daily-due.js";
 import { registerToken } from "./commands/register-token.js";
 import { groupCommand, jobCommand, type CommandSpec } from "./commands/run-job.js";
 import { schedule } from "./commands/schedule.js";
@@ -42,6 +43,10 @@ const COMMANDS: Record<string, Command> = {
   stories: jobCommand(storiesJob, "ストーリーズの一覧、指標、動画解析"),
   "run-hourly": groupCommand("hourly", HOURLY_JOBS, "stories → media-sync → media-snapshot → account-backfill を順に実行"),
   "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → media-sync --full を順に実行"),
+  "daily-due": {
+    description: "前回の account-daily の成功から 24 時間を過ぎていれば due=true、そうでなければ due=false を標準出力に書く",
+    run: () => dailyDue(),
+  },
   "check-alerts": {
     description: "トークンの期限と stories の連続失敗・見送りを調べ、該当があれば終了コード 1（--scope hourly|daily）",
     run: (args) => checkAlerts(args),

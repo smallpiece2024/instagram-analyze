@@ -8,6 +8,7 @@ import {
   finishJobRun,
   getJobState,
   latestRateUsage,
+  latestCompletedStartedAt,
   latestStartedAt,
   setJobState,
   startJobRun,
@@ -278,6 +279,19 @@ describe.skipIf(!TEST_DATABASE_URL)("db/job-runs（結合）", () => {
     expect(await latestStartedAt(db, "stories")).toEqual(newerAt);
     // 別のジョブ名の行は見ない
     expect((await latestStartedAt(db, "media_sync"))?.getTime() ?? 0).toBeLessThan(olderAt.getTime());
+  });
+
+  it("latestCompletedStartedAt は success と partial だけを見る（skipped や failed の新しい行は飛ばす）", async () => {
+    const base = Date.now();
+    const okAt = new Date(base + 40 * 3_600_000);
+    const failedAt = new Date(base + 41 * 3_600_000);
+    const okId = await startJobRun(db, "account_daily", accountId);
+    const failedId = await startJobRun(db, "account_daily", accountId);
+    await finishJobRun(db, okId, { status: "partial", items_fetched: 0, api_calls: 0 });
+    await finishJobRun(db, failedId, { status: "failed", items_fetched: 0, api_calls: 0, error: "test" });
+    await db`update public.job_runs set started_at = ${okAt} where id = ${okId}`;
+    await db`update public.job_runs set started_at = ${failedAt} where id = ${failedId}`;
+    expect(await latestCompletedStartedAt(db, "account_daily")).toEqual(okAt);
   });
 
   it("同じセッションでは tryLock が再入でき（2 回とも true）、unlock も同じ回数要る", async () => {
