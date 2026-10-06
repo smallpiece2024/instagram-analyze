@@ -124,7 +124,7 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
       title={`${label}の上位と下位`}
       sub={`n = ${tb.n}`}
       className="col-6"
-      foot="値は各群の中央値。冒頭 3 秒の画面変化は 1 回以上のリールの割合。"
+      foot={'値は各群の中央値。"冒頭 3 秒の画面変化"は 1 回以上のリールの割合。'}
     >
       <div className="table-wrap">
         <table className="table">
