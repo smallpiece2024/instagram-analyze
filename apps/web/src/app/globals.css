@@ -192,6 +192,8 @@
   .topbar__actions button { font-size: var(--font-size-sm); color: var(--color-link); cursor: pointer; background: none; border: 0; }
   .topbar__actions button:hover { text-decoration: underline; }
   .main { width: 100%; max-width: var(--content-max); margin: 0 auto; padding: var(--gap); flex: 1; }
+  /* 列の多い表の画面（投稿一覧）は、窓の幅いっぱいまで広げる */
+  .main--wide { max-width: none; }
   .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; margin-bottom: var(--gap); }
   .page-head h1 { padding: var(--heading-pad, 0); border-bottom: var(--heading-decor, none); }
   .page-head .sub { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-top: 2px; }
