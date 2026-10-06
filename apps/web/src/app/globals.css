@@ -364,6 +364,8 @@
   .card__foot p + p, .note p + p { margin-top: 2px; }
   @media (max-width: 700px) {
     .period-strip { flex-direction: column; gap: calc(var(--gap) * 0.75); }
+    /* 縦に並べると flex-basis（260px）が高さとして効くので、中身の高さにする */
+    .period-block { flex: 0 0 auto; }
     .period-block__range { font-size: 1.15rem; }
   }
   .table tfoot td { font-weight: 700; border-top: 2px solid var(--color-border-strong); border-bottom: 0; }
