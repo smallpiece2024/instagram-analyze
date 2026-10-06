@@ -503,6 +503,11 @@
   .col-3 { grid-column: span 6; }
 }
 
+/* ---------- 横スクロールで左端の列を止める表（期間比較の主要指標と投稿の基準値） ----------
+   枠に左右の余白があると、止めた列の左の余白に、横にずらした列の中身が見えるので、この枠は余白を持たない */
+.table-wrap--sticky { margin: 0; padding: 0; }
+.table .sticky-col { position: sticky; left: 0; z-index: 1; box-shadow: 1px 0 0 var(--color-border); }
+
 /* ---------- リール分析（R4 設計 6.2 節） ---------- */
 .forest__row { display: grid; grid-template-columns: 11em 4em minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 4px 0; }
 .forest__row--axis { padding: 0; }

@@ -171,11 +171,13 @@ export async function SummaryCard({
         </>
       }
     >
-      <div className="table-wrap">
+      <div className="table-wrap table-wrap--sticky">
         <table className="table">
           <thead>
             <tr>
-              <th scope="col">指標</th>
+              <th scope="col" className="sticky-col">
+                指標
+              </th>
               <th scope="col" className="num is-a">
                 A <span className="muted">{periodLabel(a)}</span>
               </th>
@@ -190,7 +192,7 @@ export async function SummaryCard({
           <tbody>
             {rows.map((r) => (
               <tr key={r.key}>
-                <th scope="row" className={r.sub ? "row-head row-head--sub" : "row-head"}>
+                <th scope="row" className={r.sub ? "row-head row-head--sub sticky-col" : "row-head sticky-col"}>
                   {r.hint ? <MetricHint label={r.label} text={r.hint} /> : r.label}
                 </th>
                 <td className="num is-a">
