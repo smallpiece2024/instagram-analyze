@@ -2,7 +2,7 @@
  * リール分析（`/reels`。R4 設計 6.2 節、見本 `render.js` の `S.reels` から文字の要因を除いたもの）。
  *
  * - 期間は過去 1 年間（365 日）の固定で、選択は置かない。対象はリールだけ
- * - 目的変数は選べる（リーチ率、最新のリーチ、最新の閲覧数。文言に件数。既定はリーチ率。データの状況で自動では変えない）
+ * - 目的変数は選べる（リーチ率、リーチ数、閲覧数。文言に件数。既定はリーチ率。データの状況で自動では変えない）
  * - クエリ `y`、`sort`、`dir` は `lib/reels.ts` で検査し、不正な値は既定に戻す。並べ替えのたびにページ全体を計算し直す
  * - 計算はサーバーで行い（`buildReelsView`）、数値だけを描画に渡す
  */
@@ -32,6 +32,7 @@ import {
   FactorScatterCard,
   GroupsCard,
   NoAnalysis,
+  objectiveHint,
   ResponseScatterCard,
   TopBottomCard,
 } from "./_reels/cards";
@@ -56,6 +57,7 @@ function ObjectiveChips({ params, counts }: { params: ReelsParams; counts: Recor
           className="chip"
           href={buildHref("/reels", reelsQuery({ ...params, y }))}
           aria-current={y === params.y ? "true" : undefined}
+          title={objectiveHint(y)}
         >
           {objectiveOptionLabel(y, counts[y])}
           <PendingMark />

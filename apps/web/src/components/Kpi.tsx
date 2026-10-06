@@ -11,7 +11,7 @@ export interface KpiProps {
   value: ReactNode;
   unit?: string;
   delta?: DeltaValue | null;
-  /** 分母の表示（「分母: リーチ」） */
+  /** 分母の表示（「分母: リーチ数」） */
   denom?: string;
   /** タイルの下に置く部品（ER の分母の切り替えなど） */
   children?: ReactNode;

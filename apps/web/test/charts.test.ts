@@ -25,7 +25,7 @@ const stacked = (p: Partial<Stacked100Props>) => renderToStaticMarkup(createElem
 const band = (p: Partial<BandRowProps>) =>
   renderToStaticMarkup(
     createElement(BandRow, {
-      label: "リーチ",
+      label: "リーチ数",
       value: 100,
       stats: { n: 0, min: null, max: null, p25: null, median: null, p75: null },
       ...p,
@@ -71,7 +71,7 @@ describe("VBars", () => {
   });
 
   it("aria-label を付ける", () => {
-    expect(vbars({ title: "日次のリーチ", values: [1], labels: ["a"] })).toContain('aria-label="日次のリーチ"');
+    expect(vbars({ title: "日次のリーチ数", values: [1], labels: ["a"] })).toContain('aria-label="日次のリーチ数"');
   });
 
   it("縦の破線とラベル、投稿の印のヒントを描く（LineChart と同じ形）", () => {
@@ -265,8 +265,8 @@ describe("BandRow（件数による出し方）", () => {
 
 describe("Legend", () => {
   it("項目を並べる", () => {
-    const html = renderToStaticMarkup(createElement(Legend, { items: [{ label: "リーチ", color: "var(--chart-1)" }, { label: "前期", shape: "dash" }] }));
-    expect(html).toContain("リーチ");
+    const html = renderToStaticMarkup(createElement(Legend, { items: [{ label: "リーチ数", color: "var(--chart-1)" }, { label: "前期", shape: "dash" }] }));
+    expect(html).toContain("リーチ数");
     expect(html).toContain('class="dash"');
   });
 

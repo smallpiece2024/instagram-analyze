@@ -43,7 +43,7 @@ import {
   videoAnalysisMissing,
 } from "@/lib/video-timeline";
 
-/** 架空のリール。既定は解析済みで、目的変数（最新の閲覧数）がある */
+/** 架空のリール。既定は解析済みで、目的変数（閲覧数）がある */
 function reel(i: number, over: Partial<ReelRow> = {}): ReelRow {
   return {
     media_id: `00009${String(i).padStart(4, "0")}`,
@@ -212,7 +212,7 @@ describe("カードごとの母集団", () => {
 
   it("選択肢の文言に件数", () => {
     expect(objectiveOptionLabel("reach_rate", 2)).toBe("リーチ率（2 件）");
-    expect(objectiveOptionLabel("views", 20)).toBe("最新の閲覧数（20 件）");
+    expect(objectiveOptionLabel("views", 20)).toBe("閲覧数（20 件）");
   });
 });
 

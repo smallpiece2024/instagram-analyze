@@ -17,12 +17,12 @@ import { HORIZON_LABEL, topPercent } from "./text";
 const CHART_WIDTH = 1140;
 
 /**
- * リーチの伸び方（12 列のカード。R3 設計 3.4 節）。
+ * リーチ数の伸び方（12 列のカード。R3 設計 3.4 節）。
  * X 軸は経過時間の区分を等間隔に置く。`within_tolerance` が偽の区分とまだ到達していない区分は点を描かず線を切る。
  * 中央値と帯は、同じ種類のほかの投稿の許容内の値から作る。上の 2 つの数字は最新の値どうしで比べる
  */
 export async function GrowthCard({ media }: { media: MediaDetail }) {
-  const title = "リーチの伸び方";
+  const title = "リーチ数の伸び方";
   if (media.latest_fetched_at === null) {
     return (
       <Card title={title} className="col-12">
@@ -109,7 +109,7 @@ export async function GrowthCard({ media }: { media: MediaDetail }) {
       {!hasPeers && <p className="small muted">{baselineNote(0)}</p>}
       <div className="chart">
         <LineChart
-          title={`${title}: この投稿のリーチ（経過時間の区分ごと）`}
+          title={`${title}: この投稿のリーチ数（経過時間の区分ごと）`}
           labels={labels}
           band={hasBand ? { lower, upper, label: "25〜75%", dimIndexes } : undefined}
           series={[

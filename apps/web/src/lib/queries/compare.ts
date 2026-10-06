@@ -124,7 +124,7 @@ function toStat(
   return { n, mean, p25: q?.[0] ?? null, median: q?.[1] ?? null, p75: q?.[2] ?? null, min, max };
 }
 
-/** 期間（両端を含む。日本時間の日付）に投稿した投稿の、リーチ、保存率、ER の平均、分位（`percentile_cont`）、最小と最大 */
+/** 期間（両端を含む。日本時間の日付）に投稿した投稿の、リーチ数、保存率、ER の平均、分位（`percentile_cont`）、最小と最大 */
 export const getPeriodBaselines = cache(
   async (accountId: string, from: string, to: string): Promise<QueryResult<PeriodBaselines>> =>
     runQuery(async (db) => {

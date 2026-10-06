@@ -124,8 +124,7 @@ export function Forest({ rows, width = 640, widthM = 220 }: { rows: readonly For
               <MetricHint label={row.label} text={row.hint} />
             </span>
             <span className="forest__value num">
-              <b style={faint ? { opacity: 0.55 } : undefined}>{row.r === null ? "—" : signed(row.r)}</b>{" "}
-              <span className="xs muted">n={row.n}</span>
+              <b style={faint ? { opacity: 0.55 } : undefined}>{row.r === null ? "—" : signed(row.r)}</b>
             </span>
             <div className="chart">
               <div className="only-d">

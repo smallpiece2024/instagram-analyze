@@ -87,7 +87,7 @@ export default async function MediaDetailPage({ params }: { params: Promise<{ id
         <Suspense fallback={<CardLoading title="質の指標" className="col-6" />}>
           <QualityCard media={media} />
         </Suspense>
-        <Suspense fallback={<CardLoading title="リーチの伸び方" className="col-12" />}>
+        <Suspense fallback={<CardLoading title="リーチ数の伸び方" className="col-12" />}>
           <GrowthCard media={media} />
         </Suspense>
         {isVideo && (

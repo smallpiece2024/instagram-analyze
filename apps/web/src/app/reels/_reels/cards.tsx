@@ -37,8 +37,8 @@ export function objectiveFormat(y: Objective): ValueFormat {
 
 export function objectiveHint(y: Objective): string {
   if (y === "reach_rate") return METRIC_DEFINITIONS.reach_rate.hint;
-  if (y === "reach") return `最新の${METRIC_DEFINITIONS.reach.hint}`;
-  return `最新の${METRIC_DEFINITIONS.views.hint}`;
+  if (y === "reach") return METRIC_DEFINITIONS.reach.hint;
+  return METRIC_DEFINITIONS.views.hint;
 }
 
 /** 要因の散布図の X の書式 */
@@ -72,7 +72,7 @@ export function CorrelationCard({ view }: { view: ReelsView }) {
       title={`${label}と結び付いている要因`}
       sub={`n = ${view.analyzedN}`}
       className="col-12"
-      foot={`右（+）ほど、その値が大きいリールほど${label}が高い。左（−）ほど、その値が小さいリールほど${label}が高い。線は 95% の幅（ブートストラップ）。n は要因ごとの件数。`}
+      foot={`右（+）ほど、その値が大きいリールほど${label}が高い。左（−）ほど、その値が小さいリールほど${label}が高い。線は 95% の幅。`}
     >
       <Legend
         items={[
@@ -197,7 +197,6 @@ function points(
 function ScatterCell({
   label,
   hint,
-  n,
   pts,
   xFormat,
   y,
@@ -207,7 +206,6 @@ function ScatterCell({
 }: {
   label: string;
   hint: string;
-  n: number;
   pts: ReturnType<typeof points>;
   xFormat: ValueFormat;
   y: Objective;
@@ -220,7 +218,7 @@ function ScatterCell({
   return (
     <div className={`${className} scatter-cell`}>
       <div className="small muted">
-        <MetricHint label={label} text={hint} /> <span className="xs">n={n}</span>
+        <MetricHint label={label} text={hint} />
       </div>
       <div className="chart only-d">
         <Scatter {...common} width={width} height={190} />
@@ -249,7 +247,6 @@ export function FactorScatterCard({ view }: { view: ReelsView }) {
               key={s.key}
               label={f.label}
               hint={f.hint}
-              n={s.points.length}
               pts={points(s.points, f.label, (v) => formatFactor(v, f.unit), view.y)}
               xFormat={factorAxisFormat(f)}
               y={view.y}
@@ -288,7 +285,6 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
               key={s.key}
               label={d.label}
               hint={d.hint}
-              n={s.points.length}
               pts={points(s.points, d.label, (v) => formatPercent(v), view.y)}
               xFormat="percent"
               y={view.y}
@@ -309,11 +305,10 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
 
 function GroupCell({ label, bars, y }: { label: string; bars: readonly GroupBar[]; y: Objective }) {
   const fmt = objectiveFormat(y);
-  const n = bars.reduce((a, b) => a + b.n, 0);
   return (
     <div className="col-3">
       <p className="small muted">
-        {label} <span className="xs">n={n}</span>
+        {label}
       </p>
       <div className="chart">
         <VBars

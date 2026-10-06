@@ -12,7 +12,7 @@ export interface MetricDefinition {
 
 /** 投稿単位の指標（API の指標と派生指標） */
 export const METRIC_DEFINITIONS = {
-  reach: { label: "リーチ", hint: "リーチ = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）" },
+  reach: { label: "リーチ数", hint: "リーチ数 = 投稿を見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）" },
   views: { label: "閲覧数", hint: "閲覧数 = 投稿が表示された回数。同じ人が何度見ても数える（2025-04-21 から views に統一）" },
   likes: { label: "いいね", hint: "いいね = いいねされた数" },
   saved: { label: "保存", hint: "保存 = 保存された数" },
@@ -28,12 +28,12 @@ export const METRIC_DEFINITIONS = {
   },
   reach_rate: {
     label: "リーチ率",
-    hint: "リーチ率 = 7 日時点のリーチ ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値",
+    hint: "リーチ率 = 7 日時点のリーチ数 ÷ 投稿したときのフォロワー数。フォロワー数の増減の影響を取り除いて比べるための値",
   },
-  save_rate: { label: "保存率", hint: "保存率 = 保存 ÷ リーチ" },
-  share_rate: { label: "シェア率", hint: "シェア率 = シェア ÷ リーチ" },
-  like_rate: { label: "いいね率", hint: "いいね率 = いいね ÷ リーチ" },
-  er: { label: "ER", hint: "ER（エンゲージメント率） = (いいね + コメント + 保存 + シェア) ÷ リーチ" },
+  save_rate: { label: "保存率", hint: "保存率 = 保存 ÷ リーチ数" },
+  share_rate: { label: "シェア率", hint: "シェア率 = シェア ÷ リーチ数" },
+  like_rate: { label: "いいね率", hint: "いいね率 = いいね ÷ リーチ数" },
+  er: { label: "ER", hint: "ER（エンゲージメント率） = (いいね + コメント + 保存 + シェア) ÷ リーチ数" },
   retention_rate: { label: "視聴維持率", hint: "視聴維持率 = 平均視聴時間 ÷ 動画の長さ。リールだけ取れる" },
   skip_rate: {
     label: "スキップ率",
@@ -41,7 +41,7 @@ export const METRIC_DEFINITIONS = {
   },
   profile_visit_rate: {
     label: "プロフィール遷移率",
-    hint: "プロフィール遷移率 = プロフィール訪問 ÷ リーチ。リールは API で取れない",
+    hint: "プロフィール遷移率 = プロフィール訪問 ÷ リーチ数。リールは API で取れない",
   },
   follow_conversion_rate: {
     label: "フォロー転換率",
@@ -54,8 +54,8 @@ export type MetricKey = keyof typeof METRIC_DEFINITIONS;
 /** アカウント単位（日次指標）と期間の集計の指標（概要、期間比較） */
 export const ACCOUNT_METRIC_DEFINITIONS = {
   reach: {
-    label: "リーチ",
-    hint: "リーチ = 期間中に投稿やストーリーズを見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）",
+    label: "リーチ数",
+    hint: "リーチ数 = 期間中に投稿やストーリーズを見たアカウントの数。同じ人は 1 回だけ数える（UU 数に近い。Meta の推定値）",
   },
   views: {
     label: "閲覧数",
@@ -66,19 +66,19 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
   // アカウント全体の日次の値どうしで割る（2026-10-06 ユーザーの決定。概要と期間比較）
   er: {
     label: "エンゲージメント率",
-    hint: "エンゲージメント率 = 期間中の（いいね + コメント + 保存 + シェア）÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+    hint: "エンゲージメント率 = 期間中の（いいね + コメント + 保存 + シェア）÷ 期間中のリーチ数。どちらもアカウント全体の日別の値の合計",
   },
   save_rate: {
     label: "保存率",
-    hint: "保存率 = 期間中の保存 ÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+    hint: "保存率 = 期間中の保存 ÷ 期間中のリーチ数。どちらもアカウント全体の日別の値の合計",
   },
   share_rate: {
     label: "シェア率",
-    hint: "シェア率 = 期間中のシェア ÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+    hint: "シェア率 = 期間中のシェア ÷ 期間中のリーチ数。どちらもアカウント全体の日別の値の合計",
   },
   non_follower_reach_rate: {
     label: "非フォロワーリーチ比率",
-    hint: "非フォロワーリーチ比率 = フォロワー以外へのリーチ ÷（フォロワーへのリーチ + フォロワー以外へのリーチ）",
+    hint: "非フォロワーリーチ比率 = フォロワー以外へのリーチ数 ÷（フォロワーへのリーチ数 + フォロワー以外へのリーチ数）",
   },
   posts: { label: "投稿数", hint: "投稿数 = 期間中に投稿した数" },
   profile_visits: {
@@ -94,4 +94,4 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
  * 画面では冬時間のかっこ書きと「米国太平洋時間」の語を出さない（2026-10-05 ユーザーの決定）
  */
 export const DAY_BOUNDARY_NOTE =
-  "リーチ、閲覧数、ER、保存率、シェア率、非フォロワーリーチ比率の 1 日は、16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";
+  "リーチ数、閲覧数、ER、保存率、シェア率、非フォロワーリーチ比率の 1 日は、16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";

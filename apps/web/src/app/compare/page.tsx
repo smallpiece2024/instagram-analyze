@@ -108,7 +108,7 @@ export default async function ComparePage({
         <Suspense key={`s${key}`} fallback={<Loading title="主要指標" />}>
           <SummaryCard accountId={accountId} a={sel.a} b={sel.b} dataStart={start} />
         </Suspense>
-        <Suspense key={`o${key}`} fallback={<Loading title="リーチ" />}>
+        <Suspense key={`o${key}`} fallback={<Loading title="リーチ数" />}>
           <OverlayCard accountId={accountId} a={sel.a} b={sel.b} />
         </Suspense>
         <Suspense key={`b${key}`} fallback={<Loading title="投稿の基準値" />}>

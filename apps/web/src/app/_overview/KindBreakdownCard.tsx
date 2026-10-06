@@ -24,7 +24,7 @@ const TITLE = "投稿の種類の内訳";
 const MIN_POSTS_FOR_BARS = 3;
 
 /**
- * 投稿の種類の内訳（3.2 節）。100% 積み上げ棒 3 行（投稿数、リーチ、保存）と表。
+ * 投稿の種類の内訳（3.2 節）。100% 積み上げ棒 3 行（投稿数、リーチ数、保存）と表。
  * 0 件の種類も凡例と表から消さない。ストーリーズは `getPostTotals` に入らないので出さない
  */
 export async function KindBreakdownCard({ accountId, period, mediaFetchedAt, className }: KindBreakdownCardProps) {
@@ -39,7 +39,7 @@ export async function KindBreakdownCard({ accountId, period, mediaFetchedAt, cla
   const { byKind, posts } = totals.data;
   const rows = [
     { label: "投稿数", parts: POST_KINDS.map((kind) => ({ kind, value: byKind[kind].posts })) },
-    { label: "リーチ", parts: POST_KINDS.map((kind) => ({ kind, value: byKind[kind].reach.sum })) },
+    { label: "リーチ数", parts: POST_KINDS.map((kind) => ({ kind, value: byKind[kind].reach.sum })) },
     { label: "保存", parts: POST_KINDS.map((kind) => ({ kind, value: byKind[kind].saved.sum })) },
   ];
 
@@ -52,7 +52,7 @@ export async function KindBreakdownCard({ accountId, period, mediaFetchedAt, cla
       <KindLegend kinds={POST_KINDS} />
       {posts >= MIN_POSTS_FOR_BARS && (
         <div className="chart">
-          <Stacked100 title="投稿の種類ごとの投稿数、リーチ、保存の割合" rows={rows} width={360} />
+          <Stacked100 title="投稿の種類ごとの投稿数、リーチ数、保存の割合" rows={rows} width={360} />
         </div>
       )}
       <div className="table-wrap">

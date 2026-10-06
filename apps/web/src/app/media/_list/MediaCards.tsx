@@ -1,6 +1,6 @@
 /**
  * 投稿一覧のカードの並び（スマートフォン。R3 設計 3.3 節、見本の `media-cards`）。
- * 出す指標はリーチ、保存、保存率、ER。基準値は出さない
+ * 出す指標はリーチ数、保存、保存率、ER。基準値は出さない
  */
 import Link from "next/link";
 import { Thumb } from "@/components/Thumb";

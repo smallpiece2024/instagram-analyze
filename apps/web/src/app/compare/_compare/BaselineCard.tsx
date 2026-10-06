@@ -69,7 +69,7 @@ export async function BaselineCard({ accountId, a, b }: { accountId: string; a: 
       </Card>
     );
   }
-  // A は青、B は灰（期間の帯、主要指標の表、リーチのグラフと同じ）
+  // A は青、B は灰（期間の帯、主要指標の表、リーチ数のグラフと同じ）
   const sides: readonly { name: string; cls: string; color: string; period: Period; data: PeriodBaselines }[] = [
     { name: "A", cls: "is-a", color: "var(--color-primary)", period: a, data: ba.data },
     { name: "B", cls: "is-b", color: "var(--color-neutral)", period: b, data: bb.data },

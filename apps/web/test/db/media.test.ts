@@ -144,7 +144,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(oldest.ok && oldest.data[0]?.media_id).toBe(feedIds[FEED_COUNT - 1]);
   });
 
-  it("listMedia: ER は分母がリーチ。ER の順に並び、分母 0 は null", async () => {
+  it("listMedia: ER は分母がリーチ数。ER の順に並び、分母 0 は null", async () => {
     const r = await listMedia(accountId, { ...DEFAULT_PARAMS, sort: "er", order: "desc" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -195,11 +195,11 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
 /**
  * 2 アカウントの分離、削除済み（`gone_at`）の投稿、基準値の材料（R3 設計 9.2 節の `test/db/media.test.ts` の行）。
  * 上の describe の件数を変えないように、架空のアカウント A と B を別に作り、`afterAll` で消す。
- *   g1 フィード 10 日前の投稿。7 日 + 1 時間でリーチ 150、10 日（最新）で 200（基準値は 200 だけを使う）
- *   g2 フィード 20 日前の投稿。gone_at あり、20 日でリーチ 100
- *   g3 フィード 2 時間前の投稿。1 時間でリーチ 10（経過の短い投稿も基準値に入る）
- *   g4 フィード 300 日前の投稿。最初のスナップショットが 200 日後でリーチ 400（7d は許容外でも基準値に入る）
- *   b1（アカウント B）フィード 1 日前の投稿。リーチ 5000（A の一覧と基準値に入らない）
+ *   g1 フィード 10 日前の投稿。7 日 + 1 時間でリーチ数 150、10 日（最新）で 200（基準値は 200 だけを使う）
+ *   g2 フィード 20 日前の投稿。gone_at あり、20 日でリーチ数 100
+ *   g3 フィード 2 時間前の投稿。1 時間でリーチ数 10（経過の短い投稿も基準値に入る）
+ *   g4 フィード 300 日前の投稿。最初のスナップショットが 200 日後でリーチ数 400（7d は許容外でも基準値に入る）
+ *   b1（アカウント B）フィード 1 日前の投稿。リーチ数 5000（A の一覧と基準値に入らない）
  */
 describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウントの分離と削除済みの投稿", () => {
   const url = TEST_DATABASE_URL ?? "";
@@ -290,7 +290,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウン�
     expect(countB.ok && countB.data.total).toBe(1);
   });
 
-  it("listMedia: リーチの並べ替えにほかのアカウントの値（5000）が入らない", async () => {
+  it("listMedia: リーチ数の並べ替えにほかのアカウントの値（5000）が入らない", async () => {
     const r = await listMedia(accountA, { ...DEFAULT_PARAMS, sort: "reach", order: "desc" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;

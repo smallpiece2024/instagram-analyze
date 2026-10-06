@@ -205,7 +205,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
     expect(r.data.reachGreater).toBe(1);
   });
 
-  it("getPeerStats: 比較相手がいない種類は n = 0、この投稿のリーチがなければ順位の材料は null", async () => {
+  it("getPeerStats: 比較相手がいない種類は n = 0、この投稿のリーチ数がなければ順位の材料は null", async () => {
     const reel = await getPeerStats(accountA, "reel", ids.f1);
     expect(reel.ok && reel.data.stats.reach.n).toBe(0);
     const noReach = await getPeerStats(accountA, "feed", ids.f4);

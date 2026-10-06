@@ -51,7 +51,7 @@ function usedNote(r: { used: number; total: number }): string | undefined {
   return r.used < r.total ? `${r.total} 件中 ${r.used} 件` : undefined;
 }
 
-/** 主要指標のリーチと閲覧数は日別の値の合計なので、ヒントの末尾に足す */
+/** 主要指標のリーチ数と閲覧数は日別の値の合計なので、ヒントの末尾に足す */
 const DAILY_SUM_HINT = "この表では日別の値の合計";
 
 function dailyRatioRow(key: string, label: string, hint: string, a: RatioOfSums, b: RatioOfSums): Row {
@@ -66,7 +66,7 @@ function rowsOf(a: PeriodSide, b: PeriodSide): Row[] {
   return [
     {
       key: "reach",
-      label: "リーチ（日別合計）",
+      label: "リーチ数（日別合計）",
       hint: `${DEF.reach.hint}。${DAILY_SUM_HINT}`,
       a: a.daily.reach.sum, b: b.daily.reach.sum, format: "count", delta: "rate" },
     {

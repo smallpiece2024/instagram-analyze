@@ -51,8 +51,8 @@ export const DEFAULT_OBJECTIVE: Objective = "reach_rate";
 
 export const OBJECTIVE_LABEL: Record<Objective, string> = {
   reach_rate: "リーチ率",
-  reach: "最新のリーチ",
-  views: "最新の閲覧数",
+  reach: "リーチ数",
+  views: "閲覧数",
 };
 
 export function objectiveValue(row: ReelRow, y: Objective): number | null {
