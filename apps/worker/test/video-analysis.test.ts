@@ -231,6 +231,10 @@ describe("isAnalysisRetryDue", () => {
     expect(ANALYSIS_RETRY_AFTER_MS).toBe(3 * 60 * 60 * 1000);
   });
 
+  it("1 時間の整数倍（listVideoAnalysisCandidates の make_interval(hours => …) は整数しか受けない）", () => {
+    expect(Number.isInteger(ANALYSIS_RETRY_AFTER_MS / (60 * 60 * 1000))).toBe(true);
+  });
+
   it("解析結果がなければ true", () => {
     expect(isAnalysisRetryDue(undefined, NOW)).toBe(true);
   });
