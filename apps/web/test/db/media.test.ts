@@ -11,7 +11,6 @@ import { closeAllDb } from "@/lib/db";
 import { PAGE_SIZE } from "@/lib/format";
 import {
   countMedia,
-  getMediaBaseline,
   getMediaPage,
   listMedia,
   listMediaCsvRows,
@@ -22,7 +21,7 @@ import { fakeIgUserId, fakeMediaId, HOUR_MS, MINUTE_MS, setWebEnv } from "./fixt
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 /** フィードの件数（1 ページ分 + 1） */
 const FEED_COUNT = PAGE_SIZE + 1;
-const DEFAULT_PARAMS: MediaListParams = { sort: "posted", order: "desc", page: 1, er: "reach" };
+const DEFAULT_PARAMS: MediaListParams = { sort: "posted", order: "desc", page: 1 };
 
 describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";
@@ -145,13 +144,13 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(oldest.ok && oldest.data[0]?.media_id).toBe(feedIds[FEED_COUNT - 1]);
   });
 
-  it("listMedia: ER の分母を閲覧数に切り替えると、値と並びが変わる", async () => {
-    const r = await listMedia(accountId, { ...DEFAULT_PARAMS, sort: "er", order: "desc", er: "views" });
+  it("listMedia: ER は分母がリーチ。ER の順に並び、分母 0 は null", async () => {
+    const r = await listMedia(accountId, { ...DEFAULT_PARAMS, sort: "er", order: "desc" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    // f0: 20/200 = 0.1、reel: 30/600 = 0.05、f1: 2/100 = 0.02、f2: 分母 0
+    // f0: 0.2、reel: 0.1、f1: 0.04、f2: 分母 0
     expect(r.data.slice(0, 3).map((m) => m.media_id)).toEqual([f0, reelId, f1]);
-    expect(r.data[0]?.er).toBeCloseTo(0.1);
+    expect(r.data[0]?.er).toBeCloseTo(0.2);
     expect(r.data[3]?.er).toBeNull();
   });
 
@@ -163,27 +162,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(r.data.last_fetched_at).toBeInstanceOf(Date);
   });
 
-  it("getMediaBaseline: 全投稿の最新の値の平均と分位（percentile_cont）と、指標ごとの n", async () => {
-    const r = await getMediaBaseline(accountId, "reach");
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    // リーチ: 0, 50, 100, 300
-    expect(r.data.reach.n).toBe(4);
-    expect(r.data.reach.mean).toBeCloseTo(112.5);
-    expect(r.data.reach.median).toBeCloseTo(75);
-    expect(r.data.reach.q25).toBeCloseTo(37.5);
-    expect(r.data.reach.q75).toBeCloseTo(150);
-    // ER（分母リーチ）: f0 0.2、f1 0.04、reel 0.1（f2 は分母 0 で数えない）
-    expect(r.data.er.n).toBe(3);
-    expect(r.data.er.median).toBeCloseTo(0.1);
-    // プロフ訪問はリールにない: f0 7、f1 1、f2 0
-    expect(r.data.profile_visits.n).toBe(3);
-
-    const byViews = await getMediaBaseline(accountId, "views");
-    expect(byViews.ok && byViews.data.er.median).toBeCloseTo(0.05);
-  });
-
-  it("getMediaPage: 一覧、総ページ数、基準値、サムネイル（パスがなければ null）", async () => {
+  it("getMediaPage: 一覧、総ページ数、サムネイル（パスがなければ null）", async () => {
     const r = await getMediaPage(accountId, DEFAULT_PARAMS);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -192,7 +171,6 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(r.data.pageCount).toBe(2);
     expect(r.data.items).toHaveLength(PAGE_SIZE);
     expect(r.data.items.every((m) => m.thumbnail_url === null)).toBe(true);
-    expect(r.data.baseline.reach.n).toBe(4);
   });
 
   it("listMediaCsvRows: 全件（ページで切らない）を一覧と同じ並びで、CSV の列の形で返す", async () => {
@@ -319,28 +297,12 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウン�
     expect(r.data.map((m) => m.media_id)).toEqual([ids.g4, ids.g1, ids.g2, ids.g3]);
   });
 
-  it("getMediaBaseline: 全投稿の最新の値だけ。削除済み、経過の短い投稿、7d が許容外の投稿を落とさず、ほかのアカウントと他の区分の値が混ざらない", async () => {
-    const r = await getMediaBaseline(accountA, "reach");
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    // リーチ: g3 10、g2 100、g1 200（150 は使わない）、g4 400
-    expect(r.data.reach.n).toBe(4);
-    expect(r.data.reach.mean).toBeCloseTo(177.5);
-    expect(r.data.reach.q25).toBeCloseTo(77.5);
-    expect(r.data.reach.median).toBeCloseTo(150);
-    expect(r.data.reach.q75).toBeCloseTo(250);
-
-    const b = await getMediaBaseline(accountB, "reach");
-    expect(b.ok && b.data.reach).toEqual({ n: 1, mean: 5000, q25: 5000, median: 5000, q75: 5000 });
-  });
-
   it("getMediaPage と listMediaCsvRows: 削除済みを含み、ほかのアカウントを含まない", async () => {
     const page = await getMediaPage(accountA, DEFAULT_PARAMS);
     expect(page.ok).toBe(true);
     if (!page.ok) return;
     expect(page.data.total).toBe(4);
     expect(page.data.items.map((m) => m.media_id)).not.toContain(ids.b1);
-    expect(page.data.baseline.reach.n).toBe(4);
 
     const csv = await listMediaCsvRows(accountA, { sort: "posted", order: "desc" });
     expect(csv.ok).toBe(true);
