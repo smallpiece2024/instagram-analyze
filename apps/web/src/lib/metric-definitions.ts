@@ -63,18 +63,19 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
   },
   follower_gain: { label: "フォロワー純増", hint: "フォロワー純増 = 期間中にフォローされた数 − フォローを外された数" },
   followers: { label: "フォロワー数", hint: "フォロワー数 = 最新の記録のフォロワー数。選んだ期間には関係しない" },
-  er: { label: "エンゲージメント率", hint: METRIC_DEFINITIONS.er.hint },
-  save_rate: { label: "保存率", hint: METRIC_DEFINITIONS.save_rate.hint },
-  // 概要のタイル。アカウント全体の日次の値どうしで割る（2026-10-06 ユーザーの決定。期間比較は投稿単位のまま）
-  er_account: {
+  // アカウント全体の日次の値どうしで割る（2026-10-06 ユーザーの決定。概要と期間比較）
+  er: {
     label: "エンゲージメント率",
     hint: "エンゲージメント率 = 期間中の（いいね + コメント + 保存 + シェア）÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
   },
-  save_rate_account: {
+  save_rate: {
     label: "保存率",
     hint: "保存率 = 期間中の保存 ÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
   },
-  share_rate: { label: "シェア率", hint: METRIC_DEFINITIONS.share_rate.hint },
+  share_rate: {
+    label: "シェア率",
+    hint: "シェア率 = 期間中のシェア ÷ 期間中のリーチ。どちらもアカウント全体の日別の値の合計",
+  },
   non_follower_reach_rate: {
     label: "非フォロワーリーチ比率",
     hint: "非フォロワーリーチ比率 = フォロワー以外へのリーチ ÷（フォロワーへのリーチ + フォロワー以外へのリーチ）",
@@ -93,4 +94,4 @@ export const ACCOUNT_METRIC_DEFINITIONS = {
  * 画面では冬時間のかっこ書きと「米国太平洋時間」の語を出さない（2026-10-05 ユーザーの決定）
  */
 export const DAY_BOUNDARY_NOTE =
-  "リーチ、閲覧数、非フォロワーリーチ比率の 1 日は、16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";
+  "リーチ、閲覧数、ER、保存率、シェア率、非フォロワーリーチ比率の 1 日は、16 時から翌日の 16 時まで。Instagram の集計の区切りによる。";

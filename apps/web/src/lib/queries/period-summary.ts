@@ -128,6 +128,8 @@ export interface DailyTotals {
   er: RatioOfSums;
   /** アカウント全体の保存率（Σ保存 ÷ Σリーチ）。保存とリーチがそろう日だけで計算する */
   saveRate: RatioOfSums;
+  /** アカウント全体のシェア率（Σシェア ÷ Σリーチ）。シェアとリーチがそろう日だけで計算する */
+  shareRate: RatioOfSums;
 }
 
 /** 期間（両端を含む）の日次指標の合計 */
@@ -150,6 +152,9 @@ export const getDailyTotals = cache(
           save_num: number | null;
           save_den: number | null;
           save_days: number;
+          share_num: number | null;
+          share_den: number | null;
+          share_days: number;
         }[]
       >`
         select
@@ -165,7 +170,10 @@ export const getDailyTotals = cache(
           (count(*) filter (where ${erDayPresent}))::int as er_days,
           sum(saved) filter (where reach is not null and saved is not null)::float8 as save_num,
           sum(reach) filter (where reach is not null and saved is not null)::float8 as save_den,
-          (count(*) filter (where reach is not null and saved is not null))::int as save_days
+          (count(*) filter (where reach is not null and saved is not null))::int as save_days,
+          sum(shares) filter (where reach is not null and shares is not null)::float8 as share_num,
+          sum(reach) filter (where reach is not null and shares is not null)::float8 as share_den,
+          (count(*) filter (where reach is not null and shares is not null))::int as share_days
         from public.account_daily_wide
         where account_id = ${accountId}
           and metric_date between ${from}::date and ${to}::date
@@ -174,6 +182,7 @@ export const getDailyTotals = cache(
       const nfDays = row?.nf_days ?? 0;
       const erDays = row?.er_days ?? 0;
       const saveDays = row?.save_days ?? 0;
+      const shareDays = row?.share_days ?? 0;
       return {
         periodDays,
         reach: { sum: row?.reach_sum ?? null, days: row?.reach_days ?? 0 },
@@ -185,6 +194,7 @@ export const getDailyTotals = cache(
         },
         er: { value: erDays === 0 ? null : ratio(row?.er_num, row?.er_den), used: erDays, total: periodDays },
         saveRate: { value: saveDays === 0 ? null : ratio(row?.save_num, row?.save_den), used: saveDays, total: periodDays },
+        shareRate: { value: shareDays === 0 ? null : ratio(row?.share_num, row?.share_den), used: shareDays, total: periodDays },
       };
     }),
 );
