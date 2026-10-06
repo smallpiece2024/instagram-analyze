@@ -28,14 +28,6 @@ export function parseRange(value: ParamValue): Range {
   return v === undefined ? DEFAULT_RANGE : (Number(v) as Range);
 }
 
-/** ER の分母 */
-export const ER_DENOMINATORS = ["reach", "views", "followers"] as const;
-export type ErDenominator = (typeof ER_DENOMINATORS)[number];
-
-export function parseEr(value: ParamValue): ErDenominator {
-  return pick(value, ER_DENOMINATORS) ?? "reach";
-}
-
 /** 並べ替えのキーの既定値 */
 export const DEFAULT_SORT = "posted";
 

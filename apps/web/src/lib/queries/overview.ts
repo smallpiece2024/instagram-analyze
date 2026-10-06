@@ -1,7 +1,7 @@
 /**
  * 概要（`/`）だけで使う読み出しと組み立て（R3 設計 3.2 節、4.5 節、6 章）。
- * 期間の集計そのものは `period-summary.ts` を使い、ここには概要に固有のもの（最終更新、投稿の印、指標変更の日、
- * ER の分母の切り替え）だけを置く。
+ * 期間の集計そのものは `period-summary.ts` を使い、ここには概要に固有のもの（最終更新、投稿の印、指標変更の日）
+ * だけを置く。
  *
  * - すべての読み出し関数は `accountId` を第 1 引数に取り、SQL で `account_id = ${accountId}` を付ける（4.1 節）
  * - 日付の変換（日本時間、太平洋時間）はビューの列（`posted_date_pt`）で済ませ、JS では変換しない（6 章）
@@ -9,10 +9,7 @@
 import "server-only";
 import { cache } from "react";
 import type { QueryResult } from "@/lib/db-errors";
-import { ratio } from "@/lib/metrics";
-import type { ErDenominator } from "@/lib/params";
 import type { Ymd } from "@/lib/period";
-import type { FollowerChange, PostTotals } from "./period-summary";
 import { runQuery } from "./run";
 
 /* ------------------------------------------------------------------
@@ -93,44 +90,3 @@ export const getMetricChangeDates = cache(
       return rows.map((r) => r.on);
     }),
 );
-
-/* ------------------------------------------------------------------
- * ER の分母の切り替え（F-UI-11。純粋関数）
- * ------------------------------------------------------------------ */
-
-export interface ErValue {
-  /** 率（0〜1）。出せなければ null */
-  value: number | null;
-  /** 計算に使った投稿の件数（「n 件中 m 件」の m） */
-  used: number;
-  /** 期間中の投稿の件数（「n 件中 m 件」の n） */
-  total: number;
-}
-
-/**
- * 分母ごとの ER。
- * - reach: Σ反応 ÷ Σリーチ（どれもある投稿だけ）
- * - views: Σ反応 ÷ Σ閲覧数（どれもある投稿だけ）
- * - followers: 1 投稿あたり（Σ反応 ÷ m ÷ 期間末のフォロワー数。確認事項 Q7 の推奨）。期間末の記録がなければ null
- */
-export function erFor(denominator: ErDenominator, totals: PostTotals, followers: FollowerChange | null): ErValue {
-  switch (denominator) {
-    case "reach":
-      return { value: totals.er.value, used: totals.er.used, total: totals.er.total };
-    case "views":
-      return { value: totals.erByViews.value, used: totals.erByViews.used, total: totals.erByViews.total };
-    case "followers": {
-      const { sum, used, total } = totals.interactions;
-      const end = followers?.end?.followers_count ?? null;
-      const perPost = used === 0 ? null : ratio(sum, used);
-      return { value: ratio(perPost, end), used, total };
-    }
-  }
-}
-
-/** ER の分母の表示（「分母: リーチ」） */
-export const ER_DENOMINATOR_LABEL: Record<ErDenominator, string> = {
-  reach: "リーチ",
-  views: "閲覧数",
-  followers: "フォロワー数",
-};

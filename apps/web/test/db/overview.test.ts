@@ -1,63 +1,15 @@
 /**
  * `queries/overview.ts` のテスト（R3 設計 3.2 節、6 章）。
- * - `erFor`（ER の分母の切り替え）は純粋関数なので DB なしで動く
  * - 読み出し関数は `TEST_DATABASE_URL` があるときだけ動く結合テスト。架空のアカウント 2 件（A を読み、B は分離の確認用）を作り、
  *   `afterAll` で消す（カスケードで関連行も消える）。`metric_definitions` は全体で 1 つの表なので読むだけにする
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeAllDb } from "@/lib/db";
-import { erFor, getMetricChangeDates, getOverviewUpdatedAt, getPostMarkers } from "@/lib/queries/overview";
-import type { FollowerChange, PostTotals } from "@/lib/queries/period-summary";
+import { getMetricChangeDates, getOverviewUpdatedAt, getPostMarkers } from "@/lib/queries/overview";
 import { fakeIgUserId, fakeMediaId, setWebEnv } from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
-
-function totals(over: Partial<PostTotals> = {}): PostTotals {
-  const empty = { sum: null, used: 0, total: 0 };
-  const kind = { posts: 0, reach: empty, saved: empty };
-  return {
-    posts: 4,
-    byKind: { feed: kind, carousel: kind, reel: kind },
-    er: { value: 0.05, used: 3, total: 4 },
-    erByViews: { value: 0.02, used: 2, total: 4 },
-    interactions: { sum: 60, used: 3, total: 4 },
-    saveRate: { value: null, used: 0, total: 4 },
-    shareRate: { value: null, used: 0, total: 4 },
-    profileVisits: empty,
-    ...over,
-  };
-}
-
-function followers(endCount: number | null): FollowerChange {
-  return {
-    end: endCount === null ? null : { captured_on: "2026-09-30", followers_count: endCount },
-    start: null,
-    net: null,
-    firstCapturedOn: null,
-    latest: null,
-  };
-}
-
-describe("erFor（ER の分母の切り替え）", () => {
-  it("reach と views は合計の比をそのまま返す", () => {
-    expect(erFor("reach", totals(), null)).toEqual({ value: 0.05, used: 3, total: 4 });
-    expect(erFor("views", totals(), null)).toEqual({ value: 0.02, used: 2, total: 4 });
-  });
-
-  it("followers は 1 投稿あたりの反応 ÷ 期間末のフォロワー数", () => {
-    // 60 ÷ 3 = 20、20 ÷ 1000 = 0.02
-    expect(erFor("followers", totals(), followers(1000))).toEqual({ value: 0.02, used: 3, total: 4 });
-  });
-
-  it("followers は期間末の記録がない、0 人、使える投稿が 0 件なら null", () => {
-    expect(erFor("followers", totals(), followers(null)).value).toBeNull();
-    expect(erFor("followers", totals(), null).value).toBeNull();
-    expect(erFor("followers", totals(), followers(0)).value).toBeNull();
-    const none = totals({ interactions: { sum: null, used: 0, total: 4 } });
-    expect(erFor("followers", none, followers(1000))).toEqual({ value: null, used: 0, total: 4 });
-  });
-});
 
 describe.skipIf(!TEST_DATABASE_URL)("queries/overview（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";

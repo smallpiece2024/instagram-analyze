@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   parseCsvDateRange,
   parseDateRange,
-  parseEr,
   parseJob,
   parseJobStatus,
   parseMediaId,
@@ -19,16 +18,6 @@ describe("range", () => {
     expect(parseRange("90")).toBe(90);
     expect(parseRange("30")).toBe(30);
     for (const v of ["14", "007", "", "abc", undefined, ["7"]]) expect(parseRange(v)).toBe(30);
-  });
-});
-
-describe("er", () => {
-  it("reach、views、followers だけ。ほかは reach", () => {
-    expect(parseEr("views")).toBe("views");
-    expect(parseEr("followers")).toBe("followers");
-    expect(parseEr("likes")).toBe("reach");
-    expect(parseEr(undefined)).toBe("reach");
-    expect(parseEr(["views"])).toBe("reach");
   });
 });
 
