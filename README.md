@@ -146,16 +146,21 @@ delete from storage.objects where bucket_id = 'thumbnails' and name like '<accou
 
 **注意**: ローカルの Supabase のポート（54321〜54324）を LAN に公開しない。サービスロールキーと DB パスワードの既定値が公知のため、同じネットワークから DB と Storage を読み書きできてしまう。
 
-## Web アプリの画面と Meta との接続（R1）
+## Web アプリの画面と Meta との接続（R1〜R3）
 
-`npm run dev:web` で `http://localhost:3000` を開く（`127.0.0.1` だけで待ち受ける。LAN には公開しない）。ログインはまだない（R2）。設計は `doc/design/r1-web-screens.md`。
+`npm run dev:web` で `http://localhost:3000` を開く（`127.0.0.1` だけで待ち受ける。LAN には公開しない）。ログイン（R2）した本人だけが画面を見られる。設計は `doc/design/r1-web-screens.md`、R3 の分析画面は `doc/design/r3-analysis-screens.md`。
 
 | 画面 | 内容 |
 |---|---|
-| `/` 接続状態 | アカウント、トークンの種類と期限、データアクセス期限の残り日数、権限、認証情報の状態、最終収集時刻。再接続が必要なら帯で知らせる |
-| `/jobs` 収集ログ | ジョブごとの直近の実行と、直近 100 件の実行記録（`?job=<ジョブ名>` で絞り込み） |
-| `/media` 投稿一覧 | サムネイル、種類、投稿日時、最新の主要指標（50 件ずつ） |
+| `/` 概要 | 期間（`?range=`）の主要指標と前期間比、日次の推移、種類ごとの内訳 |
+| `/media` 投稿一覧 | 投稿ごとの最新の指標と経過日数。並べ替えとページ切り替え、表とカードの切り替え |
+| `/media/[id]` 投稿詳細 | 指標を同じ種類の投稿と帯グラフで比べる。経過時間の区分ごとの伸び方 |
+| `/compare` 期間比較 | 2 つの期間の合計と率、日次の重ね合わせ、投稿ごとの率の基準値 |
+| `/jobs` 接続と収集ログ | アカウント、トークンとデータアクセスの期限、ジョブごとの直近の実行と実行記録 |
 | `/connect` 接続設定 | Facebook Login で Meta と接続し、Instagram プロアカウントを登録する |
+| `/export/media`、`/export/daily` | 投稿一覧と日次指標の CSV |
+
+R3 の分析ビューの性能は、`scripts/r3-perf-check.sql` を手元の Supabase で流して確かめる（合成データは最後に取り消す。流し方はファイルの先頭）。
 
 Web アプリのサーバー側は Postgres に直結し、ログイン（Supabase Auth）、サムネイルの署名付き URL（ログインした利用者のセッション）、トークンの登録に次の変数を使う（`apps/web/.env.example` を `apps/web/.env.local` にコピーして入れる。`NEXT_PUBLIC_` が付かない変数はブラウザに渡らない）。
 
