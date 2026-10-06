@@ -209,6 +209,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/period-summary（結合）", () => 
         er: { value: 7 / 100, used: 1, total: 5 },
         // 保存のある 09-01（2 / 100）と 09-05（7 / 500）
         saveRate: { value: 9 / 600, used: 2, total: 5 },
+        // シェアのある 09-01（1 / 100）だけ
+        shareRate: { value: 1 / 100, used: 1, total: 5 },
       },
     });
   });
@@ -223,6 +225,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/period-summary（結合）", () => 
         nonFollowerReachRate: { value: null, used: 0, total: 30 },
         er: { value: null, used: 0, total: 30 },
         saveRate: { value: null, used: 0, total: 30 },
+        shareRate: { value: null, used: 0, total: 30 },
       },
     });
   });

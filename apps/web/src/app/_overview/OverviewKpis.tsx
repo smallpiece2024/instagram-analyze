@@ -83,15 +83,15 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         denom={fc.net === null && fc.firstCapturedOn !== null ? `記録は ${fc.firstCapturedOn} から` : undefined}
       />
       <Kpi
-        label={DEF.er_account.label}
-        hint={DEF.er_account.hint}
+        label={DEF.er.label}
+        hint={DEF.er.hint}
         value={formatPercent(dc.er.value, 2)}
         delta={dp.er.used === 0 ? null : deltaPoint(dc.er.value, dp.er.value)}
         denom={join("日別の合計で計算", rateCoverage(dc.er), rateCoverage(dp.er, "前期 "))}
       />
       <Kpi
-        label={DEF.save_rate_account.label}
-        hint={DEF.save_rate_account.hint}
+        label={DEF.save_rate.label}
+        hint={DEF.save_rate.hint}
         value={formatPercent(dc.saveRate.value, 2)}
         delta={dp.saveRate.used === 0 ? null : deltaPoint(dc.saveRate.value, dp.saveRate.value)}
         denom={join("日別の合計で計算", rateCoverage(dc.saveRate), rateCoverage(dp.saveRate, "前期 "))}

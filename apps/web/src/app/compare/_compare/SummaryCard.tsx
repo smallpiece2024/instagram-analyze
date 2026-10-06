@@ -54,8 +54,8 @@ function usedNote(r: { used: number; total: number }): string | undefined {
 /** 主要指標のリーチと閲覧数は日別の値の合計なので、ヒントの末尾に足す */
 const DAILY_SUM_HINT = "この表では日別の値の合計";
 
-function ratioRow(key: string, label: string, hint: string, a: RatioOfSums, b: RatioOfSums): Row {
-  return { key, label, hint, a: a.value, b: b.value, format: "percent", delta: "pt", aNote: usedNote(a), bNote: usedNote(b) };
+function dailyRatioRow(key: string, label: string, hint: string, a: RatioOfSums, b: RatioOfSums): Row {
+  return { key, label, hint, a: a.value, b: b.value, format: "percent", delta: "pt", aNote: daysNote(a), bNote: daysNote(b) };
 }
 
 function sumRow(key: string, label: string, hint: string, a: PostSum, b: PostSum): Row {
@@ -106,9 +106,10 @@ function rowsOf(a: PeriodSide, b: PeriodSide): Row[] {
         sub: true,
       }),
     ),
-    ratioRow("er", "ER", DEF.er.hint, a.posts.er, b.posts.er),
-    ratioRow("save", DEF.save_rate.label, DEF.save_rate.hint, a.posts.saveRate, b.posts.saveRate),
-    ratioRow("share", DEF.share_rate.label, DEF.share_rate.hint, a.posts.shareRate, b.posts.shareRate),
+    // ER、保存率、シェア率はアカウント全体の日次の値どうし（2026-10-06 ユーザーの決定。概要と同じ）
+    dailyRatioRow("er", "ER", DEF.er.hint, a.daily.er, b.daily.er),
+    dailyRatioRow("save", DEF.save_rate.label, DEF.save_rate.hint, a.daily.saveRate, b.daily.saveRate),
+    dailyRatioRow("share", DEF.share_rate.label, DEF.share_rate.hint, a.daily.shareRate, b.daily.shareRate),
     sumRow("pv", DEF.profile_visits.label, DEF.profile_visits.hint, a.posts.profileVisits, b.posts.profileVisits),
   ];
 }
@@ -166,7 +167,7 @@ export async function SummaryCard({
         <>
           <p>{DAY_BOUNDARY_NOTE}</p>
           <p>フォロワー純増: 期間の前日の記録から終わりの日の記録までの差。</p>
-          <p>投稿数、ER、保存率、シェア率、プロフィール訪問: 投稿日時の日付で期間に入れ、各投稿の最新の値で集計。</p>
+          <p>投稿数、プロフィール訪問: 投稿日時の日付で期間に入れ、各投稿の最新の値で集計。</p>
         </>
       }
     >
