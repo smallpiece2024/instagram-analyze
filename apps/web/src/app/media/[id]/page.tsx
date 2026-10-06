@@ -8,6 +8,7 @@ import { lastUpdatedLabel, mediaTitle } from "@/lib/format";
 import { parseMediaId } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { getMedia, signMediaThumbnail } from "@/lib/queries/media-detail";
+import { CutTimelineCard } from "./_detail/CutTimelineCard";
 import { GrowthCard } from "./_detail/GrowthCard";
 import { MediaInfo } from "./_detail/MediaInfo";
 import { QualityCard, QuantityCard } from "./_detail/MetricBands";
@@ -63,6 +64,8 @@ export default async function MediaDetailPage({ params }: { params: Promise<{ id
   if (media === null) notFound();
 
   const title = mediaTitle(media.caption);
+  // リールとフィード動画（R4 設計 6.1 節。`media_video_features` の行の条件と同じ）
+  const isVideo = media.media_type === "VIDEO" && (media.media_product_type === "REELS" || media.media_product_type === "FEED");
   const thumbnailUrl = await signMediaThumbnail(media.thumbnail_path);
 
   return (
@@ -87,6 +90,11 @@ export default async function MediaDetailPage({ params }: { params: Promise<{ id
         <Suspense fallback={<CardLoading title="リーチの伸び方" className="col-12" />}>
           <GrowthCard media={media} />
         </Suspense>
+        {isVideo && (
+          <Suspense fallback={<CardLoading title="カットのタイムライン" className="col-12" />}>
+            <CutTimelineCard media={media} />
+          </Suspense>
+        )}
       </div>
     </main>
   );

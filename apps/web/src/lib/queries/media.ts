@@ -212,7 +212,7 @@ export const getMediaPage = cache(
  * ログインした本人のセッションで署名付き URL を作る（R2 設計 3.3 章）。認証の設定がない、クライアントを作れない、
  * 署名に失敗したときは空（画像なし）。例外を投げない
  */
-async function signWithSession(paths: readonly string[]): Promise<Map<string, string>> {
+export async function signWithSession(paths: readonly string[]): Promise<Map<string, string>> {
   const authEnv = readAuthEnv();
   if (!authEnv.ok) return new Map<string, string>();
   try {

@@ -60,8 +60,8 @@ const UNSUPPORTED: Partial<Record<MediaMetricKey, readonly MediaKind[]>> = {
   follow_conversion_rate: ["reel", "story"],
   avg_watch_time_ms: ["feed", "carousel", "story"],
   skip_rate: ["feed", "carousel", "story"],
-  // 視聴維持率は動画の長さが R4 なので、R3 ではすべての種類で出さない
-  retention_rate: ["feed", "carousel", "reel", "story"],
+  // 視聴維持率は平均視聴時間がリールだけ取れる（R4。フィード動画は unsupported）
+  retention_rate: ["feed", "carousel", "story"],
 };
 
 export function isSupported(metric: MediaMetricKey, kind: MediaKind): boolean {

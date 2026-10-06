@@ -20,6 +20,7 @@ export const JOB_SCHEDULE = {
   account_daily: DAILY,
   media_sync: `${HOURLY}（5 時台は全件）`,
   media_snapshot: HOURLY,
+  video_analysis: HOURLY,
   stories: HOURLY,
   account_backfill: HOURLY,
 } as const satisfies Record<JobName, string>;

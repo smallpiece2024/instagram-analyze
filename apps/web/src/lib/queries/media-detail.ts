@@ -197,6 +197,7 @@ export const PEER_METRICS = [
   "share_rate",
   "like_rate",
   "er",
+  "retention_rate",
   "skip_rate",
   "profile_visit_rate",
   "follow_conversion_rate",
@@ -258,6 +259,12 @@ export const getPeerStats = cache(
             select 'reach_rate', l.reach_rate::float8
             from public.media_list_metrics l
             where l.account_id = ${accountId} and l.kind = ${kind} and l.media_id <> ${excludeId}
+            union all
+            -- 視聴維持率（R4）。動画の投稿だけがビューにあり、同じ種類で値のある投稿と比べる
+            select 'retention_rate', f.retention_rate::float8
+            from public.media_video_features f
+            where f.account_id = ${accountId} and public.media_kind(f.media_product_type, f.media_type) = ${kind}
+              and f.media_id <> ${excludeId}
           )
           select
             metric,
@@ -293,4 +300,48 @@ export const getPeerStats = cache(
       }
       return { stats, reachGreater: rank[0]?.greater ?? null };
     }),
+);
+
+/* ------------------------------------------------------------------
+ * 動画の特徴量（R4 設計 6.1 節。カットのタイムラインと視聴維持率）
+ * ------------------------------------------------------------------ */
+
+/** `media_video_features` の 1 行と画面変化の時刻。`error` 列は読まない */
+export interface VideoFeatures {
+  /** 今の条件の解析の状態。null はまだ解析していない */
+  analysis_status: string | null;
+  duration_ms: number | null;
+  cut_count: number | null;
+  avg_scene_ms: number | null;
+  first_cut_ms: number | null;
+  cuts_in_first_3s: number | null;
+  retention_rate: number | null;
+  /** 画面変化の時刻（ミリ秒、`seq` の順）。`success` でなければ空 */
+  cut_times_ms: number[];
+}
+
+/**
+ * 動画の投稿（リールとフィード動画）の特徴量。ビューに行がない（動画でない、対象のアカウントのものでない）なら null。
+ * 値はビューのものをそのまま使い、画面で計算し直さない
+ */
+export const getVideoFeatures = cache(async (accountId: string, id: string): Promise<QueryResult<VideoFeatures | null>> =>
+  runQuery(async (db) => {
+    const rows = await db<VideoFeatures[]>`
+      select
+        f.analysis_status, f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s,
+        f.retention_rate::float8 as retention_rate,
+        coalesce(
+          (
+            select array_agg(c.at_ms order by c.seq)
+            from public.video_cuts c
+            where c.analysis_id = f.analysis_id and f.analysis_status = 'success'
+          ),
+          '{}'::integer[]
+        ) as cut_times_ms
+      from public.media_video_features f
+      where f.account_id = ${accountId} and f.media_id = ${id}
+    `;
+    const row = rows[0];
+    return row === undefined ? null : { ...row, cut_times_ms: [...row.cut_times_ms] };
+  }),
 );

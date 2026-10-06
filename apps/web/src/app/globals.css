@@ -500,3 +500,20 @@
   .col-8, .col-6, .col-4 { grid-column: span 12; }
   .col-3 { grid-column: span 6; }
 }
+
+/* ---------- リール分析（R4 設計 6.2 節） ---------- */
+.forest__row { display: grid; grid-template-columns: 11em 6.5em minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 4px 0; }
+.forest__row--axis { padding: 0; }
+.forest__value { text-align: right; white-space: nowrap; }
+/* スクロールの枠の中で、サムネイルと題名の列を固定する */
+.reel-table th.sticky-thumb, .reel-table td.sticky-thumb { position: sticky; left: 0; z-index: 1; width: 48px; min-width: 48px; max-width: 48px; background: var(--color-surface); }
+.reel-table th.sticky-title, .reel-table td.sticky-title { position: sticky; left: 48px; z-index: 1; background: var(--color-surface); box-shadow: 1px 0 0 var(--color-border); }
+.reel-table td.sticky-title { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) {
+  .forest__row { grid-template-columns: 6.5em minmax(0, 1fr); }
+  .forest__row .forest__label { grid-column: 1 / -1; }
+  .forest__row--axis .forest__label { display: none; }
+  /* 散布図は 2 列 */
+  .scatter-cell { grid-column: span 6; }
+  .reel-table td.sticky-title { max-width: 8em; }
+}

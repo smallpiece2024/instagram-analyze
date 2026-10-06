@@ -19,20 +19,36 @@ export interface SortHeaderProps {
    * （ボタンをリンクの中に入れられないため）
    */
   hint?: string;
+  /** 向きのクエリの名前。既定は `order`（投稿一覧）。リール分析は `dir`（R4 設計 6.2 節） */
+  orderParam?: string;
+  /** 見出しのセルに足すクラス（`hide-m` など） */
+  className?: string;
+}
+
+/** 見出しのリンク先。同じ列なら向きを反転、ほかの列なら降順から。ほかのクエリ（`y` など）は保ち、`page` は外す */
+export function sortHeaderHref({
+  sortKey,
+  sort,
+  order,
+  path,
+  query,
+  orderParam = "order",
+}: Pick<SortHeaderProps, "sortKey" | "sort" | "order" | "path" | "query" | "orderParam">): string {
+  const nextOrder: SortOrder = sort === sortKey && order === "desc" ? "asc" : "desc";
+  return buildHref(path, query, { sort: sortKey, [orderParam]: nextOrder, page: undefined });
 }
 
 /**
  * 並べ替えのできる列の見出し。今の列には `aria-sort`。
  * 押すと、同じ列なら向きを反転、ほかの列なら降順から始める。並べ替えたら 1 ページ目に戻す
  */
-export function SortHeader({ label, sortKey, sort, order, path, query, numeric, hint }: SortHeaderProps) {
+export function SortHeader({ label, sortKey, sort, order, path, query, numeric, hint, orderParam = "order", className }: SortHeaderProps) {
   const current = sort === sortKey;
-  const nextOrder: SortOrder = current && order === "desc" ? "asc" : "desc";
-  const href = buildHref(path, query, { sort: sortKey, order: nextOrder, page: undefined });
+  const href = sortHeaderHref({ sortKey, sort, order, path, query, orderParam });
   return (
     <th
       scope="col"
-      className={numeric ? "num" : undefined}
+      className={[numeric ? "num" : undefined, className].filter(Boolean).join(" ") || undefined}
       aria-sort={current ? (order === "asc" ? "ascending" : "descending") : undefined}
       data-order={current ? order : undefined}
     >

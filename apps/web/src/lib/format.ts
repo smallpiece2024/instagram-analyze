@@ -10,6 +10,7 @@ export const JOB_ORDER = [
   "account_daily",
   "media_sync",
   "media_snapshot",
+  "video_analysis",
   "stories",
   "account_backfill",
 ] as const;
