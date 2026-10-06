@@ -2,14 +2,25 @@
  * `/api/meta/login` と `/api/meta/callback` の Route Handler のテスト。node 環境で `NextRequest` を作って呼ぶ。
  * `markDynamic` と `server-only` は `vitest.config.mts` の alias でスタブ。環境変数は `vi.stubEnv` で与える。
  * `handleCallback` は `vi.fn` で包み、必要なときだけ戻り値や例外を差し替える（既定は本物）。
+ * 末尾で、R3 で足す URL（`/compare`、`/export/*`、`/media/[id]`）が proxy を通ることを確かめる。
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeAllDb } from "../src/lib/db";
+import { config as proxyConfig, proxy } from "../src/proxy";
 import { checkAccess } from "../src/lib/auth";
 import { handleCallback } from "../src/lib/meta-connect";
 import { GET as callbackGet } from "../src/app/api/meta/callback/route";
 import * as login from "../src/app/api/meta/login/route";
+
+// R3 の新しい URL が proxy を通ることの確認用（test/proxy.test.ts と同じ差し替え。route handler には影響しない）
+const getClaims = vi.fn();
+vi.mock("../src/lib/supabase/proxy", () => ({
+  createProxySupabaseClient: (request: NextRequest) => ({
+    supabase: { auth: { getClaims } },
+    response: () => NextResponse.next({ request }),
+  }),
+}));
 
 vi.mock("../src/lib/meta-connect", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/meta-connect")>();
@@ -236,6 +247,53 @@ describe("routes", () => {
       );
       expect(handleCallback).toHaveBeenCalledWith(expect.objectContaining({ cookieState: STATE }), expect.anything());
       expect(setCookie(cb)).toMatch(/^__Host-meta_oauth_state=;.*Max-Age=0/i);
+    });
+  });
+
+  /**
+   * R3 で足す URL（R3 設計 3 章、10 章の段階 0）。proxy の設定は変えず、matcher に入り、未ログインは /login へ 303、
+   * 許可外は 403、本人は通過することだけを確かめる（まだない画面もある。画面とハンドラーの中身は各段階のテスト）
+   */
+  describe("R3 の新しい URL が proxy を通る", () => {
+    const ALLOWED = "11111111-1111-1111-1111-111111111111";
+    const NEW_PATHS = [
+      "/compare",
+      "/compare?preset=yoy",
+      "/compare?a=2026-09-01..2026-09-30&b=2026-08-01..2026-08-31",
+      "/export/media",
+      "/export/daily?from=2026-09-01&to=2026-09-30",
+      "/media/000012345",
+    ];
+    // matcher は列挙しない 1 本の正規表現（src/proxy.ts）。Next.js と同じく pathname 全体に当てる
+    const matchers = proxyConfig.matcher.map((m) => new RegExp(`^${m}$`));
+
+    function pageRequest(path: string): NextRequest {
+      return new NextRequest(`${APP_URL}${path}`, { headers: { host: "localhost:3000" } });
+    }
+
+    beforeEach(() => {
+      vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321");
+      vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+      vi.stubEnv("WEB_ALLOWED_USER_ID", ALLOWED);
+      getClaims.mockReset();
+    });
+
+    it.each(NEW_PATHS)("%s は matcher に入る", (path) => {
+      const pathname = new URL(path, APP_URL).pathname;
+      expect(matchers.some((re) => re.test(pathname))).toBe(true);
+    });
+
+    it.each(NEW_PATHS)("%s: 未ログインは /login へ 303、許可外は 403、本人は通過", async (path) => {
+      getClaims.mockResolvedValue({ data: null, error: { message: "no session" } });
+      const anon = await proxy(pageRequest(path));
+      expect(anon.status).toBe(303);
+      expect(anon.headers.get("location")).toBe(`${APP_URL}/login`);
+
+      getClaims.mockResolvedValue({ data: { claims: { sub: "22222222-2222-2222-2222-222222222222" } }, error: null });
+      expect((await proxy(pageRequest(path))).status).toBe(403);
+
+      getClaims.mockResolvedValue({ data: { claims: { sub: ALLOWED } }, error: null });
+      expect((await proxy(pageRequest(path))).status).toBe(200);
     });
   });
 });

@@ -1,105 +1,112 @@
 import Link from "next/link";
-import {
-  accountStatusLabel,
-  credentialStatusLabel,
-  daysLeft,
-  EMPTY,
-  formatJst,
-  missingScopes,
-  needsReconnect,
-  tokenTypeLabel,
-} from "@/lib/format";
-import { getConnectionStatus, type ConnectionStatus } from "@/lib/queries/connection-status";
+import { Suspense } from "react";
+import { Callout, Note } from "@/components/Callout";
+import { Card } from "@/components/Card";
+import { PageHead } from "@/components/PageHead";
+import { lastUpdatedLabel } from "@/lib/format";
+import { parseEr, parseRange } from "@/lib/params";
+import { isStale, lastNDays, previousPeriod, todayPacific } from "@/lib/period";
+import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
+import { getOverviewUpdatedAt } from "@/lib/queries/overview";
+import { getDailyRange } from "@/lib/queries/period-summary";
+import { RangeChips } from "./_overview/Chips";
+import { DailyTrendCard } from "./_overview/DailyTrendCard";
+import { KindBreakdownCard } from "./_overview/KindBreakdownCard";
+import { OverviewKpis } from "./_overview/OverviewKpis";
+import { CardLoading, LoadError, NotCollected } from "./_overview/states";
+import { DAY_BOUNDARY_NOTE } from "@/lib/metric-definitions";
 
-/** 再接続を促す帯の理由（設計 1.1 章、1.6 章）。固定文言と DB の `last_error`（ワーカーがマスク済み）だけ */
-function reconnectReason(s: ConnectionStatus, now: Date): string {
-  if (s.credential_status === null) return "認証情報が登録されていません";
-  if (s.credential_status !== "valid") {
-    const base = `認証情報の状態が「${credentialStatusLabel(s.credential_status)}」です`;
-    return s.last_error ? `${base}（${s.last_error}）` : base;
-  }
-  const left = daysLeft(s.data_access_expires_at, now);
-  if (left !== undefined && left < 0) return "データアクセス期限を過ぎています";
-  return `データアクセス期限まで残り ${left ?? EMPTY} 日です`;
-}
+const TITLE = "概要";
 
-function AccountCard({ s, now }: { s: ConnectionStatus; now: Date }) {
-  const reconnect = needsReconnect({
-    credential_status: s.credential_status,
-    data_access_expires_at: s.data_access_expires_at,
-    now,
-  });
-  const left = daysLeft(s.data_access_expires_at, now);
-  const missing = missingScopes(s.scopes);
-  const rows: [string, string][] = [
-    ["ユーザー名", s.username ?? EMPTY],
-    ["表示名", s.name ?? EMPTY],
-    ["アカウントの状態", accountStatusLabel(s.account_status)],
-    ["トークンの種類", tokenTypeLabel(s.token_type)],
-    ["トークンの有効期限", s.token_type === null ? EMPTY : s.token_expires_at === null ? "期限なし" : formatJst(s.token_expires_at)],
-    [
-      "データアクセス期限",
-      s.data_access_expires_at === null
-        ? EMPTY
-        : `${formatJst(s.data_access_expires_at)}（${left !== undefined && left < 0 ? "期限切れ" : `残り ${left ?? EMPTY} 日`}）`,
-    ],
-    ["権限", s.scopes && s.scopes.length > 0 ? s.scopes.join(", ") : EMPTY],
-    ["不足している権限", missing.length === 0 ? "なし" : missing.join(", ")],
-    ["認証情報の状態", credentialStatusLabel(s.credential_status)],
-    ["最後のエラー", s.last_error ?? EMPTY],
-    ["最終確認", formatJst(s.last_checked_at)],
-    ["最終収集", formatJst(s.last_collected_at)],
-  ];
-  return (
-    <section className="rounded border border-neutral-200 p-4">
-      <h2 className="text-lg font-semibold">{s.username ? `@${s.username}` : "（ユーザー名なし）"}</h2>
-      {reconnect && (
-        <p className="mt-3 rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-          再接続が必要です: {reconnectReason(s, now)}。最終確認 {formatJst(s.last_checked_at)}。{" "}
-          <Link href="/connect" className="font-semibold underline">
-            接続設定へ
-          </Link>
-        </p>
-      )}
-      <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[12rem_1fr]">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-neutral-500">{label}</dt>
-            <dd className="break-words">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
+/**
+ * 概要（R3 設計 3.2 節）。期間の終わりは今日ではなく、日次指標（`reach`）のある最新の日（太平洋時間の日付）。
+ * 期間（`?range=`）と ER の分母（`?er=`）は `lib/params` で検査し、外れた値は既定に戻す（4.7 節）。
+ * カードごとに `<Suspense>` で包み、1 枚の失敗でほかを止めない（4.5 節）
+ */
+export default async function OverviewPage(props: PageProps<"/">) {
+  const searchParams = await props.searchParams;
+  const range = parseRange(searchParams.range);
+  const er = parseEr(searchParams.er);
 
-/** 接続状態（設計 1.1 章）。R0 の Supabase の接続状態の表示は R2 で削除した（Data API を使わない。R2 設計 2.6 章） */
-export default async function Home() {
-  const status = await getConnectionStatus();
-  const now = new Date();
-
-  return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
-      <h1 className="text-2xl font-bold">接続状態</h1>
-      <p className="mt-1 text-sm text-neutral-500">Meta との接続と、収集の最終時刻。</p>
-
-      <div className="mt-6 space-y-4">
-        {!status.ok ? (
-          <p className="rounded border border-red-400 bg-red-50 p-4 text-sm text-red-900">
-            接続状態を読み出せません（{status.reason}）。
-          </p>
-        ) : status.data.length === 0 ? (
-          <p className="rounded border border-amber-400 bg-amber-50 p-4 text-sm text-amber-900">
-            アカウントが登録されていません。{" "}
-            <Link href="/connect" className="font-semibold underline">
-              接続設定
-            </Link>{" "}
-            から Meta と接続してください。
-          </p>
+  const account = await getTargetAccount();
+  if (!account.ok) {
+    return (
+      <main className="main">
+        <PageHead title={TITLE} />
+        {account.reason === TARGET_ACCOUNT_NOT_SET ? (
+          <Callout state="warn">
+            {TARGET_ACCOUNT_NOT_SET}。<Link href="/connect">接続設定</Link>
+          </Callout>
         ) : (
-          status.data.map((s) => <AccountCard key={s.account_id} s={s} now={now} />)
+          <LoadError reason={account.reason} />
         )}
+      </main>
+    );
+  }
+  const accountId = account.data.id;
+
+  const [dailyRange, updatedAt] = await Promise.all([getDailyRange(accountId), getOverviewUpdatedAt(accountId)]);
+  const updated = updatedAt.ok ? updatedAt.data : { daily: null, media: null, latest: null };
+
+  if (!dailyRange.ok || dailyRange.data === null) {
+    return (
+      <main className="main">
+        <PageHead title={TITLE} sub={lastUpdatedLabel(updated.latest)} tools={<RangeChips range={range} er={er} />} />
+        {!dailyRange.ok ? (
+          <Card>
+            <LoadError reason={dailyRange.reason} />
+          </Card>
+        ) : (
+          <div className="grid">
+            <Card title="リーチとフォロワー数の日次推移" className="col-8">
+              <NotCollected />
+            </Card>
+            <Card title="投稿の種類の内訳" className="col-4">
+              <NotCollected />
+            </Card>
+          </div>
+        )}
+        <Note>{DAY_BOUNDARY_NOTE}</Note>
+      </main>
+    );
+  }
+
+  const { start, end } = dailyRange.data;
+  const cur = lastNDays(end, range);
+  const prev = previousPeriod(cur);
+  const stale = isStale(end, todayPacific(new Date()));
+
+  return (
+    <main className="main stack">
+      <PageHead
+        title={TITLE}
+        sub={`過去 ${range} 日（${cur.from} 〜 ${cur.to}）・${lastUpdatedLabel(updated.latest)}`}
+        tools={<RangeChips range={range} er={er} />}
+      />
+      {stale && (
+        <Callout state="warn">
+          日次指標が {end} で止まっています。<Link href="/jobs">収集ログ</Link>
+        </Callout>
+      )}
+      {!updatedAt.ok && <LoadError reason={updatedAt.reason} />}
+      <Suspense fallback={<div className="kpis" aria-busy="true" />}>
+        <OverviewKpis accountId={accountId} cur={cur} prev={prev} range={range} er={er} />
+      </Suspense>
+      <div className="grid">
+        <Suspense fallback={<CardLoading title="リーチとフォロワー数の日次推移" className="col-8" />}>
+          <DailyTrendCard
+            accountId={accountId}
+            period={cur}
+            dataStart={start}
+            dailyFetchedAt={updated.daily}
+            className="col-8"
+          />
+        </Suspense>
+        <Suspense fallback={<CardLoading title="投稿の種類の内訳" className="col-4" />}>
+          <KindBreakdownCard accountId={accountId} period={cur} mediaFetchedAt={updated.media} className="col-4" />
+        </Suspense>
       </div>
+      <Note>{DAY_BOUNDARY_NOTE}</Note>
     </main>
   );
 }

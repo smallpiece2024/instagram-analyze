@@ -1,131 +1,123 @@
+/**
+ * 投稿一覧（`/media`。R3 設計 3.3 節、見本 `render.js` の `S["media-list"]`）。
+ *
+ * - 指標は各投稿の最新のスナップショットの値。投稿日時の下に投稿からの経過日数を出す（説明の注記は付けない）
+ * - PC は表、スマートフォンはカードの並び。同じ HTML に両方を出して CSS（`only-d`／`only-m`）で切り替える
+ * - クエリ `sort`、`order`、`page`、`er` は `lib/params.ts` で検査し、外れたら既定に戻す（4.7 節）
+ */
 import Link from "next/link";
-import { elapsedLabel, EMPTY, formatJst, isInstagramPermalink, metricCell, PAGE_SIZE, parsePage } from "@/lib/format";
-import { getMediaPage } from "@/lib/queries/media";
+import { Callout } from "@/components/Callout";
+import { Card } from "@/components/Card";
+import { PageHead } from "@/components/PageHead";
+import { Pager } from "@/components/Pager";
+import { buildHref, type Query } from "@/components/href";
+import { formatCount, lastUpdatedLabel, PAGE_SIZE } from "@/lib/format";
+import { DEFAULT_SORT, parseEr, parseOrder, parsePageNumber, parseSort } from "@/lib/params";
+import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
+import { getMediaPage, MEDIA_SORT_KEYS } from "@/lib/queries/media";
+import { ErSwitch } from "./_list/ErSwitch";
+import { MediaCards } from "./_list/MediaCards";
+import { MediaTable } from "./_list/MediaTable";
 
-const METRICS = [
-  ["views", "views"],
-  ["reach", "reach"],
-  ["likes", "likes"],
-  ["comments", "comments"],
-  ["saved", "saved"],
-  ["shares", "shares"],
-] as const;
-
-const TH = "whitespace-nowrap px-3 py-2 text-left font-medium text-neutral-600";
-const TD = "whitespace-nowrap px-3 py-2 align-top";
+const TITLE = "投稿一覧";
 
 export default async function MediaPage(props: PageProps<"/media">) {
-  const { page: pageParam } = await props.searchParams;
-  const page = parsePage(pageParam);
-  const result = await getMediaPage(page);
+  const sp = await props.searchParams;
+  const sort = parseSort(sp.sort, MEDIA_SORT_KEYS, DEFAULT_SORT);
+  const order = parseOrder(sp.order);
+  const page = parsePageNumber(sp.page);
+  const er = parseEr(sp.er);
+
+  const account = await getTargetAccount();
+  if (!account.ok) {
+    return (
+      <main className="main">
+        <PageHead title={TITLE} />
+        {account.reason === TARGET_ACCOUNT_NOT_SET ? (
+          <Callout state="warn">
+            {TARGET_ACCOUNT_NOT_SET}。<Link href="/connect">接続設定</Link>
+          </Callout>
+        ) : (
+          <Callout state="bad">読み出せません（{account.reason}）</Callout>
+        )}
+      </main>
+    );
+  }
+
+  const result = await getMediaPage(account.data.id, { sort, order, page, er });
+  if (!result.ok) {
+    return (
+      <main className="main">
+        <PageHead title={TITLE} />
+        <Card>
+          <Callout state="bad">読み出せません（{result.reason}）</Callout>
+        </Card>
+      </main>
+    );
+  }
+
+  const data = result.data;
+  // 既定の値は URL に出さない
+  const query: Query = {
+    sort: sort === DEFAULT_SORT ? undefined : sort,
+    order: order === "desc" ? undefined : order,
+    er: er === "reach" ? undefined : er,
+  };
+  const csvHref = buildHref("/export/media", { sort: query.sort, order: query.order });
+  const sub = `全 ${formatCount(data.total)} 件・${lastUpdatedLabel(data.last_fetched_at)}`;
+
+  if (data.total === 0) {
+    return (
+      <main className="main">
+        <PageHead title={TITLE} sub={sub} />
+        <Card>
+          <p>
+            投稿がまだ収集されていません。<Link href="/jobs">収集ログ</Link>
+          </p>
+        </Card>
+      </main>
+    );
+  }
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
-      <h1 className="text-2xl font-bold">投稿一覧</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        フィードとリール（ストーリーズは含まない）。投稿日時の新しい順に {PAGE_SIZE} 件ずつ。指標は最新のスナップショット。
-      </p>
-
-      {!result.ok ? (
-        <p className="mt-6 rounded border border-red-400 bg-red-50 p-3 text-sm text-red-900">
-          読み出せません（{result.reason}）。
-        </p>
-      ) : result.data.items.length === 0 ? (
-        <p className="mt-6 text-sm text-neutral-500">
-          {page === 1 ? "投稿がまだ収集されていません。" : "このページには投稿がありません。"}
-        </p>
-      ) : (
-        <div className="mt-6 overflow-x-auto rounded border border-neutral-200">
-          <table className="min-w-full text-sm">
-            <thead className="bg-neutral-50">
-              <tr>
-                <th className={TH}>サムネイル</th>
-                <th className={TH}>種類</th>
-                <th className={TH}>投稿日時（JST）</th>
-                {METRICS.map(([key, label]) => (
-                  <th key={key} className={`${TH} text-right`}>
-                    {label}
-                  </th>
-                ))}
-                <th className={TH}>指標の取得</th>
-                <th className={TH}>消えた</th>
-                <th className={TH}>リンク</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200">
-              {result.data.items.map((m) => (
-                <tr key={m.id}>
-                  <td className={TD}>
-                    {m.thumbnail_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- 非公開バケットの署名付き URL（?token= 付き、ローカルは 127.0.0.1）なので next/image を使わない（設計 1.4 章）
-                      <img
-                        src={m.thumbnail_url}
-                        width={96}
-                        height={96}
-                        loading="lazy"
-                        alt=""
-                        className="h-24 w-24 rounded object-cover"
-                      />
-                    ) : (
-                      <span className="inline-flex h-24 w-24 items-center justify-center rounded bg-neutral-100 text-xs text-neutral-500">
-                        {m.media_product_type}
-                      </span>
-                    )}
-                  </td>
-                  <td className={TD}>
-                    <div>{m.media_product_type}</div>
-                    <div className="text-xs text-neutral-500">{m.media_type}</div>
-                  </td>
-                  <td className={TD}>{formatJst(m.posted_at)}</td>
-                  {METRICS.map(([key]) => (
-                    <td key={key} className={`${TD} text-right`}>
-                      {metricCell(m.metrics, key)}
-                    </td>
-                  ))}
-                  <td className={TD}>
-                    <div>{formatJst(m.metrics_fetched_at)}</div>
-                    <div className="text-xs text-neutral-500">{elapsedLabel(m.elapsed_seconds)}</div>
-                  </td>
-                  <td className={TD}>{m.gone_at ? formatJst(m.gone_at) : EMPTY}</td>
-                  <td className={TD}>
-                    {isInstagramPermalink(m.permalink) ? (
-                      <a
-                        href={m.permalink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-700 hover:underline"
-                      >
-                        Instagram で開く
-                      </a>
-                    ) : (
-                      EMPTY
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <main className="main stack">
+      <PageHead
+        title={TITLE}
+        sub={sub}
+        tools={
+          <a className="btn btn--ghost" href={csvHref}>
+            CSV
+          </a>
+        }
+      />
+      <div className="toolbar">
+        <div className="tools">
+          <ErSwitch er={er} query={query} />
         </div>
-      )}
-
-      {result.ok && (
-        <nav aria-label="ページ" className="mt-4 flex items-center gap-4 text-sm">
-          {page > 1 ? (
-            <Link href={page === 2 ? "/media" : `/media?page=${page - 1}`} className="text-blue-700 hover:underline">
-              前のページ
-            </Link>
-          ) : (
-            <span className="text-neutral-400">前のページ</span>
-          )}
-          <span className="text-neutral-500">ページ {page}</span>
-          {result.data.hasNext ? (
-            <Link href={`/media?page=${page + 1}`} className="text-blue-700 hover:underline">
-              次のページ
-            </Link>
-          ) : (
-            <span className="text-neutral-400">次のページ</span>
-          )}
-        </nav>
+      </div>
+      {data.items.length === 0 ? (
+        <Card>
+          <p>
+            このページには投稿がありません。<Link href={buildHref("/media", query)}>1 ページ目へ</Link>
+          </p>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <div className="only-d">
+              <MediaTable items={data.items} baseline={data.baseline} sort={sort} order={order} er={er} query={query} />
+            </div>
+            <MediaCards items={data.items} er={er} />
+          </Card>
+          <Pager
+            page={page}
+            pageCount={data.pageCount}
+            path="/media"
+            query={query}
+            total={data.total}
+            pageSize={PAGE_SIZE}
+          />
+        </>
       )}
     </main>
   );
