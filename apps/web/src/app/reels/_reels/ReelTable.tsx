@@ -90,7 +90,7 @@ export interface ReelTableProps {
 export function ReelTable({ rows, urls, sort, dir, query }: ReelTableProps) {
   const sortProps = { sort, order: dir, path: "/reels", query, orderParam: "dir" };
   return (
-    <div className="table-wrap">
+    <div className="table-wrap reel-table-wrap">
       <table className="table reel-table">
         <thead>
           <tr>

@@ -506,6 +506,8 @@
 .forest__row--axis { padding: 0; }
 .forest__value { text-align: right; white-space: nowrap; }
 /* スクロールの枠の中で、サムネイルと題名の列を固定する */
+/* 枠に左右の余白があると、固定した列の左の余白に、横にずらした列の中身が見えてしまう。この枠は余白を持たない */
+.reel-table-wrap { margin: 0; padding: 0; }
 .reel-table th.sticky-thumb, .reel-table td.sticky-thumb { position: sticky; left: 0; z-index: 1; width: 48px; min-width: 48px; max-width: 48px; background: var(--color-surface); }
 .reel-table th.sticky-title, .reel-table td.sticky-title { position: sticky; left: 48px; z-index: 1; background: var(--color-surface); box-shadow: 1px 0 0 var(--color-border); }
 .reel-table td.sticky-title { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
