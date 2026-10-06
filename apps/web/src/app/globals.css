@@ -189,8 +189,9 @@
     font-size: var(--font-size-sm);
   }
   .nav a[aria-current] { opacity: 1; font-weight: 700; color: var(--color-nav-active); background: var(--color-nav-active-bg); box-shadow: var(--nav-active-decor, none); }
-  /* 押したリンクの遷移中の印（PendingMark。ナビのタブ、チップ、seg）。常に置き、遷移中だけ下線を点滅させる */
-  .chip, .seg > * { position: relative; }
+  /* 押したリンクの遷移中の印（PendingMark。ナビのタブ、チップ、seg、ページ送り）。常に置き、遷移中だけ下線を点滅させる */
+  .chip, .seg > *, .pager a { position: relative; }
+  .pager__page .link-pending { left: 4px; right: 4px; }
   .link-pending { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; border-radius: 1px; background: currentColor; opacity: 0; pointer-events: none; }
   .link-pending[data-pending] { animation: link-pending .8s ease-in-out infinite alternate; }
   @keyframes link-pending { from { opacity: .2; } to { opacity: .9; } }
