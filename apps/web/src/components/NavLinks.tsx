@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 
 /** ナビの項目（R3 設計 2.2 節）。投稿詳細はナビに出さず、現在位置は「投稿一覧」にする */
@@ -23,6 +23,15 @@ export function activeNavHref(pathname: string): string | undefined {
   return undefined;
 }
 
+/**
+ * 押したタブの遷移中の印（下線の点滅）。`useLinkStatus` は `Link` の子孫でだけ使える。
+ * 位置がずれないように常に描き、`data-pending` で見え方だけを切り替える
+ */
+function PendingMark() {
+  const { pending } = useLinkStatus();
+  return <span aria-hidden="true" className="nav__pending" data-pending={pending || undefined} />;
+}
+
 /** ナビのリンク。現在位置だけを Client で決める（`usePathname`） */
 export function NavLinks() {
   const active = activeNavHref(usePathname());
@@ -31,6 +40,7 @@ export function NavLinks() {
       {NAV_ITEMS.map((item) => (
         <Link key={item.href} href={item.href} aria-current={item.href === active ? "page" : undefined}>
           {item.label}
+          <PendingMark />
         </Link>
       ))}
     </nav>
