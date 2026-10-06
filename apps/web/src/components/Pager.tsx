@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatCount } from "@/lib/format";
+import { PendingMark } from "./PendingMark";
 import { buildHref, type Query } from "./href";
 
 export interface PagerProps {
@@ -54,6 +55,7 @@ export function Pager({ page, pageCount: rawPageCount, path, query, total, pageS
         {prev !== null ? (
           <Link className="btn btn--ghost" href={href(prev)} rel="prev">
             ‹ 前へ
+            <PendingMark />
           </Link>
         ) : (
           <span className="btn btn--ghost" aria-disabled="true">
@@ -73,6 +75,7 @@ export function Pager({ page, pageCount: rawPageCount, path, query, total, pageS
             ) : (
               <Link key={item} className="pager__page" href={href(item)}>
                 {item}
+                <PendingMark />
               </Link>
             ),
           )}
@@ -80,6 +83,7 @@ export function Pager({ page, pageCount: rawPageCount, path, query, total, pageS
         {next !== null ? (
           <Link className="btn btn--ghost" href={href(next)} rel="next">
             次へ ›
+            <PendingMark />
           </Link>
         ) : (
           <span className="btn btn--ghost" aria-disabled="true">
