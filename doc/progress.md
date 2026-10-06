@@ -243,5 +243,6 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 
 設計は `doc/design/r4-video-analysis.md`。
 
-- **設計 0.1（2026-10-06）**: 親が起草。R1 のストーリーズの動画解析（`video_analyses`、`video_cuts`、`analyzeVideo`）を使い回し、毎時のグループに `video_analysis` ジョブを足して、リールとフィード動画を 1 回 5 本まで新しい順に解析する（既存のリールも同じジョブで数時間のうちに終わる）。`media_url` は解析の直前に取り直す。永久に再試行しないよう `attempt_count` で 5 回で打ち切る。しきい値は手元のコマンド `video-tune` で数本を目視と比べて決める。画面は投稿詳細のカットのタイムラインと、リール分析（`/reels`、design-lab v3 の見本から文字の要因を除く）。`node-worker-developer`、`postgres-sql-reviewer`、`nextjs-developer`、`security-engineer` が並列にレビュー中
-- **確認事項**: 設計 9 章。大きいのは Q1（リーチ率は投稿時のフォロワー数の記録がある 2026-10-01 以降の投稿にしか出ないので、目的変数を選べるようにするか）
+- **設計 0.1（2026-10-06）**: 親が起草。R1 のストーリーズの動画解析（`video_analyses`、`video_cuts`、`analyzeVideo`）を使い回し、毎時のグループに `video_analysis` ジョブを足して、リールとフィード動画を新しい順に解析する（既存のリールも同じジョブで数時間のうちに終わる）。`media_url` は解析の直前に取り直す。しきい値は手元のコマンド `video-tune` で数本を目視と比べて決める。画面は投稿詳細のカットのタイムラインと、リール分析（`/reels`、design-lab v3 の見本から文字の要因を除く）
+- **設計 0.2（2026-10-06）**: 4 本のレビューを反映（`security-engineer` 約 1.5 分・6 万トークン、`postgres-sql-reviewer` 約 2 分・7 万、`node-worker-developer` 約 2.5 分・8 万、`nextjs-developer` 約 3 分・8 万）。主な直し: 今の解析条件を DB の関数 `current_video_condition()` に持たせ、画面のビューはその条件の行だけを使う。ffmpeg がない回は行を書かない（apt の失敗が続いても全リールが打ち切りにならない）。ジョブの途中では止めず、1 回 5 本と時間の予算 8 分で抑える。`attempt_count` で 5 回で打ち切る。ログに投稿の ID と URL を出さない。ffmpeg の入力を mp4 とファイルに限る。相関は n < 3 と分散 0 で「—」、ブートストラップは再標本の組を全要因で共有して再現させる
+- **確認事項**: 設計 9 章の Q1〜Q7。大きいのは Q1（リーチ率は投稿時のフォロワー数の記録がある 2026-10-01 以降の投稿にしか出ないので、目的変数を選べるようにするか）。段階 0 の数（本番のリールの本数、リーチ率のあるリールの本数、ジョブの所要時間）をユーザーに SQL で出してもらう
