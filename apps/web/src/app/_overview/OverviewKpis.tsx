@@ -112,7 +112,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         label={DEF.followers.label}
         hint={DEF.followers.hint}
         value={formatCount(fc.latest?.followers_count)}
-        denom={fc.latest ? `${fc.latest.captured_on} の記録` : undefined}
+        denom={fc.latest ? `${fc.latest.captured_on} 時点` : undefined}
       />
     </div>
   );
