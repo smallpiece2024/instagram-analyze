@@ -219,9 +219,9 @@ function ScatterCell({
   const common = { title, points: pts, xFormat, yFormat: objectiveFormat(y), color: COLOR, refY };
   return (
     <div className={`${className} scatter-cell`}>
-      <p className="small muted">
+      <div className="small muted">
         <MetricHint label={label} text={hint} /> <span className="xs">n={n}</span>
-      </p>
+      </div>
       <div className="chart only-d">
         <Scatter {...common} width={width} height={190} />
       </div>
