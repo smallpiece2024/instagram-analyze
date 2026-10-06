@@ -301,6 +301,11 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
  * 区分
  * ------------------------------------------------------------------ */
 
+/** 区分の棒グラフの viewBox の幅。PC の 3 等分と 2 等分のマス、スマートフォンの全幅（文字の大きさをそろえるため） */
+const GROUP_WIDTH_THIRD = 380;
+const GROUP_WIDTH_HALF = 580;
+const GROUP_WIDTH_MOBILE = 340;
+
 function GroupCell({
   label,
   bars,
@@ -313,26 +318,29 @@ function GroupCell({
   className: string;
 }) {
   const fmt = objectiveFormat(y);
+  const common = {
+    title: `${label}ごとの${OBJECTIVE_LABEL[y]}の中央値`,
+    values: bars.map((b) => b.value),
+    labels: bars.map((b) => b.label),
+    nLabels: bars.map((b) => b.n),
+    dim: bars.flatMap((b, i) => (b.n < GROUP_FAINT_MIN ? [i] : [])),
+    tips: bars.map((b) => `${b.label}: ${formatValue(b.value, fmt)}（n=${b.n}）`),
+    valueLabels: "all" as const,
+    color: COLOR,
+    format: fmt,
+    height: 180,
+    noAxis: true,
+  };
+  // 図はマスの幅に近い大きさで描き、それより大きくは拡大しない（拡大すると、幅の違うマスで文字の大きさがそろわない）
+  const width = className === "col-6" ? GROUP_WIDTH_HALF : GROUP_WIDTH_THIRD;
   return (
     <div className={className}>
-      <p className="small muted">
-        {label}
-      </p>
-      <div className="chart">
-        <VBars
-          title={`${label}ごとの${OBJECTIVE_LABEL[y]}の中央値`}
-          values={bars.map((b) => b.value)}
-          labels={bars.map((b) => b.label)}
-          nLabels={bars.map((b) => b.n)}
-          dim={bars.flatMap((b, i) => (b.n < GROUP_FAINT_MIN ? [i] : []))}
-          tips={bars.map((b) => `${b.label}: ${formatValue(b.value, fmt)}（n=${b.n}）`)}
-          valueLabels="all"
-          color={COLOR}
-          format={fmt}
-          width={270}
-          height={180}
-          noAxis
-        />
+      <p className="small muted">{label}</p>
+      <div className="chart only-d" style={{ maxWidth: width }}>
+        <VBars {...common} width={width} />
+      </div>
+      <div className="chart only-m">
+        <VBars {...common} width={GROUP_WIDTH_MOBILE} />
       </div>
     </div>
   );
