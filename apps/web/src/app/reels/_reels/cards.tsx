@@ -301,8 +301,8 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
  * 区分
  * ------------------------------------------------------------------ */
 
-/** 区分の棒グラフの viewBox の幅。PC の 3 等分と 2 等分のマス、スマートフォンの全幅（文字の大きさをそろえるため） */
-const GROUP_WIDTH_THIRD = 380;
+/** グループ別の棒グラフの viewBox の幅。PC の 4 分の 1 と半分のマス、スマートフォンの全幅（文字の大きさをそろえるため） */
+const GROUP_WIDTH_QUARTER = 280;
 const GROUP_WIDTH_HALF = 580;
 const GROUP_WIDTH_MOBILE = 340;
 
@@ -315,7 +315,7 @@ function GroupCell({
   label: string;
   bars: readonly GroupBar[];
   y: Objective;
-  className: string;
+  className: "col-3" | "col-6";
 }) {
   const fmt = objectiveFormat(y);
   const common = {
@@ -332,9 +332,9 @@ function GroupCell({
     noAxis: true,
   };
   // 図はマスの幅に近い大きさで描き、それより大きくは拡大しない（拡大すると、幅の違うマスで文字の大きさがそろわない）
-  const width = className === "col-6" ? GROUP_WIDTH_HALF : GROUP_WIDTH_THIRD;
+  const width = className === "col-6" ? GROUP_WIDTH_HALF : GROUP_WIDTH_QUARTER;
   return (
-    <div className={className}>
+    <div className={`${className} group-cell`}>
       <p className="small muted">{label}</p>
       <div className="chart only-d" style={{ maxWidth: width }}>
         <VBars {...common} width={width} />
@@ -357,19 +357,20 @@ export function GroupsCard({ view, analyzed }: { view: ReelsView; analyzed: bool
       <div className="grid">
         {analyzed ? (
           <>
-            <GroupCell label="動画の長さ" bars={view.groups.length} y={view.y} className="col-4" />
-            <GroupCell label="冒頭 3 秒の画面変化" bars={view.groups.first3s} y={view.y} className="col-4" />
-            <GroupCell label="最後 3 秒の画面変化" bars={view.groups.last3s} y={view.y} className="col-4" />
+            <GroupCell label="動画の長さ" bars={view.groups.length} y={view.y} className="col-6" />
+            <GroupCell label="冒頭 3 秒の画面変化" bars={view.groups.first3s} y={view.y} className="col-3" />
+            <GroupCell label="最後 3 秒の画面変化" bars={view.groups.last3s} y={view.y} className="col-3" />
           </>
         ) : (
-          <div className="col-6">
+          <div className="col-12">
             <p>
               <span className="muted">—</span> <Link href="/jobs">収集ログ</Link>
             </p>
           </div>
         )}
-        <GroupCell label="投稿の曜日" bars={view.groups.day} y={view.y} className="col-6" />
-        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} className="col-6" />
+        <GroupCell label="平日と土日" bars={view.groups.day} y={view.y} className="col-3" />
+        <GroupCell label="投稿の曜日" bars={view.groups.weekday} y={view.y} className="col-6" />
+        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} className="col-3" />
       </div>
     </Card>
   );

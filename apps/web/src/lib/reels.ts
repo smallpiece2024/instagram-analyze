@@ -481,22 +481,50 @@ export function groupObjectiveMedian(group: readonly ReelRow[], y: Objective): n
  * 区分
  * ------------------------------------------------------------------ */
 
-export type LengthBucket = "lt15" | "lt30" | "lt60" | "ge60";
+/** 長さのグループ: 10 秒ごと（下端を含む）で、60 秒以上は 1 つにまとめる（2026-10-06 にユーザーが 15/30/60 秒から変えた） */
+export type LengthBucket = "lt10" | "lt20" | "lt30" | "lt40" | "lt50" | "lt60" | "ge60";
 export const LENGTH_BUCKETS: readonly { key: LengthBucket; label: string }[] = [
-  { key: "lt15", label: "0〜15 秒" },
-  { key: "lt30", label: "15〜30 秒" },
-  { key: "lt60", label: "30〜60 秒" },
+  { key: "lt10", label: "0〜10 秒" },
+  { key: "lt20", label: "10〜20 秒" },
+  { key: "lt30", label: "20〜30 秒" },
+  { key: "lt40", label: "30〜40 秒" },
+  { key: "lt50", label: "40〜50 秒" },
+  { key: "lt60", label: "50〜60 秒" },
   { key: "ge60", label: "60 秒〜" },
 ];
 
-/** 長さの区分（下端を含む）。長さがなければ null */
+/** 長さのグループ（下端を含む）。長さがなければ null */
 export function lengthBucket(durationMs: number | null): LengthBucket | null {
   if (durationMs === null || !Number.isFinite(durationMs)) return null;
-  if (durationMs < 15000) return "lt15";
-  if (durationMs < 30000) return "lt30";
-  if (durationMs < 60000) return "lt60";
-  return "ge60";
+  if (durationMs >= 60000) return "ge60";
+  return LENGTH_BUCKETS[Math.max(0, Math.floor(durationMs / 10000))]?.key ?? null;
 }
+
+/** 冒頭と最後 3 秒の画面変化のグループ: 0 回、1 回、2 回、3 回以上 */
+export type EdgeCutBucket = "c0" | "c1" | "c2" | "c3";
+export const EDGE_CUT_BUCKETS: readonly { key: EdgeCutBucket; label: string }[] = [
+  { key: "c0", label: "0 回" },
+  { key: "c1", label: "1 回" },
+  { key: "c2", label: "2 回" },
+  { key: "c3", label: "3 回以上" },
+];
+export function edgeCutBucket(count: number | null): EdgeCutBucket | null {
+  if (count === null || !Number.isFinite(count) || count < 0) return null;
+  return count >= 3 ? "c3" : count >= 2 ? "c2" : count >= 1 ? "c1" : "c0";
+}
+
+/** 曜日のグループ（月曜から。日本時間） */
+export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+export const WEEKDAY_BUCKETS: readonly { key: Weekday; label: string }[] = [
+  { key: "mon", label: "月" },
+  { key: "tue", label: "火" },
+  { key: "wed", label: "水" },
+  { key: "thu", label: "木" },
+  { key: "fri", label: "金" },
+  { key: "sat", label: "土" },
+  { key: "sun", label: "日" },
+];
+const WEEKDAY_BY_UTC_DAY: readonly Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -510,6 +538,10 @@ export type DayType = "weekday" | "weekend";
 export function dayType(d: Date): DayType {
   const { day } = jstDayHour(d);
   return day === 0 || day === 6 ? "weekend" : "weekday";
+}
+
+export function weekdayOf(d: Date): Weekday {
+  return WEEKDAY_BY_UTC_DAY[jstDayHour(d).day] as Weekday;
 }
 
 export type TimeBand = "morning" | "daytime" | "night";
@@ -548,6 +580,7 @@ export interface GroupCards {
   first3s: GroupBar[];
   last3s: GroupBar[];
   day: GroupBar[];
+  weekday: GroupBar[];
   band: GroupBar[];
 }
 
@@ -557,24 +590,8 @@ export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
   const all = withObjective(rows, y);
   return {
     length: bars(analyzed, y, LENGTH_BUCKETS, (r) => lengthBucket(r.duration_ms)),
-    first3s: bars(
-      analyzed,
-      y,
-      [
-        { key: "zero", label: "0 回" },
-        { key: "some", label: "1 回以上" },
-      ] as const,
-      (r) => (r.cuts_in_first_3s === null ? null : r.cuts_in_first_3s >= 1 ? "some" : "zero"),
-    ),
-    last3s: bars(
-      analyzed,
-      y,
-      [
-        { key: "zero", label: "0 回" },
-        { key: "some", label: "1 回以上" },
-      ] as const,
-      (r) => (r.cuts_in_last_3s === null ? null : r.cuts_in_last_3s >= 1 ? "some" : "zero"),
-    ),
+    first3s: bars(analyzed, y, EDGE_CUT_BUCKETS, (r) => edgeCutBucket(r.cuts_in_first_3s)),
+    last3s: bars(analyzed, y, EDGE_CUT_BUCKETS, (r) => edgeCutBucket(r.cuts_in_last_3s)),
     day: bars(
       all,
       y,
@@ -584,6 +601,7 @@ export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
       ] as const,
       (r) => dayType(r.posted_at),
     ),
+    weekday: bars(all, y, WEEKDAY_BUCKETS, (r) => weekdayOf(r.posted_at)),
     band: bars(
       all,
       y,

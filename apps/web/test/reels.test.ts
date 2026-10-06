@@ -18,6 +18,7 @@ import {
   buildReelsView,
   correlationWithInterval,
   dayType,
+  edgeCutBucket,
   factorCorrelations,
   groupCards,
   groupFactorSummary,
@@ -28,6 +29,8 @@ import {
   ranks,
   reelsQuery,
   sortReels,
+  weekdayOf,
+  WEEKDAY_BUCKETS,
   spearman,
   timeBand,
   topBottom,
@@ -256,13 +259,27 @@ describe("上位と下位", () => {
 });
 
 describe("区分の境界", () => {
-  it("長さ: 15、30、60 秒ちょうどは上の区分（下端を含む）", () => {
-    expect(lengthBucket(14999)).toBe("lt15");
-    expect(lengthBucket(15000)).toBe("lt30");
+  it("長さ: 10 秒ごとで、ちょうどは上のグループ（下端を含む）。60 秒以上は 1 つ", () => {
+    expect(lengthBucket(0)).toBe("lt10");
+    expect(lengthBucket(9999)).toBe("lt10");
+    expect(lengthBucket(10000)).toBe("lt20");
     expect(lengthBucket(29999)).toBe("lt30");
-    expect(lengthBucket(30000)).toBe("lt60");
+    expect(lengthBucket(30000)).toBe("lt40");
+    expect(lengthBucket(59999)).toBe("lt60");
     expect(lengthBucket(60000)).toBe("ge60");
+    expect(lengthBucket(180000)).toBe("ge60");
     expect(lengthBucket(null)).toBeNull();
+  });
+
+  it("冒頭と最後 3 秒: 0 回、1 回、2 回、3 回以上", () => {
+    expect([0, 1, 2, 3, 7].map(edgeCutBucket)).toEqual(["c0", "c1", "c2", "c3", "c3"]);
+    expect(edgeCutBucket(null)).toBeNull();
+  });
+
+  it("各曜日は日本時間。日曜 23:59 JST は日、月曜 00:00 JST は月", () => {
+    expect(weekdayOf(new Date("2026-10-04T14:59:00Z"))).toBe("sun");
+    expect(weekdayOf(new Date("2026-10-04T15:00:00Z"))).toBe("mon");
+    expect(WEEKDAY_BUCKETS.map((b) => b.label)).toEqual(["月", "火", "水", "木", "金", "土", "日"]);
   });
 
   it("曜日と時間帯は日本時間。UTC 15:00 をまたぐ投稿", () => {
@@ -286,9 +303,11 @@ describe("区分の境界", () => {
   it("区分の中央値と件数。値がない区分は null", () => {
     const rows = [reel(1, { duration_ms: 10000, views: 10 }), reel(2, { duration_ms: 12000, views: 30 }), reel(3, { duration_ms: 61000 })];
     const g = groupCards(rows, "views");
-    expect(g.length.map((b) => b.n)).toEqual([2, 0, 0, 1]);
-    expect(g.length[0]?.value).toBe(20);
-    expect(g.length[1]?.value).toBeNull();
+    expect(g.length.map((b) => b.n)).toEqual([0, 2, 0, 0, 0, 0, 1]);
+    expect(g.length[1]?.value).toBe(20);
+    expect(g.length[0]?.value).toBeNull();
+    expect(g.first3s).toHaveLength(4);
+    expect(g.weekday).toHaveLength(7);
   });
 });
 

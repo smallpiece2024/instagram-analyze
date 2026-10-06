@@ -515,5 +515,7 @@
   .forest__row--axis .forest__label { display: none; }
   /* 散布図は 2 列 */
   .scatter-cell { grid-column: span 6; }
+  /* グループ別の棒は全幅（4 分の 1 のマスも半分にせず、どのマスも同じ大きさの文字にする） */
+  .group-cell { grid-column: span 12; }
   .reel-table td.sticky-title { max-width: 8em; }
 }
