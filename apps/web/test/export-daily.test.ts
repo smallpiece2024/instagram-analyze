@@ -9,9 +9,31 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { GET } from "../src/app/export/daily/route";
 import { checkAccess } from "../src/lib/auth";
 import { closeAllDb } from "../src/lib/db";
+import { getTargetAccount } from "../src/lib/queries/account";
 import { fakeIgUserId } from "./db/fixtures";
 
 vi.mock("../src/lib/auth", () => ({ checkAccess: vi.fn(async () => "pass") }));
+// getTargetAccount は既定で本物を呼び、テストごとに一度だけ結果を差し替える
+vi.mock("../src/lib/queries/account", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/queries/account")>();
+  return { ...actual, getTargetAccount: vi.fn(actual.getTargetAccount) };
+});
+// mockQueryError.current があれば、dbFromEnv が返す db の呼び出しがその例外を投げる（listDailyCsvRows の catch を通す）。
+// なければ本物（末尾の結合テストはこちら）
+const mockQueryError = vi.hoisted(() => ({ current: undefined as unknown }));
+vi.mock("../src/lib/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/db")>();
+  return {
+    ...actual,
+    dbFromEnv: (...args: Parameters<typeof actual.dbFromEnv>) => {
+      if (mockQueryError.current === undefined) return actual.dbFromEnv(...args);
+      const err = mockQueryError.current;
+      return (() => {
+        throw err;
+      }) as unknown as ReturnType<typeof actual.dbFromEnv>;
+    },
+  };
+});
 
 const APP_URL = "http://localhost:3000";
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -39,6 +61,7 @@ const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 beforeEach(() => {
   stubEnv();
   warn.mockClear();
+  mockQueryError.current = undefined;
   vi.mocked(checkAccess).mockReset();
   vi.mocked(checkAccess).mockResolvedValue("pass");
 });
@@ -78,6 +101,51 @@ describe("GET /export/daily（DB を使わない）", () => {
     const res = await GET(request());
     expect(res.status).toBe(409);
     expect(await res.text()).toBe("対象のアカウントが設定されていません");
+  });
+
+  it.each([
+    ["checkAccess", "checkAccess"],
+    ["getTargetAccount", "getTargetAccount"],
+  ])("%s が想定外に例外を投げても 500、固定の文言、private, no-store と nosniff（例外の文をログに出さない）", async (where) => {
+    stubEnv({ META_TARGET_IG_USER_ID: "000000123456789" });
+    const secret = "SECRET_EXCEPTION_TEXT";
+    if (where === "checkAccess") {
+      vi.mocked(checkAccess).mockRejectedValueOnce(new Error(secret));
+    } else {
+      vi.mocked(getTargetAccount).mockRejectedValueOnce(new Error(secret));
+    }
+    const res = await GET(request());
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("CSV を作れませんでした");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toBe("[export-daily] result=db_error code=unknown");
+    expect(logged).not.toContain(secret);
+  });
+
+  it.each([
+    ["改行を含む code", { code: "42P01\ninjected=1" }, "unknown"],
+    ["小文字や記号を含む code", { code: "bad-code" }, "unknown"],
+    ["41 文字の code", { code: "A".repeat(41) }, "unknown"],
+    ["数値の code", { code: 42 }, "unknown"],
+    ["code なし", {}, "unknown"],
+    ["SQLSTATE", { code: "42P01" }, "42P01"],
+    ["Node.js のコード", { code: "ECONNREFUSED" }, "ECONNREFUSED"],
+  ])("listDailyCsvRows の失敗のログ: %s → code=%s の形だけ", async (_label, props, expected) => {
+    stubEnv({ META_TARGET_IG_USER_ID: "000000123456789" });
+    vi.mocked(getTargetAccount).mockResolvedValueOnce({
+      ok: true,
+      data: { id: "00000000-0000-0000-0000-000000000000" },
+    } as Awaited<ReturnType<typeof getTargetAccount>>);
+    mockQueryError.current = Object.assign(new Error("relation does not exist SECRET_DB_TEXT"), props);
+    const res = await GET(request());
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("CSV を作れませんでした");
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toBe(`[export-daily] result=db_error code=${expected}`);
+    expect(logged).not.toContain("\n");
+    expect(logged).not.toContain("SECRET_DB_TEXT");
   });
 
   it("DB に繋がらなければ 500 と固定の文言。ログに DB のエラー文や接続文字列を書かない", async () => {

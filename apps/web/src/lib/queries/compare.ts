@@ -10,7 +10,7 @@
 import "server-only";
 import { cache } from "react";
 import { dbFromEnv } from "@/lib/db";
-import type { QueryResult } from "@/lib/db-errors";
+import { errorCode, type QueryResult } from "@/lib/db-errors";
 import { markDynamic } from "@/lib/dynamic";
 import { readEnv } from "@/lib/env";
 import type { DailyCsvRow } from "@/lib/csv";
@@ -233,7 +233,7 @@ export async function listDailyCsvRows(accountId: string, period: Period | null)
     `;
     return [...rows];
   } catch (e) {
-    const code = typeof e === "object" && e !== null && "code" in e && typeof e.code === "string" ? e.code : "unknown";
-    throw new DailyCsvError(code);
+    // 形を確かめたコードだけをログに乗せる（投稿の CSV の `describeDbError` と同じ扱い）
+    throw new DailyCsvError(errorCode(e) ?? "unknown");
   }
 }

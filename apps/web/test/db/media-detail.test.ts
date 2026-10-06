@@ -9,9 +9,10 @@
  *   f3 フィード: 経過 1.5h reach 40（1h の許容内）、10 日 reach 50（最新）
  *   f4 フィード: 10 日（reach のキーなし）
  *   c1 カルーセル: reach 9999（種類が違うので比べない）
+ *   c2 カルーセル: 経過 1h の reach 7 だけ（経過の短い投稿も、最新の値どうしの比較相手に入る）
  *   s1 ストーリーズ（詳細に出さない）
  * A のフォロワー数: 2026-07-31 12:00 UTC に 1000（投稿前 3 日以内）→ f2 のリーチ率は 150 ÷ 1000
- * B の投稿: b1 フィード reach 5000
+ * B の投稿: b1 フィード reach 5000、b2 カルーセル reach 8888
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -43,6 +44,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
     c1: fakeMediaId(5),
     s1: fakeMediaId(6),
     b1: fakeMediaId(7),
+    c2: fakeMediaId(8),
+    b2: fakeMediaId(9),
   };
   const P = "2026-08-01T00:00:00Z";
   const H = 3600;
@@ -73,6 +76,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
       { id: ids.c1, account_id: accountA, media_type: "CAROUSEL_ALBUM", media_product_type: "FEED", caption: null },
       { id: ids.s1, account_id: accountA, media_type: "IMAGE", media_product_type: "STORY", caption: null },
       { id: ids.b1, account_id: accountB, media_type: "IMAGE", media_product_type: "FEED", caption: null },
+      { id: ids.c2, account_id: accountA, media_type: "CAROUSEL_ALBUM", media_product_type: "FEED", caption: null },
+      { id: ids.b2, account_id: accountB, media_type: "CAROUSEL_ALBUM", media_product_type: "FEED", caption: null },
     ];
     await sql`
       insert into public.media (id, account_id, media_type, media_product_type, posted_at, caption)
@@ -102,6 +107,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
       { media_id: ids.c1, elapsed: 10 * D, metrics: { reach: 9999, saved: 9999 } },
       { media_id: ids.s1, elapsed: 10 * H, metrics: { reach: 9999 } },
       { media_id: ids.b1, elapsed: 10 * D, metrics: { reach: 5000 } },
+      { media_id: ids.c2, elapsed: H, metrics: { reach: 7 } },
+      { media_id: ids.b2, elapsed: 10 * D, metrics: { reach: 8888 } },
     ];
     for (const s of snaps) {
       await sql`
@@ -204,5 +211,20 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
     const noReach = await getPeerStats(accountA, "feed", ids.f4);
     expect(noReach.ok && noReach.data.reachGreater).toBeNull();
     expect(noReach.ok && noReach.data.stats.reach.n).toBe(3);
+  });
+
+  it("getPeerStats: 経過の短い投稿（1h のスナップショットだけ）も比較相手に入り、ほかのアカウントの同じ種類は入らない", async () => {
+    const c1 = await getPeerStats(accountA, "carousel", ids.c1);
+    expect(c1.ok).toBe(true);
+    if (!c1.ok) return;
+    // c2 の 7 だけ（B の b2 の 8888 は入らない）
+    expect(c1.data.stats.reach).toMatchObject({ n: 1, min: 7, max: 7, median: 7 });
+    expect(c1.data.reachGreater).toBe(0);
+
+    const c2 = await getPeerStats(accountA, "carousel", ids.c2);
+    expect(c2.ok).toBe(true);
+    if (!c2.ok) return;
+    expect(c2.data.stats.reach).toMatchObject({ n: 1, min: 9999, max: 9999, median: 9999 });
+    expect(c2.data.reachGreater).toBe(1);
   });
 });

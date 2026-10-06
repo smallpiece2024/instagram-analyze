@@ -13,6 +13,9 @@
  *   p2 フィード 08-03 reach 300 → ER 0.1、保存率 0.1
  *   p3 リール   08-04 reach 200 → ER 0.05、保存率 0
  *   p4 フィード 07-20 reach 50（保存のキーなし → 保存率と ER は null）
+ * 別の架空のアカウント B（2 アカウントの分離の確認。A の集計に混ざらないこと）:
+ *   日次 08-01〜08-05 reach 9000、views 900（A が欠けた 08-04 も行あり）、フォロワー数の記録 08-01 に 7777
+ *   q1 フィード 08-03 reach 8000、saved 800、likes 80
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -65,7 +68,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";
   const igUserId = fakeIgUserId();
-  const ids = { p1: fakeMediaId(1), p2: fakeMediaId(2), p3: fakeMediaId(3), p4: fakeMediaId(4) };
+  const ids = { p1: fakeMediaId(1), p2: fakeMediaId(2), p3: fakeMediaId(3), p4: fakeMediaId(4), q1: fakeMediaId(11) };
+  const igUserIdB = fakeIgUserId();
+  let accountB = "";
   let sql: postgres.Sql;
   let accountId = "";
   let restoreEnv: () => void = () => {};
@@ -127,6 +132,30 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
       [ids.p3, { reach: 200, views: 900, likes: 10, comments: 0, saved: 0, shares: 0 }],
       [ids.p4, { reach: 50, views: 60, likes: 1, comments: 0, shares: 0, profile_visits: 1 }],
     ];
+    // アカウント B（同じ日付と期間に、A より大きい値を入れる）
+    const [accB] = await sql<{ id: string }[]>`
+      insert into public.accounts (ig_user_id, username, name) values (${igUserIdB}, 'fake_compare_b', null) returning id
+    `;
+    accountB = accB?.id ?? "";
+    expect(accountB).not.toBe("");
+    const dailyB = ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05"].flatMap((date) => [
+      { ...d(date, "reach", 9000), account_id: accountB },
+      { ...d(date, "views", 900), account_id: accountB },
+    ]);
+    await sql`
+      insert into public.account_daily_metrics (account_id, metric_date, metric, breakdown, breakdown_value, value)
+      select * from jsonb_to_recordset(${sql.json(dailyB as unknown as postgres.JSONValue)})
+        as r(account_id uuid, metric_date date, metric text, breakdown text, breakdown_value text, value bigint)
+    `;
+    await sql`
+      insert into public.profile_daily (account_id, captured_on, captured_at, followers_count)
+      values (${accountB}, '2026-08-01', '2026-08-01T03:00:00Z', 7777)
+    `;
+    await sql`
+      insert into public.media (id, account_id, media_type, media_product_type, posted_at)
+      values (${ids.q1}, ${accountB}, 'IMAGE', 'FEED', '2026-08-03T03:00:00Z')
+    `;
+    snapshots.push([ids.q1, { reach: 8000, views: 8000, likes: 80, comments: 0, saved: 800, shares: 0, profile_visits: 0 }]);
     for (const [mediaId, metrics] of snapshots) {
       await sql`
         insert into public.media_insight_snapshots (media_id, fetched_at, elapsed_seconds, metrics)
@@ -136,7 +165,9 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
   });
 
   afterAll(async () => {
-    if (accountId !== "") await sql`delete from public.accounts where id = ${accountId}`;
+    for (const id of [accountId, accountB]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
     await closeAllDb();
     await sql.end({ timeout: 5 });
     restoreEnv();
@@ -224,5 +255,37 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/compare（結合）", () => {
 
     const part = await listDailyCsvRows(accountId, { from: "2026-08-02", to: "2026-08-03" });
     expect(part.map((r) => r.metric_date_pt)).toEqual(["2026-08-02", "2026-08-03"]);
+  });
+
+  it("2 アカウントの分離: A の比較、基準値、CSV に B の日次と投稿が混ざらず、B は B の値だけ", async () => {
+    const A = { from: "2026-08-01", to: "2026-08-05" };
+    const B = { from: "2026-07-15", to: "2026-07-25" };
+    const a = await getPeriodComparison(accountId, A, B);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    // B の 08-04 の行があっても、A の欠けた日は欠けたまま
+    expect(a.data.a.daily.reach).toEqual({ sum: 1100, days: 4 });
+    expect(a.data.a.posts.posts).toBe(3);
+
+    const baseA = await getPeriodBaselines(accountId, A.from, A.to);
+    expect(baseA.ok && baseA.data.posts).toBe(3);
+    expect(baseA.ok && baseA.data.stats.reach.max).toBe(300);
+
+    const csvA = await listDailyCsvRows(accountId, null);
+    expect(csvA.map((r) => r.metric_date_pt)).toEqual(["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-05"]);
+    // B のフォロワー数の記録（08-01 の 7777）は A の行に付かない
+    expect(csvA[0]?.followers_count_jst_day).toBeNull();
+
+    const b = await getPeriodComparison(accountB, A, B);
+    expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    expect(b.data.a.daily.reach).toEqual({ sum: 45000, days: 5 });
+    expect(b.data.a.posts.posts).toBe(1);
+    expect(b.data.b.posts.posts).toBe(0);
+    const baseB = await getPeriodBaselines(accountB, A.from, A.to);
+    expect(baseB.ok && baseB.data.stats.reach).toMatchObject({ n: 1, min: 8000, max: 8000 });
+    const csvB = await listDailyCsvRows(accountB, { from: "2026-08-01", to: "2026-08-01" });
+    expect(csvB).toHaveLength(1);
+    expect(csvB[0]).toMatchObject({ reach: 9000, followers_count_jst_day: 7777 });
   });
 });

@@ -27,31 +27,32 @@ function textResponse(status: number, body: string): Response {
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const access = await checkAccess(request.nextUrl.pathname);
-  if (access === "login") return textResponse(401, "ログインしてください");
-  if (access === "forbid") return textResponse(403, "このページを開く権限がありません");
-
-  const params = request.nextUrl.searchParams;
-  const from = params.getAll("from");
-  const to = params.getAll("to");
-  const range = parseCsvDateRange(
-    from.length === 0 ? undefined : from.length === 1 ? from[0] : from,
-    to.length === 0 ? undefined : to.length === 1 ? to[0] : to,
-  );
-  if (range.kind === "invalid") return textResponse(400, "期間の指定が正しくありません");
-
-  const account = await getTargetAccount();
-  if (!account.ok) {
-    // 未設定と一致なしは 409。環境変数の不足や DB の失敗は 500（理由の文はログにも応答にも出さない）
-    if (account.reason === TARGET_ACCOUNT_NOT_SET) {
-      console.warn("[export-daily] result=no_target_account");
-      return textResponse(409, TARGET_ACCOUNT_NOT_SET);
-    }
-    console.warn("[export-daily] result=account_error");
-    return textResponse(500, CSV_FAILED);
-  }
-
+  // 全体を try で包み、想定外の例外でも固定の文言とヘッダーで返す（投稿の CSV と同じ作り）
   try {
+    const access = await checkAccess(request.nextUrl.pathname);
+    if (access === "login") return textResponse(401, "ログインしてください");
+    if (access === "forbid") return textResponse(403, "このページを開く権限がありません");
+
+    const params = request.nextUrl.searchParams;
+    const from = params.getAll("from");
+    const to = params.getAll("to");
+    const range = parseCsvDateRange(
+      from.length === 0 ? undefined : from.length === 1 ? from[0] : from,
+      to.length === 0 ? undefined : to.length === 1 ? to[0] : to,
+    );
+    if (range.kind === "invalid") return textResponse(400, "期間の指定が正しくありません");
+
+    const account = await getTargetAccount();
+    if (!account.ok) {
+      // 未設定と一致なしは 409。環境変数の不足や DB の失敗は 500（理由の文はログにも応答にも出さない）
+      if (account.reason === TARGET_ACCOUNT_NOT_SET) {
+        console.warn("[export-daily] result=no_target_account");
+        return textResponse(409, TARGET_ACCOUNT_NOT_SET);
+      }
+      console.warn("[export-daily] result=account_error");
+      return textResponse(500, CSV_FAILED);
+    }
+
     const rows = await listDailyCsvRows(account.data.id, range.kind === "range" ? range.period : null);
     const body = toCsv(DAILY_CSV_COLUMNS, rows);
     return new Response(body, {

@@ -213,3 +213,139 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(row?.reach_rate).toBeNull();
   });
 });
+
+/**
+ * 2 アカウントの分離、削除済み（`gone_at`）の投稿、基準値の材料（R3 設計 9.2 節の `test/db/media.test.ts` の行）。
+ * 上の describe の件数を変えないように、架空のアカウント A と B を別に作り、`afterAll` で消す。
+ *   g1 フィード 10 日前の投稿。7 日 + 1 時間でリーチ 150、10 日（最新）で 200（基準値は 200 だけを使う）
+ *   g2 フィード 20 日前の投稿。gone_at あり、20 日でリーチ 100
+ *   g3 フィード 2 時間前の投稿。1 時間でリーチ 10（経過の短い投稿も基準値に入る）
+ *   g4 フィード 300 日前の投稿。最初のスナップショットが 200 日後でリーチ 400（7d は許容外でも基準値に入る）
+ *   b1（アカウント B）フィード 1 日前の投稿。リーチ 5000（A の一覧と基準値に入らない）
+ */
+describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウントの分離と削除済みの投稿", () => {
+  const url = TEST_DATABASE_URL ?? "";
+  const igUserIdA = fakeIgUserId();
+  const igUserIdB = fakeIgUserId();
+  const now = new Date();
+  // 上の describe と ID が重ならないよう 600 番台を使う
+  const ids = { g1: fakeMediaId(601), g2: fakeMediaId(602), g3: fakeMediaId(603), g4: fakeMediaId(604), b1: fakeMediaId(605) };
+  const DAY = 24 * HOUR_MS;
+  let sql: postgres.Sql;
+  let accountA = "";
+  let accountB = "";
+  let restoreEnv: () => void = () => {};
+
+  beforeAll(async () => {
+    restoreEnv = setWebEnv(url);
+    sql = postgres(url, { max: 1, onnotice: () => {} });
+    const accounts = await sql<{ id: string; ig_user_id: string }[]>`
+      insert into public.accounts (ig_user_id, username, name)
+      values (${igUserIdA}, 'fake_media_iso_a', null), (${igUserIdB}, 'fake_media_iso_b', null)
+      returning id, ig_user_id
+    `;
+    accountA = accounts.find((r) => r.ig_user_id === igUserIdA)?.id ?? "";
+    accountB = accounts.find((r) => r.ig_user_id === igUserIdB)?.id ?? "";
+    expect(accountA).not.toBe("");
+    expect(accountB).not.toBe("");
+
+    const posted = {
+      g1: new Date(now.getTime() - 10 * DAY),
+      g2: new Date(now.getTime() - 20 * DAY),
+      g3: new Date(now.getTime() - 2 * HOUR_MS),
+      g4: new Date(now.getTime() - 300 * DAY),
+      b1: new Date(now.getTime() - DAY),
+    };
+    await sql`
+      insert into public.media (id, account_id, media_type, media_product_type, posted_at, gone_at)
+      values
+        (${ids.g1}, ${accountA}, 'IMAGE', 'FEED', ${posted.g1}, null),
+        (${ids.g2}, ${accountA}, 'IMAGE', 'FEED', ${posted.g2}, ${new Date(now.getTime() - HOUR_MS)}),
+        (${ids.g3}, ${accountA}, 'IMAGE', 'FEED', ${posted.g3}, null),
+        (${ids.g4}, ${accountA}, 'IMAGE', 'FEED', ${posted.g4}, null),
+        (${ids.b1}, ${accountB}, 'IMAGE', 'FEED', ${posted.b1}, null)
+    `;
+    const snap = (mediaId: string, postedAt: Date, elapsedSec: number, reach: number) => sql`
+      insert into public.media_insight_snapshots (media_id, fetched_at, elapsed_seconds, metrics)
+      values (
+        ${mediaId}, ${new Date(postedAt.getTime() + elapsedSec * 1000)}, ${elapsedSec},
+        ${sql.json({ reach, views: reach * 2, likes: 1, comments: 0, saved: 1, shares: 0, profile_visits: 0 })}
+      )
+    `;
+    const H = 3600;
+    const D = 86400;
+    await snap(ids.g1, posted.g1, 7 * D + H, 150);
+    await snap(ids.g1, posted.g1, 10 * D, 200);
+    await snap(ids.g2, posted.g2, 20 * D, 100);
+    await snap(ids.g3, posted.g3, H, 10);
+    await snap(ids.g4, posted.g4, 200 * D, 400);
+    await snap(ids.b1, posted.b1, D, 5000);
+  });
+
+  afterAll(async () => {
+    for (const id of [accountA, accountB]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
+    await closeAllDb();
+    await sql.end({ timeout: 5 });
+    restoreEnv();
+  });
+
+  it("listMedia と countMedia: 削除済みの投稿を含み、ほかのアカウントの投稿を含まない", async () => {
+    const a = await listMedia(accountA, DEFAULT_PARAMS);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    expect(a.data.map((m) => m.media_id)).toEqual([ids.g3, ids.g1, ids.g2, ids.g4]);
+    const gone = a.data.find((m) => m.media_id === ids.g2);
+    expect(gone?.gone_at).toBeInstanceOf(Date);
+    expect(gone?.reach).toBe(100);
+    expect(a.data.find((m) => m.media_id === ids.g1)?.gone_at).toBeNull();
+    // 最新のスナップショットの値（7 日 + 1 時間の 150 ではなく 10 日の 200）
+    expect(a.data.find((m) => m.media_id === ids.g1)?.reach).toBe(200);
+
+    const b = await listMedia(accountB, DEFAULT_PARAMS);
+    expect(b.ok && b.data.map((m) => m.media_id)).toEqual([ids.b1]);
+
+    const countA = await countMedia(accountA);
+    expect(countA.ok && countA.data.total).toBe(4);
+    const countB = await countMedia(accountB);
+    expect(countB.ok && countB.data.total).toBe(1);
+  });
+
+  it("listMedia: リーチの並べ替えにほかのアカウントの値（5000）が入らない", async () => {
+    const r = await listMedia(accountA, { ...DEFAULT_PARAMS, sort: "reach", order: "desc" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.map((m) => m.media_id)).toEqual([ids.g4, ids.g1, ids.g2, ids.g3]);
+  });
+
+  it("getMediaBaseline: 全投稿の最新の値だけ。削除済み、経過の短い投稿、7d が許容外の投稿を落とさず、ほかのアカウントと他の区分の値が混ざらない", async () => {
+    const r = await getMediaBaseline(accountA, "reach");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // リーチ: g3 10、g2 100、g1 200（150 は使わない）、g4 400
+    expect(r.data.reach.n).toBe(4);
+    expect(r.data.reach.mean).toBeCloseTo(177.5);
+    expect(r.data.reach.q25).toBeCloseTo(77.5);
+    expect(r.data.reach.median).toBeCloseTo(150);
+    expect(r.data.reach.q75).toBeCloseTo(250);
+
+    const b = await getMediaBaseline(accountB, "reach");
+    expect(b.ok && b.data.reach).toEqual({ n: 1, mean: 5000, q25: 5000, median: 5000, q75: 5000 });
+  });
+
+  it("getMediaPage と listMediaCsvRows: 削除済みを含み、ほかのアカウントを含まない", async () => {
+    const page = await getMediaPage(accountA, DEFAULT_PARAMS);
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+    expect(page.data.total).toBe(4);
+    expect(page.data.items.map((m) => m.media_id)).not.toContain(ids.b1);
+    expect(page.data.baseline.reach.n).toBe(4);
+
+    const csv = await listMediaCsvRows(accountA, { sort: "posted", order: "desc" });
+    expect(csv.ok).toBe(true);
+    if (!csv.ok) return;
+    expect(csv.data.map((m) => m.media_id)).toEqual([ids.g3, ids.g1, ids.g2, ids.g4]);
+    expect(csv.data.find((m) => m.media_id === ids.g2)?.gone_at_jst).toBeInstanceOf(Date);
+  });
+});

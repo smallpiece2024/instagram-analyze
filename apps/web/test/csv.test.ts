@@ -48,6 +48,18 @@ describe("数式の注入", () => {
     expect(csvCell("number", Number.NaN)).toBe("");
   });
 
+  it("数値の列の空の文字列と空白だけの文字列は 0 ではなく空欄（欠損）", () => {
+    expect(csvCell("number", "")).toBe("");
+    expect(csvCell("number", " ")).toBe("");
+    expect(csvCell("number", "\t\n")).toBe("");
+    expect(csvCell("number", "　")).toBe("");
+    // 数字以外の文字列も空欄。前後の空白のある数字は数として読む
+    expect(csvCell("number", "abc")).toBe("");
+    expect(csvCell("number", " 12 ")).toBe("12");
+    expect(csvCell("number", "0")).toBe("0");
+    expect(csvCell("number", 0)).toBe("0");
+  });
+
   it("欠損は空欄。真偽と時刻（JST）", () => {
     expect(csvCell("text", null)).toBe("");
     expect(csvCell("number", undefined)).toBe("");

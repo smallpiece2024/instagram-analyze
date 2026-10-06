@@ -49,7 +49,7 @@ const CERTIFICATE_CODES = new Set([
 ]);
 
 /** `code` が英大文字・数字・下線だけの短い文字列のときだけ返す。それ以外は出力に乗せない */
-function errorCode(e: unknown): string | undefined {
+export function errorCode(e: unknown): string | undefined {
   if (typeof e !== "object" || e === null || !("code" in e)) return undefined;
   const code = (e as { code: unknown }).code;
   return typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : undefined;

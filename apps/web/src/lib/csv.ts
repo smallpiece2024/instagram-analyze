@@ -39,7 +39,8 @@ export function csvCell(kind: CsvColumnKind, v: CsvCell): string {
   if (v === null || v === undefined) return "";
   switch (kind) {
     case "number": {
-      const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : Number.NaN;
+      // 空の文字列は Number で 0 になるので、欠損として空欄にする
+      const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : Number.NaN;
       return Number.isFinite(n) ? String(n) : "";
     }
     case "boolean":
