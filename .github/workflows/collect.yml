@@ -84,9 +84,11 @@ jobs:
       - run: npm ci --workspace worker --ignore-scripts
       - run: npm run build --workspace worker
 
-      # 入らなくても収集は進める（stories の動画解析だけ failed になり、メールで分かる）
+      # 入らなくても収集は進める（stories と video_analysis の動画解析だけ failed になり、メールで分かる）。
+      # apt-get が止まるとジョブの上限（30 分）まで待つことになるので、ステップに上限を付ける（2026-10-07 に 10 分以上止まった）
       - name: ffmpeg
         continue-on-error: true
+        timeout-minutes: 5
         run: |
           if command -v ffmpeg > /dev/null; then exit 0; fi
           for i in 1 2 3; do
