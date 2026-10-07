@@ -29,6 +29,8 @@ const VIEWS = [
   "media_metrics_at_horizon",
   "story_final_metrics",
   "media_analysis_dataset",
+  // R4（20261007000000_r4_video.sql）
+  "media_video_features",
 ] as const;
 
 const READABLE_TABLES = [
@@ -115,6 +117,14 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
 
   it.each(VIEWS)("web_app はビュー %s を読める", async (view) => {
     expect(await sqlstate(() => web`select * from ${web(`public.${view}`)} limit 1`)).toBeUndefined();
+  });
+
+  it("web_app は current_video_condition() を実行できる（R4。media_video_features が使う）", async () => {
+    const [row] = await web<{ analyzer_version: string; scene_threshold: string }[]>`
+      select analyzer_version, scene_threshold from public.current_video_condition()
+    `;
+    expect(row?.analyzer_version).toBe("1");
+    expect(Number(row?.scene_threshold)).toBe(0.3);
   });
 
   it.each(READABLE_TABLES)("web_app はテーブル %s を読める", async (table) => {
@@ -236,6 +246,7 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
       expect(await sqlstate(asRole(role, "select * from private.web_users"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select private.dispatch_collect()"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select public.metric_value('{}'::jsonb, array['a'])"))).toBe(INSUFFICIENT_PRIVILEGE);
+      expect(await sqlstate(asRole(role, "select * from public.current_video_condition()"))).toBe(INSUFFICIENT_PRIVILEGE);
     }
     expect(await sqlstate(asRole("anon", "select private.is_web_user()"))).toBe(INSUFFICIENT_PRIVILEGE);
   });

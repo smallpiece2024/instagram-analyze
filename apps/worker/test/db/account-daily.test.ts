@@ -162,6 +162,8 @@ describe.skipIf(!TEST_DATABASE_URL)("db/account-daily、account_daily、account_
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 
   const fetchImpl: typeof fetch = async (input) => {

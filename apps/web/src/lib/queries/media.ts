@@ -81,7 +81,7 @@ export interface MediaListRow {
   followers_at_post: number | null;
   save_rate: number | null;
   share_rate: number | null;
-  /** ER（分母はリーチ） */
+  /** ER（分母はリーチ数） */
   er: number | null;
   /** 閲覧数の定義が変わった日（`metric_definitions`）より前の投稿 */
   views_before_change: boolean;
@@ -212,7 +212,7 @@ export const getMediaPage = cache(
  * ログインした本人のセッションで署名付き URL を作る（R2 設計 3.3 章）。認証の設定がない、クライアントを作れない、
  * 署名に失敗したときは空（画像なし）。例外を投げない
  */
-async function signWithSession(paths: readonly string[]): Promise<Map<string, string>> {
+export async function signWithSession(paths: readonly string[]): Promise<Map<string, string>> {
   const authEnv = readAuthEnv();
   if (!authEnv.ok) return new Map<string, string>();
   try {
@@ -228,7 +228,7 @@ async function signWithSession(paths: readonly string[]): Promise<Map<string, st
  * ------------------------------------------------------------------ */
 
 /**
- * 投稿の CSV の全行（ページで切らない。特殊な投稿の除外は効かせない）。並びは一覧と同じ（ER はビューの値 = 分母リーチ）。
+ * 投稿の CSV の全行（ページで切らない。特殊な投稿の除外は効かせない）。並びは一覧と同じ（ER はビューの値 = 分母リーチ数）。
  * 列は `MEDIA_CSV_COLUMNS` の行の形に SQL で詰め替える（`select *` で出さない。`thumbnail_path`、`account_id` は読まない）
  */
 export async function listMediaCsvRows(

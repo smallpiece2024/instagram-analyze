@@ -7,7 +7,7 @@ import { eachDay, periodLength, type Period } from "@/lib/period";
 import { getDailySeries, type DailyPoint } from "@/lib/queries/period-summary";
 import { monthDay, periodLabel } from "./labels";
 
-/** 期間の 1 日目からの並びにしたリーチ（行のない日は null） */
+/** 期間の 1 日目からの並びにしたリーチ数（行のない日は null） */
 function alignedReach(period: Period, points: readonly DailyPoint[]): (number | null)[] {
   const byDate = new Map(points.map((p) => [p.metric_date, p.reach]));
   return eachDay(period).map((d) => byDate.get(d) ?? null);
@@ -32,7 +32,7 @@ const ROW_NAMES = ["A", "B"] as const;
 const ROW_COLORS = ["var(--color-primary)", "var(--color-neutral)"] as const;
 
 /**
- * リーチの日次の重ね合わせ（3.5 節「表示」の 2、見本 v4 の `overlayCard`）。期間の 1 日目をそろえ、A は実線、B は破線。
+ * リーチ数の日次の重ね合わせ（3.5 節「表示」の 2、見本 v4 の `overlayCard`）。期間の 1 日目をそろえ、A は実線、B は破線。
  * X 軸のラベルは 2 段（1 段目 A の日付、2 段目 B の日付）。日付は日次指標の日付（API の区切り。米国太平洋時間）
  */
 export async function OverlayCard({ accountId, a, b }: { accountId: string; a: Period; b: Period }) {
@@ -40,7 +40,7 @@ export async function OverlayCard({ accountId, a, b }: { accountId: string; a: P
   const failed = !ra.ok ? ra : !rb.ok ? rb : null;
   if (failed !== null || !ra.ok || !rb.ok) {
     return (
-      <Card title="リーチ" className="col-12">
+      <Card title="リーチ数" className="col-12">
         <Callout state="bad">読み出せません（{failed?.reason}）</Callout>
       </Card>
     );
@@ -66,10 +66,10 @@ export async function OverlayCard({ accountId, a, b }: { accountId: string; a: P
       pointTips: pointTips("B", b, valuesB),
     },
   ];
-  const title = `リーチの日次。A ${periodLabel(a)} と B ${periodLabel(b)} を 1 日目をそろえて重ねた折れ線`;
+  const title = `リーチ数の日次。A ${periodLabel(a)} と B ${periodLabel(b)} を 1 日目をそろえて重ねた折れ線`;
 
   return (
-    <Card title="リーチ" className="col-12" foot="1 日は 16 時から翌日の 16 時まで。">
+    <Card title="リーチ数" className="col-12" foot="1 日は 16 時から翌日の 16 時まで。">
       <Legend
         items={[
           { label: `A ${periodLabel(a)}`, color: "var(--color-primary)", shape: "line" },

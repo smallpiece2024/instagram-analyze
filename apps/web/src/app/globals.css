@@ -364,6 +364,8 @@
   .card__foot p + p, .note p + p { margin-top: 2px; }
   @media (max-width: 700px) {
     .period-strip { flex-direction: column; gap: calc(var(--gap) * 0.75); }
+    /* 縦に並べると flex-basis（260px）が高さとして効くので、中身の高さにする */
+    .period-block { flex: 0 0 auto; }
     .period-block__range { font-size: 1.15rem; }
   }
   .table tfoot td { font-weight: 700; border-top: 2px solid var(--color-border-strong); border-bottom: 0; }
@@ -499,4 +501,30 @@
 @media (max-width: 900px) {
   .col-8, .col-6, .col-4 { grid-column: span 12; }
   .col-3 { grid-column: span 6; }
+}
+
+/* ---------- 横スクロールで左端の列を止める表（期間比較の主要指標と投稿の基準値） ----------
+   枠に左右の余白があると、止めた列の左の余白に、横にずらした列の中身が見えるので、この枠は余白を持たない */
+.table-wrap--sticky { margin: 0; padding: 0; }
+.table .sticky-col { position: sticky; left: 0; z-index: 1; box-shadow: 1px 0 0 var(--color-border); }
+
+/* ---------- リール分析（R4 設計 6.2 節） ---------- */
+.forest__row { display: grid; grid-template-columns: 11em 4em minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 4px 0; }
+.forest__row--axis { padding: 0; }
+.forest__value { text-align: right; white-space: nowrap; }
+/* スクロールの枠の中で、サムネイルと題名の列を固定する */
+/* 枠に左右の余白があると、固定した列の左の余白に、横にずらした列の中身が見えてしまう。この枠は余白を持たない */
+.reel-table-wrap { margin: 0; padding: 0; }
+.reel-table th.sticky-thumb, .reel-table td.sticky-thumb { position: sticky; left: 0; z-index: 1; width: 48px; min-width: 48px; max-width: 48px; background: var(--color-surface); }
+.reel-table th.sticky-title, .reel-table td.sticky-title { position: sticky; left: 48px; z-index: 1; background: var(--color-surface); box-shadow: 1px 0 0 var(--color-border); }
+.reel-table td.sticky-title { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) {
+  .forest__row { grid-template-columns: 6.5em minmax(0, 1fr); }
+  .forest__row .forest__label { grid-column: 1 / -1; }
+  .forest__row--axis .forest__label { display: none; }
+  /* 散布図は 2 列 */
+  .scatter-cell { grid-column: span 6; }
+  /* グループ別の棒は全幅（4 分の 1 のマスも半分にせず、どのマスも同じ大きさの文字にする） */
+  .group-cell { grid-column: span 12; }
+  .reel-table td.sticky-title { max-width: 8em; }
 }

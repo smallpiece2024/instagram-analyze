@@ -4,7 +4,7 @@
  * - すべての関数は `accountId` を第 1 引数に取り、SQL で `account_id = ${accountId}` を付ける（4.1 節）
  * - 比較は常に各投稿の最新の値（`horizon = 'latest'`）どうし。比較相手は同じ種類で、この投稿自身を除く（3.1 節「比較の値」）
  * - リーチ率だけは定義どおり 7 日時点（`media_list_metrics.reach_rate`）で比べる
- * - `within_tolerance` はリーチの伸び方のグラフの点にだけ使い、帯グラフの分位には使わない
+ * - `within_tolerance` はリーチ数の伸び方のグラフの点にだけ使い、帯グラフの分位には使わない
  * - `numeric` と `bigint` は postgres.js では文字列になるので、SQL で `float8`／`int` にして数で返す
  */
 import "server-only";
@@ -57,7 +57,7 @@ export interface MediaDetail {
   like_rate: number | null;
   profile_visit_rate: number | null;
   follow_conversion_rate: number | null;
-  /** 7 日時点（許容幅内）のリーチ */
+  /** 7 日時点（許容幅内）のリーチ数 */
   reach_7d: number | null;
   /** 投稿前 3 日以内の記録のフォロワー数 */
   followers_at_post: number | null;
@@ -107,10 +107,10 @@ export async function signMediaThumbnail(path: string | null): Promise<string | 
 }
 
 /* ------------------------------------------------------------------
- * 経過時間の区分ごとの値（リーチの伸び方）
+ * 経過時間の区分ごとの値（リーチ数の伸び方）
  * ------------------------------------------------------------------ */
 
-/** リーチの伸び方の X 軸の区分（等間隔に置く）。ビューの `horizon` の値と同じ */
+/** リーチ数の伸び方の X 軸の区分（等間隔に置く）。ビューの `horizon` の値と同じ */
 export const GROWTH_HORIZONS = ["1h", "3h", "6h", "24h", "3d", "7d", "30d", "90d"] as const;
 export type GrowthHorizon = (typeof GROWTH_HORIZONS)[number];
 
@@ -142,7 +142,7 @@ export const getMediaHorizons = cache(async (accountId: string, id: string): Pro
   }),
 );
 
-/** 区分ごとの比較相手のリーチの分布（許容内の値だけ）。n は値のある比較相手の数 */
+/** 区分ごとの比較相手のリーチ数の分布（許容内の値だけ）。n は値のある比較相手の数 */
 export interface PeerHorizonStats {
   horizon: GrowthHorizon;
   n: number;
@@ -152,7 +152,7 @@ export interface PeerHorizonStats {
 }
 
 /**
- * 同じ種類の自分を除く投稿の、区分ごとのリーチの 25%、中央値、75%。
+ * 同じ種類の自分を除く投稿の、区分ごとのリーチ数の 25%、中央値、75%。
  * グラフに点として描ける（`within_tolerance` が真の）値だけから作る（3.4 節）。値のない区分は返さない
  */
 export const getPeerHorizonStats = cache(
@@ -197,6 +197,7 @@ export const PEER_METRICS = [
   "share_rate",
   "like_rate",
   "er",
+  "retention_rate",
   "skip_rate",
   "profile_visit_rate",
   "follow_conversion_rate",
@@ -216,7 +217,7 @@ export interface MetricPeerStats {
 
 export interface PeerStatsResult {
   stats: Record<PeerMetric, MetricPeerStats>;
-  /** 最新のリーチがこの投稿より大きい比較相手の数（順位 = これ + 1）。この投稿のリーチがなければ null */
+  /** 最新のリーチ数がこの投稿より大きい比較相手の数（順位 = これ + 1）。この投稿のリーチ数がなければ null */
   reachGreater: number | null;
 }
 
@@ -258,6 +259,12 @@ export const getPeerStats = cache(
             select 'reach_rate', l.reach_rate::float8
             from public.media_list_metrics l
             where l.account_id = ${accountId} and l.kind = ${kind} and l.media_id <> ${excludeId}
+            union all
+            -- 視聴維持率（R4）。動画の投稿だけがビューにあり、同じ種類で値のある投稿と比べる
+            select 'retention_rate', f.retention_rate::float8
+            from public.media_video_features f
+            where f.account_id = ${accountId} and public.media_kind(f.media_product_type, f.media_type) = ${kind}
+              and f.media_id <> ${excludeId}
           )
           select
             metric,
@@ -293,4 +300,49 @@ export const getPeerStats = cache(
       }
       return { stats, reachGreater: rank[0]?.greater ?? null };
     }),
+);
+
+/* ------------------------------------------------------------------
+ * 動画の特徴量（R4 設計 6.1 節。カットのタイムラインと視聴維持率）
+ * ------------------------------------------------------------------ */
+
+/** `media_video_features` の 1 行と画面変化の時刻。`error` 列は読まない */
+export interface VideoFeatures {
+  /** 今の条件の解析の状態。null はまだ解析していない */
+  analysis_status: string | null;
+  duration_ms: number | null;
+  cut_count: number | null;
+  avg_scene_ms: number | null;
+  first_cut_ms: number | null;
+  cuts_in_first_3s: number | null;
+  cuts_in_last_3s: number | null;
+  retention_rate: number | null;
+  /** 画面変化の時刻（ミリ秒、`seq` の順）。`success` でなければ空 */
+  cut_times_ms: number[];
+}
+
+/**
+ * 動画の投稿（リールとフィード動画）の特徴量。ビューに行がない（動画でない、対象のアカウントのものでない）なら null。
+ * 値はビューのものをそのまま使い、画面で計算し直さない
+ */
+export const getVideoFeatures = cache(async (accountId: string, id: string): Promise<QueryResult<VideoFeatures | null>> =>
+  runQuery(async (db) => {
+    const rows = await db<VideoFeatures[]>`
+      select
+        f.analysis_status, f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s, f.cuts_in_last_3s,
+        f.retention_rate::float8 as retention_rate,
+        coalesce(
+          (
+            select array_agg(c.at_ms order by c.seq)
+            from public.video_cuts c
+            where c.analysis_id = f.analysis_id and f.analysis_status = 'success'
+          ),
+          '{}'::integer[]
+        ) as cut_times_ms
+      from public.media_video_features f
+      where f.account_id = ${accountId} and f.media_id = ${id}
+    `;
+    const row = rows[0];
+    return row === undefined ? null : { ...row, cut_times_ms: [...row.cut_times_ms] };
+  }),
 );

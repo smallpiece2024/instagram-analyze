@@ -29,7 +29,7 @@ import {
 import { DEFAULT_SCENE_THRESHOLD, type VideoProbe } from "../../src/lib/ffmpeg.js";
 import type { GraphError } from "../../src/lib/graph.js";
 import { createLogger, SecretRegistry } from "../../src/lib/log.js";
-import { ANALYZER_VERSION } from "../../src/lib/video-analysis.js";
+import { ANALYZER_VERSION, type SceneDetector } from "../../src/lib/video-analysis.js";
 import { storagePath } from "../../src/storage/thumbnails.js";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -227,6 +227,8 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
   const probeCalls: string[] = [];
   const detectCalls: { path: string; threshold: number | undefined }[] = [];
   let fileBytesAtProbe: number | undefined;
+  /** detect の戻り値の差し替え（undefined なら DETECTED_CUTS） */
+  let detectedCuts: Awaited<ReturnType<SceneDetector>> | undefined;
 
   const config: WorkerConfig = {
     databaseUrl: url,
@@ -244,6 +246,8 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com", "fbcdn.net"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 
   const STORAGE_PREFIX = "/storage/v1/object/thumbnails/";
@@ -292,7 +296,7 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     },
     detect: async (filePath, threshold) => {
       detectCalls.push({ path: filePath, threshold });
-      return DETECTED_CUTS;
+      return detectedCuts ?? DETECTED_CUTS;
     },
   });
 
@@ -382,6 +386,7 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     probeCalls.length = 0;
     detectCalls.length = 0;
     fileBytesAtProbe = undefined;
+    detectedCuts = undefined;
     lines.length = 0;
   });
 
@@ -568,6 +573,7 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
       avg_scene_ms: 4000,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
     expect(analysis?.cuts.map((c) => [c.seq, c.at_ms, c.scene_score])).toEqual([
       [1, 1500, null],
@@ -761,6 +767,54 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/stories（結合）", () => {
     expect(logText()).toMatch(new RegExp(`WARN {2}job=stories error="${NO_VIDEO_URL_WARNING}"$`, "m"));
     expect(logText()).toMatch(/INFO {2}job=stories pages=1 stories=1 new=0 gone=0 thumbnails=0 snapshots=1 videos_analyzed=0 no_video_url=1$/m);
     expect(logText()).toMatch(/INFO {2}job=stories status=success items=1 calls=4 failures=0/m);
+  }, 20_000);
+
+  it("打ち切らない: attempt_count が 5 に達した failed でも 3 時間後にまた解析し、attempt_count は 6 になる", async () => {
+    const other = await newAccount();
+    const now = new Date();
+    const vId = fakeMediaId();
+    const postedAt = new Date(now.getTime() - 1 * HOUR_MS);
+    setList([videoStory(vId, postedAt)]);
+    expect(await run(other, now)).toBe("success");
+    // video_analysis の打ち切りの回数（5）に達した failed の形にする（テストのアカウントの行だけ）
+    await db`
+      update public.video_analyses set status = 'failed', error = 'HTTP 404', attempt_count = 5
+      where media_id = ${vId}
+    `;
+    expect((await getVideoAnalysis(db, vId, ANALYZER_VERSION, DEFAULT_SCENE_THRESHOLD))?.row.attempt_count).toBe(5);
+
+    const later = new Date(now.getTime() + 3 * HOUR_MS);
+    setList([videoStory(vId, postedAt, { media_url: cdnVideoUrl(vId) })]);
+    lines.length = 0;
+    expect(await run(other, later)).toBe("success");
+    expect(detectCalls).toHaveLength(1);
+    expect((await getVideoAnalysis(db, vId, ANALYZER_VERSION, DEFAULT_SCENE_THRESHOLD))?.row).toMatchObject({
+      status: "success",
+      analyzed_at: later,
+      attempt_count: 6,
+    });
+    expect(logText()).toMatch(/videos_analyzed=1 no_video_url=0$/m);
+  }, 20_000);
+
+  it("R4 の列: 最後 3 秒にカットがあれば cuts_in_last_3s が 1 以上、video_cuts に scene_score（小数 4 桁）が入る", async () => {
+    const other = await newAccount();
+    const now = new Date();
+    const vId = fakeMediaId();
+    // 長さ 12000。10500 は最後 3 秒（> 9000）、9000 ちょうどは含めない
+    detectedCuts = [
+      { atMs: 1500, score: 0.412345 },
+      { atMs: 9000, score: 0.5 },
+      { atMs: 10_500, score: 0.876543 },
+    ];
+    setList([videoStory(vId, new Date(now.getTime() - 1 * HOUR_MS), { media_url: cdnVideoUrl(vId) })]);
+    expect(await run(other, now)).toBe("success");
+    const analysis = await getVideoAnalysis(db, vId, ANALYZER_VERSION, DEFAULT_SCENE_THRESHOLD);
+    expect(analysis?.row).toMatchObject({ status: "success", cut_count: 3, cuts_in_first_3s: 1, cuts_in_last_3s: 1 });
+    expect(analysis?.cuts.map((c) => [c.seq, c.at_ms, c.scene_score])).toEqual([
+      [1, 1500, 0.4123],
+      [2, 9000, 0.5],
+      [3, 10_500, 0.8765],
+    ]);
   }, 20_000);
 
   // -------------------------------------------------------------------------

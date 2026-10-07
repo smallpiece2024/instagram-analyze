@@ -18,7 +18,7 @@ export interface DailyTrendCardProps {
   className?: string;
 }
 
-const TITLE = "リーチとフォロワー数の日次推移";
+const TITLE = "リーチ数とフォロワー数の日次推移";
 
 /** 幅ごとの描き分け（PC の 8 列のカードは 760、スマートフォンは 340。設計 5.3 節） */
 const WIDTHS = [
@@ -27,7 +27,7 @@ const WIDTHS = [
 ] as const;
 
 /**
- * リーチの日次の棒と、フォロワー数の折れ線（3.2 節）。X 軸は太平洋時間の日付で、フォロワー数（日本時間の日付）は
+ * リーチ数の日次の棒と、フォロワー数の折れ線（3.2 節）。X 軸は太平洋時間の日付で、フォロワー数（日本時間の日付）は
  * 同じ日付の位置に置く（6 章）。投稿の印は投稿日時を太平洋時間の日付に直した位置
  */
 export async function DailyTrendCard({ accountId, period, dataStart, dailyFetchedAt, className }: DailyTrendCardProps) {
@@ -95,11 +95,11 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
         </>
       }
     >
-      <p className="small muted">リーチ</p>
+      <p className="small muted">リーチ数</p>
       {WIDTHS.map(({ width, className: cls }) => (
         <div key={width} className={`chart ${cls}`}>
           <VBars
-            title="リーチの日次の棒グラフ"
+            title="リーチ数の日次の棒グラフ"
             values={reach}
             labels={labels}
             color="var(--chart-1)"

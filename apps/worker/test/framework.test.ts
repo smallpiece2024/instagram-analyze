@@ -213,6 +213,8 @@ function config(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     logLevel: "info",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
     ...overrides,
   };
 }

@@ -3,8 +3,13 @@ import {
   CommandError,
   parseFrameRate,
   parseProbeOutput,
-  parseSceneChangeTimes,
+  parseSceneMetadata,
+  PROBE_TIMEOUT_MS,
+  probeArgs,
   runCommand,
+  SAFE_INPUT_ARGS,
+  sceneDetectArgs,
+  sceneDetectTimeoutMs,
   TOOL_TIMEOUT_MS,
 } from "../src/lib/ffmpeg.js";
 
@@ -55,20 +60,76 @@ describe("runCommand", () => {
   });
 });
 
-describe("parseSceneChangeTimes", () => {
-  it("showinfo の行から pts_time をミリ秒で取り出す", () => {
+describe("parseSceneMetadata（R4 設計 4.1 節、4.3 節）", () => {
+  it("metadata=print の 2 行（pts_time と lavfi.scene_score）を組にして、時刻（ミリ秒）と点数を返す", () => {
     const stderr = [
-      "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'test.mp4':",
-      "[Parsed_showinfo_1 @ 0x55d0] n:   0 pts:  23040 pts_time:1.5     duration:512",
-      "[Parsed_showinfo_1 @ 0x55d0] n:   1 pts:  38400 pts_time:2.5     duration:512",
-      "[Parsed_showinfo_1 @ 0x55d0] n:   2 pts:  51029 pts_time:3.32223 duration:512",
+      "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'video.mp4':",
+      "[Parsed_metadata_1 @ 0x55d0] frame:0    pts:23040   pts_time:1.5",
+      "[Parsed_metadata_1 @ 0x55d0] lavfi.scene_score=0.400000",
+      "[Parsed_metadata_1 @ 0x55d0] frame:1    pts:38400   pts_time:2.5",
+      "[Parsed_metadata_1 @ 0x55d0] lavfi.scene_score=0.312345",
+      "[Parsed_metadata_1 @ 0x55d0] frame:2    pts:51029   pts_time:3.32223",
+      "[Parsed_metadata_1 @ 0x55d0] lavfi.scene_score=1.000000",
       "frame=    3 fps=0.0 q=-0.0 Lsize=N/A time=00:00:04.00",
+    ].join("\r\n");
+    expect(parseSceneMetadata(stderr)).toEqual([
+      { atMs: 1500, score: 0.4 },
+      { atMs: 2500, score: 0.312345 },
+      { atMs: 3322, score: 1 },
+    ]);
+  });
+
+  it("点数の行がないフレームは null、時刻が数値でない行は捨てる、Parsed_metadata 以外の行は無視する", () => {
+    const stderr = [
+      "[Parsed_metadata_1 @ 0x1] frame:0 pts:1 pts_time:0.5",
+      "[Parsed_metadata_1 @ 0x1] frame:1 pts:2 pts_time:1.0",
+      "[Parsed_metadata_1 @ 0x1] lavfi.scene_score=0.5",
+      "[Parsed_metadata_1 @ 0x1] frame:2 pts:3 pts_time:nan",
+      "[Parsed_metadata_1 @ 0x1] lavfi.scene_score=0.9",
+      "[Parsed_showinfo_1 @ 0x2] n:0 pts:3 pts_time:9.9",
+      "lavfi.scene_score=0.7",
     ].join("\n");
-    expect(parseSceneChangeTimes(stderr)).toEqual([1500, 2500, 3322]);
+    expect(parseSceneMetadata(stderr)).toEqual([
+      { atMs: 500, score: null },
+      { atMs: 1000, score: 0.5 },
+    ]);
   });
 
   it("該当行がなければ空配列", () => {
-    expect(parseSceneChangeTimes("no scenes here")).toEqual([]);
+    expect(parseSceneMetadata("no scenes here")).toEqual([]);
+  });
+});
+
+describe("ffmpeg と ffprobe の引数（R4 設計 3.5 節、4.3 節）", () => {
+  it("ffprobe は入力の直前に -protocol_whitelist file -f mp4 を付ける", () => {
+    expect(SAFE_INPUT_ARGS).toEqual(["-protocol_whitelist", "file", "-f", "mp4"]);
+    const args = probeArgs("/tmp/x/video.mp4");
+    expect(args.slice(-5)).toEqual(["-protocol_whitelist", "file", "-f", "mp4", "/tmp/x/video.mp4"]);
+  });
+
+  it("シーン検出は -i の前に入力の制限を付け、select と metadata=print のフィルタを使う（showinfo は使わない）", () => {
+    const args = sceneDetectArgs("/tmp/x/video.mp4", 0.3);
+    const i = args.indexOf("-i");
+    expect(args.slice(i - 4, i + 2)).toEqual(["-protocol_whitelist", "file", "-f", "mp4", "-i", "/tmp/x/video.mp4"]);
+    expect(args).toContain("select='gt(scene,0.3)',metadata=print:key=lavfi.scene_score");
+    expect(args.join(" ")).not.toContain("showinfo");
+  });
+});
+
+describe("制限時間（R4 設計 3.2 節）", () => {
+  it("ffprobe は 30 秒", () => {
+    expect(PROBE_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it("シーン検出は max(60 秒, 長さ × 3) で 5 分が上限。長さ 0、負、NaN は 60 秒", () => {
+    expect(sceneDetectTimeoutMs(10_000)).toBe(60_000);
+    expect(sceneDetectTimeoutMs(20_000)).toBe(60_000);
+    expect(sceneDetectTimeoutMs(30_000)).toBe(90_000);
+    expect(sceneDetectTimeoutMs(100_000)).toBe(TOOL_TIMEOUT_MS);
+    expect(sceneDetectTimeoutMs(15 * 60 * 1000)).toBe(TOOL_TIMEOUT_MS);
+    expect(sceneDetectTimeoutMs(0)).toBe(60_000);
+    expect(sceneDetectTimeoutMs(-1)).toBe(60_000);
+    expect(sceneDetectTimeoutMs(Number.NaN)).toBe(60_000);
   });
 });
 

@@ -69,7 +69,7 @@ export async function BaselineCard({ accountId, a, b }: { accountId: string; a: 
       </Card>
     );
   }
-  // A は青、B は灰（期間の帯、主要指標の表、リーチのグラフと同じ）
+  // A は青、B は灰（期間の帯、主要指標の表、リーチ数のグラフと同じ）
   const sides: readonly { name: string; cls: string; color: string; period: Period; data: PeriodBaselines }[] = [
     { name: "A", cls: "is-a", color: "var(--color-primary)", period: a, data: ba.data },
     { name: "B", cls: "is-b", color: "var(--color-neutral)", period: b, data: bb.data },
@@ -91,11 +91,13 @@ export async function BaselineCard({ accountId, a, b }: { accountId: string; a: 
           中央値
         </span>
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap table-wrap--sticky">
         <table className="table">
           <thead>
             <tr>
-              <th scope="col">指標</th>
+              <th scope="col" className="sticky-col">
+                指標
+              </th>
               <th scope="col">期間</th>
               <th scope="col">分布</th>
               <th scope="col" className="num">
@@ -112,7 +114,7 @@ export async function BaselineCard({ accountId, a, b }: { accountId: string; a: 
               return sides.map((s, i) => (
                 <tr key={`${m.key}-${s.name}`} className={s.cls}>
                   {i === 0 && (
-                    <th scope="rowgroup" rowSpan={sides.length} className="row-head">
+                    <th scope="rowgroup" rowSpan={sides.length} className="row-head sticky-col">
                       <MetricHint label={m.label} text={m.hint} />
                     </th>
                   )}

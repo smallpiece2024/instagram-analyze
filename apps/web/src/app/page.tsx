@@ -20,7 +20,7 @@ const TITLE = "概要";
 
 /**
  * 概要（R3 設計 3.2 節）。期間の終わりは今日ではなく、日次指標（`reach`）のある最新の日（太平洋時間の日付）。
- * 期間（`?range=`）は `lib/params` で検査し、外れた値は既定に戻す（4.7 節）。ER の分母はリーチに固定（2026-10-06、ユーザーの判断）。
+ * 期間（`?range=`）は `lib/params` で検査し、外れた値は既定に戻す（4.7 節）。ER の分母はリーチ数に固定（2026-10-06、ユーザーの判断）。
  * カードごとに `<Suspense>` で包み、1 枚の失敗でほかを止めない（4.5 節）
  */
 export default async function OverviewPage(props: PageProps<"/">) {
@@ -57,7 +57,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
           </Card>
         ) : (
           <div className="grid">
-            <Card title="リーチとフォロワー数の日次推移" className="col-8">
+            <Card title="リーチ数とフォロワー数の日次推移" className="col-8">
               <NotCollected />
             </Card>
             <Card title="投稿の種類の内訳" className="col-4">
@@ -92,7 +92,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
         <OverviewKpis accountId={accountId} cur={cur} prev={prev} />
       </Suspense>
       <div className="grid">
-        <Suspense fallback={<CardLoading title="リーチとフォロワー数の日次推移" className="col-8" />}>
+        <Suspense fallback={<CardLoading title="リーチ数とフォロワー数の日次推移" className="col-8" />}>
           <DailyTrendCard
             accountId={accountId}
             period={cur}

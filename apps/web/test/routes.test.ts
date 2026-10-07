@@ -263,6 +263,9 @@ describe("routes", () => {
       "/export/media",
       "/export/daily?from=2026-09-01&to=2026-09-30",
       "/media/000012345",
+      // R4 のリール分析（R4 設計 6.2 節）
+      "/reels",
+      "/reels?y=views&sort=duration&dir=asc",
     ];
     // matcher は列挙しない 1 本の正規表現（src/proxy.ts）。Next.js と同じく pathname 全体に当てる
     const matchers = proxyConfig.matcher.map((m) => new RegExp(`^${m}$`));

@@ -99,13 +99,14 @@ describe("ratio", () => {
 });
 
 describe("「—」の理由", () => {
-  it("unsupported: リールのプロフィール訪問とフォロー、フィードとカルーセルの視聴系、視聴維持率は全種類", () => {
+  it("unsupported: リールのプロフィール訪問とフォロー、フィードとカルーセルの視聴系、視聴維持率はリール以外（R4）", () => {
     expect(valueMissing("profile_visits", "reel", null)?.reason).toBe("unsupported");
     expect(valueMissing("follows", "reel", 3)?.reason).toBe("unsupported");
     expect(ratioMissing("follow_conversion_rate", "reel", 1, 2)?.reason).toBe("unsupported");
     expect(valueMissing("avg_watch_time_ms", "feed", null)?.reason).toBe("unsupported");
     expect(valueMissing("skip_rate", "carousel", null)?.reason).toBe("unsupported");
-    expect(isSupported("retention_rate", "reel")).toBe(false);
+    expect(isSupported("retention_rate", "reel")).toBe(true);
+    expect(isSupported("retention_rate", "feed")).toBe(false);
     expect(valueMissing("profile_visits", "carousel", 1)).toBeNull();
     expect(valueMissing("skip_rate", "reel", 0.3)).toBeNull();
     expect(MISSING_REASON_TEXT.unsupported).toBe("この種類では API で取れない");

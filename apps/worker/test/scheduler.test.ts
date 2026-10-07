@@ -142,6 +142,8 @@ function config(): WorkerConfig {
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 }
 

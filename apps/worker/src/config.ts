@@ -7,6 +7,11 @@
 
 export const DEFAULT_GRAPH_API_VERSION = "v25.0";
 
+/** video_analysis の 1 回の本数の上限の既定値（R4 設計 3.2 節） */
+export const DEFAULT_VIDEO_MAX_PER_RUN = 5;
+/** video_analysis の時間の予算の既定値（8 分。R4 設計 3.2 節） */
+export const DEFAULT_VIDEO_BUDGET_MS = 8 * 60 * 1000;
+
 /** 動画とサムネイルのダウンロードを許可するホスト（後方一致）。設計 3.7 章。環境変数にしない */
 export const DOWNLOAD_ALLOWED_HOSTS: readonly string[] = ["cdninstagram.com", "fbcdn.net"];
 
@@ -41,6 +46,10 @@ export interface WorkerConfig {
   /** 検証結果などのローカル出力先（Git 管理外） */
   outputDir: string;
   downloadAllowedHosts: string[];
+  /** video_analysis が 1 回の実行で解析する本数の上限（R4 設計 3.2 節） */
+  videoMaxPerRun: number;
+  /** video_analysis の時間の予算（ミリ秒）。ジョブの開始からの経過がこれを超えたら新しい 1 本を始めない（R4 設計 3.2 節） */
+  videoBudgetMs: number;
 }
 
 /** `register-token` コマンドの設定。`.env` のトークンを読むのはこのコマンドと `verify-api` だけ（設計 4.1 章） */
@@ -219,6 +228,8 @@ export function loadWorkerConfig(env: Env = process.env): WorkerConfig {
     logLevel: logLevel(env, "WORKER_LOG_LEVEL"),
     outputDir: outputDir(env),
     downloadAllowedHosts: [...DOWNLOAD_ALLOWED_HOSTS],
+    videoMaxPerRun: integerInRange(env, "WORKER_VIDEO_MAX_PER_RUN", DEFAULT_VIDEO_MAX_PER_RUN, 1, 100),
+    videoBudgetMs: integerInRange(env, "WORKER_VIDEO_BUDGET_MS", DEFAULT_VIDEO_BUDGET_MS, 0, 30 * 60 * 1000),
   };
 }
 
@@ -267,4 +278,12 @@ export function loadVerifyConfig(env: Env = process.env): VerifyConfig {
     supabaseUrl: optional(env, "SUPABASE_URL"),
     supabaseServiceRoleKey: optional(env, "SUPABASE_SERVICE_ROLE_KEY"),
   };
+}
+
+/**
+ * CI（GitHub Actions など）で動いているか。`CI` か `GITHUB_ACTIONS` が空でなければ true。
+ * `video-tune` は公開ログに投稿の情報が出るので CI では動かさない（R4 設計 4.1 節）
+ */
+export function isCiEnvironment(env: Env = process.env): boolean {
+  return optional(env, "CI") !== undefined || optional(env, "GITHUB_ACTIONS") !== undefined;
 }

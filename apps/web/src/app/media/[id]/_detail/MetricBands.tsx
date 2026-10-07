@@ -14,22 +14,28 @@ import {
   valueMissing,
   type Missing,
 } from "@/lib/metrics";
-import { getPeerStats, type MediaDetail, type MetricPeerStats, type PeerMetric } from "@/lib/queries/media-detail";
+import {
+  getPeerStats,
+  getVideoFeatures,
+  type MediaDetail,
+  type MetricPeerStats,
+  type PeerMetric,
+  type VideoFeatures,
+} from "@/lib/queries/media-detail";
+import { retentionMissing } from "@/lib/video-timeline";
 
 /** 帯グラフの viewBox の幅（6 列のカードで指標名と値の列を除いた幅） */
 const BAND_WIDTH = 340;
 
 /** 帯グラフの 1 行の中身 */
 interface BandRowDef {
-  key: PeerMetric | "retention_rate";
+  key: PeerMetric;
   value: number | null;
   missing: Missing | null;
   format: ValueFormat;
   /** 低いほどよい指標。帯グラフの向きを逆にして「右ほどよい」にそろえる */
   reverse?: boolean;
 }
-
-const NO_PEERS: MetricPeerStats = { n: 0, min: null, max: null, mean: null, p25: null, median: null, p75: null };
 
 /** いいね + コメント + 保存 + シェア。どれかが null なら null（ER の分子） */
 function engagementSum(m: MediaDetail): number | null {
@@ -63,8 +69,11 @@ export function quantityRows(m: MediaDetail): BandRowDef[] {
   ];
 }
 
-/** 質の指標の行（3.4 節の順。末尾の 2 行は確認事項 Q14 の推奨） */
-export function qualityRows(m: MediaDetail): BandRowDef[] {
+/**
+ * 質の指標の行（3.4 節の順。末尾の 2 行は確認事項 Q14 の推奨）。
+ * 視聴維持率は動画の特徴量（R4 設計 6.1 節）。`video` が null（動画でない、読み出せない）なら値なし
+ */
+export function qualityRows(m: MediaDetail, video: VideoFeatures | null = null): BandRowDef[] {
   const k = m.kind;
   return [
     {
@@ -82,8 +91,18 @@ export function qualityRows(m: MediaDetail): BandRowDef[] {
     { key: "share_rate", value: m.share_rate, missing: ratioMissing("share_rate", k, m.shares, m.reach), format: "percent" },
     { key: "like_rate", value: m.like_rate, missing: ratioMissing("like_rate", k, m.likes, m.reach), format: "percent" },
     { key: "er", value: m.er, missing: ratioMissing("er", k, engagementSum(m), m.reach), format: "percent" },
-    // 視聴維持率は動画の長さが R4 なので、R3 ではすべての種類で「—」
-    { key: "retention_rate", value: null, missing: valueMissing("retention_rate", k, null), format: "percent" },
+    {
+      key: "retention_rate",
+      value: video?.retention_rate ?? null,
+      // 特徴量の行が読めない（動画でない、読み出しの失敗）ときは欠損として扱う（種類で取れないものは unsupported が先）
+      missing: retentionMissing({
+        kind: k,
+        analysisStatus: video === null ? "failed" : video.analysis_status,
+        durationMs: video?.duration_ms ?? null,
+        value: video?.retention_rate ?? null,
+      }),
+      format: "percent",
+    },
     {
       key: "skip_rate",
       value: m.skip_rate,
@@ -135,7 +154,7 @@ function BandRows({ rows, stats, color }: { rows: BandRowDef[]; stats: Record<Pe
       {rows.map((row) => {
         const text = METRIC_DEFINITIONS[row.key];
         const missing = effectiveMissing(row);
-        const peer = row.key === "retention_rate" ? NO_PEERS : stats[row.key];
+        const peer = stats[row.key];
         return (
           <div
             key={row.key}
@@ -172,7 +191,7 @@ async function BandCard({
 }: {
   title: string;
   media: MediaDetail;
-  rows: (m: MediaDetail) => BandRowDef[];
+  rows: (m: MediaDetail, video: VideoFeatures | null) => BandRowDef[];
   foot?: string;
 }) {
   if (media.latest_fetched_at === null) {
@@ -182,7 +201,11 @@ async function BandCard({
       </Card>
     );
   }
-  const peers = await getPeerStats(media.account_id, media.kind, media.media_id);
+  // 動画の投稿（リールとフィード動画）だけ特徴量を読む。読み出せなければ視聴維持率は「取得できなかった」
+  const [peers, video] = await Promise.all([
+    getPeerStats(media.account_id, media.kind, media.media_id),
+    media.media_type === "VIDEO" ? getVideoFeatures(media.account_id, media.media_id) : null,
+  ]);
   if (!peers.ok) {
     return (
       <Card title={title} className="col-6">
@@ -194,7 +217,7 @@ async function BandCard({
   return (
     <Card title={title} className="col-6" foot={foot}>
       <BandLegend color={color} />
-      <BandRows rows={rows(media)} stats={peers.data.stats} color={color} />
+      <BandRows rows={rows(media, video !== null && video.ok ? video.data : null)} stats={peers.data.stats} color={color} />
     </Card>
   );
 }

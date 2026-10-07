@@ -60,8 +60,8 @@ const UNSUPPORTED: Partial<Record<MediaMetricKey, readonly MediaKind[]>> = {
   follow_conversion_rate: ["reel", "story"],
   avg_watch_time_ms: ["feed", "carousel", "story"],
   skip_rate: ["feed", "carousel", "story"],
-  // 視聴維持率は動画の長さが R4 なので、R3 ではすべての種類で出さない
-  retention_rate: ["feed", "carousel", "reel", "story"],
+  // 視聴維持率は平均視聴時間がリールだけ取れる（R4。フィード動画は unsupported）
+  retention_rate: ["feed", "carousel", "story"],
 };
 
 export function isSupported(metric: MediaMetricKey, kind: MediaKind): boolean {
@@ -85,7 +85,7 @@ export const MISSING_REASON_TEXT: Record<MissingReason, string | null> = {
 /** リーチ率の「投稿時のフォロワー数の記録がない」だけは文言を変える */
 export const NO_FOLLOWERS_AT_POST_TEXT = "投稿時のフォロワー数の記録がない";
 
-/** リーチ率は 7 日時点（168 時間）のリーチを使う */
+/** リーチ率は 7 日時点（168 時間）のリーチ数を使う */
 export const REACH_RATE_HORIZON_HOURS = 7 * 24;
 
 /** 「—」の判定の結果。`text` はヒントの文言（null は文言なし） */
@@ -124,7 +124,7 @@ export function valueMissing(metric: MediaMetricKey, kind: MediaKind, value: num
 }
 
 /**
- * リーチ率（7 日時点のリーチ ÷ 投稿時のフォロワー数）の「—」の判定。値を出せるなら null。
+ * リーチ率（7 日時点のリーチ数 ÷ 投稿時のフォロワー数）の「—」の判定。値を出せるなら null。
  * - `elapsed_latest` が 7 日未満 → not_yet（文言なし）
  * - 投稿時のフォロワー数の記録がない、または 0 → no_baseline_data（フォロワー数の文言）
  * - 7 日時点の値が許容幅の外（ビューの `reach_7d` が null）→ no_baseline_data

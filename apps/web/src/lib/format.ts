@@ -10,6 +10,7 @@ export const JOB_ORDER = [
   "account_daily",
   "media_sync",
   "media_snapshot",
+  "video_analysis",
   "stories",
   "account_backfill",
 ] as const;
@@ -46,8 +47,8 @@ export const REQUIRED_SCOPES: readonly string[] = [
 /** データアクセス期限の残りがこの日数以下なら再接続を促す（ワーカーの `token_check` と同じ） */
 export const DATA_ACCESS_WARN_DAYS = 14;
 
-/** 投稿一覧の 1 ページの件数 */
-export const PAGE_SIZE = 50;
+/** 投稿一覧とリールの一覧の 1 ページの件数（2026-10-06 にユーザーが 50 件から 10 件に変えた） */
+export const PAGE_SIZE = 10;
 
 /** 値がないときの表示 */
 export const EMPTY = "—";

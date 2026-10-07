@@ -12,7 +12,16 @@ export function MediaInfo({ media, title, thumbnailUrl }: { media: MediaDetail; 
   return (
     <Card>
       <div className="detail-head">
-        <Thumb src={thumbnailUrl} kind={media.kind} size="lg" />
+        <div style={{ flexShrink: 0, textAlign: "center" }}>
+          <Thumb src={thumbnailUrl} kind={media.kind} size="lg" />
+          {isInstagramPermalink(media.permalink) && (
+            <p className="small" style={{ marginTop: 8 }}>
+              <a href={media.permalink} target="_blank" rel="noopener noreferrer">
+                Instagram で開く
+              </a>
+            </p>
+          )}
+        </div>
         <div className="detail-head__body">
           <div className="media-card__meta">
             <TypeTag kind={media.kind} />
@@ -30,13 +39,6 @@ export function MediaInfo({ media, title, thumbnailUrl }: { media: MediaDetail; 
           {media.caption !== null && media.caption !== "" && (
             <p className="caption" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
               {media.caption}
-            </p>
-          )}
-          {isInstagramPermalink(media.permalink) && (
-            <p className="small" style={{ marginTop: 8 }}>
-              <a href={media.permalink} target="_blank" rel="noopener noreferrer">
-                Instagram で開く
-              </a>
             </p>
           )}
         </div>

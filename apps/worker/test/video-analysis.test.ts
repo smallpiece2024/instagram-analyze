@@ -9,9 +9,13 @@ import {
   ANALYZER_VERSION,
   analyzeVideo,
   isAnalysisRetryDue,
+  MAX_VIDEO_DURATION_MS,
   normalizeCutTimes,
+  normalizeSceneChanges,
   summarizeCuts,
   TEMP_DIR_ERROR,
+  UNKNOWN_ERROR,
+  VIDEO_TOO_LONG_ERROR,
   type VideoAnalysisInput,
 } from "../src/lib/video-analysis.js";
 import { TMP_DIR_PREFIX } from "../src/jobs/framework.js";
@@ -113,6 +117,7 @@ const NULL_METRICS = {
   avg_scene_ms: null,
   first_cut_ms: null,
   cuts_in_first_3s: null,
+  cuts_in_last_3s: null,
 };
 
 describe("normalizeCutTimes", () => {
@@ -135,6 +140,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 12_345,
       first_cut_ms: null,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -144,6 +150,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 3333,
       first_cut_ms: 3000,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
     expect(summarizeCuts(10_001, [5000]).avg_scene_ms).toBe(5001); // 5000.5 → 5001
   });
@@ -154,12 +161,21 @@ describe("summarizeCuts", () => {
     expect(summarizeCuts(10_000, [1000, 2999, 3000, 3001]).cuts_in_first_3s).toBe(2);
   });
 
+  it("最後 3 秒: 長さ − 3000ms ちょうどは含めず、それより後は含める。長さちょうども含める", () => {
+    expect(summarizeCuts(10_000, [7000]).cuts_in_last_3s).toBe(0);
+    expect(summarizeCuts(10_000, [7001]).cuts_in_last_3s).toBe(1);
+    expect(summarizeCuts(10_000, [1000, 6999, 7000, 7001, 10_000]).cuts_in_last_3s).toBe(2);
+    // 3 秒より短い動画は、すべてのカットが冒頭にも最後にも入る
+    expect(summarizeCuts(2000, [500, 1500])).toMatchObject({ cuts_in_first_3s: 2, cuts_in_last_3s: 2 });
+  });
+
   it("0ms のカットは有効で、first_cut_ms は 0 になり、冒頭 3 秒に含まれる", () => {
     expect(summarizeCuts(10_000, [0, 5000])).toEqual({
       cut_count: 2,
       avg_scene_ms: 3333,
       first_cut_ms: 0,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -169,6 +185,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 5000,
       first_cut_ms: 4000,
       cuts_in_first_3s: 0,
+      cuts_in_last_3s: 0,
     });
     expect(summarizeCuts(10_000, [10_000]).cut_count).toBe(1);
   });
@@ -179,6 +196,7 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 3333,
       first_cut_ms: 2000,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
   });
 
@@ -188,12 +206,13 @@ describe("summarizeCuts", () => {
       avg_scene_ms: 2500,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 1,
     });
   });
 
   it("durationMs が 0 なら avg_scene_ms は null（0ms のカットは数える）", () => {
-    expect(summarizeCuts(0, [])).toEqual({ cut_count: 0, avg_scene_ms: null, first_cut_ms: null, cuts_in_first_3s: 0 });
-    expect(summarizeCuts(0, [0, 100])).toEqual({ cut_count: 1, avg_scene_ms: null, first_cut_ms: 0, cuts_in_first_3s: 1 });
+    expect(summarizeCuts(0, [])).toEqual({ cut_count: 0, avg_scene_ms: null, first_cut_ms: null, cuts_in_first_3s: 0, cuts_in_last_3s: 0 });
+    expect(summarizeCuts(0, [0, 100])).toEqual({ cut_count: 1, avg_scene_ms: null, first_cut_ms: 0, cuts_in_first_3s: 1, cuts_in_last_3s: 1 });
   });
 
   it("入力の配列を変更しない", () => {
@@ -210,6 +229,10 @@ describe("isAnalysisRetryDue", () => {
 
   it("既定の再試行間隔は 3 時間", () => {
     expect(ANALYSIS_RETRY_AFTER_MS).toBe(3 * 60 * 60 * 1000);
+  });
+
+  it("1 時間の整数倍（listVideoAnalysisCandidates の make_interval(hours => …) は整数しか受けない）", () => {
+    expect(Number.isInteger(ANALYSIS_RETRY_AFTER_MS / (60 * 60 * 1000))).toBe(true);
   });
 
   it("解析結果がなければ true", () => {
@@ -323,6 +346,7 @@ describe("analyzeVideo", () => {
       avg_scene_ms: 3750,
       first_cut_ms: 1500,
       cuts_in_first_3s: 1,
+      cuts_in_last_3s: 0,
     });
     expect(result.cuts).toEqual([
       { seq: 1, at_ms: 1500, scene_score: null },
@@ -425,7 +449,7 @@ describe("analyzeVideo", () => {
     expect(result.failureClass).toBe("download");
   });
 
-  it("probe が投げると failed で、error は mask を通した message。一時ディレクトリは残らない", async () => {
+  it("probe が投げると failed で、error は固定文言（message を使わない）。一時ディレクトリは残らない", async () => {
     const { fetchImpl } = fakeFetch();
     const { mask, inputs } = fakeMask();
     let probePath: string | undefined;
@@ -444,10 +468,10 @@ describe("analyzeVideo", () => {
       }),
     );
     expect(result.row.status).toBe("failed");
-    expect(result.row.error).toBe("ffprobe が終了コード 1 で失敗しました: <url>");
+    expect(result.row.error).toBe(UNKNOWN_ERROR);
     expect(result.row.error).not.toContain("cdninstagram");
     expect(result.failureClass).toBe("unknown");
-    expect(inputs).toHaveLength(1);
+    expect(inputs).toHaveLength(0);
     expect(result.row).toMatchObject(NULL_METRICS);
     expect(result.cuts).toEqual([]);
     expect(detectCalls).toBe(0);
@@ -523,7 +547,7 @@ describe("analyzeVideo", () => {
       }),
     );
     expect(result.row.status).toBe("failed");
-    expect(result.row.error).toBe("ffmpeg が終了コード 1 で失敗しました");
+    expect(result.row.error).toBe(UNKNOWN_ERROR);
     expect(result.row).toMatchObject(NULL_METRICS);
     expect(result.cuts).toEqual([]);
     expect(await exists(dirname(detectPath ?? ""))).toBe(false);
@@ -586,5 +610,91 @@ describe("analyzeVideo", () => {
     expect(paths).toHaveLength(2);
     expect(paths[0]).toBe(paths[1]);
     expect(paths[0]?.startsWith(join(tmpdir(), VIDEO_TMP_PREFIX))).toBe(true);
+  });
+});
+
+describe("R4: analyzeVideo の入力の制限、制限時間、点数（R4 設計 3.2 節、3.5 節、4.3 節）", () => {
+  it("長さが 15 分を超えたらシーン検出をせず failed（固定文言）。15 分ちょうどは検出する", async () => {
+    let detectCalls = 0;
+    const detect = async () => {
+      detectCalls += 1;
+      return [];
+    };
+    const long = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => ({ ...PROBE, durationMs: MAX_VIDEO_DURATION_MS + 1 }),
+      detect,
+    });
+    expect(long.row).toMatchObject({ status: "failed", error: VIDEO_TOO_LONG_ERROR, duration_ms: null });
+    expect(long.failureClass).toBe("unknown");
+    expect(detectCalls).toBe(0);
+    const edge = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => ({ ...PROBE, durationMs: MAX_VIDEO_DURATION_MS }),
+      detect,
+    });
+    expect(edge.row.status).toBe("success");
+    expect(detectCalls).toBe(1);
+  });
+
+  it("シーン検出の制限時間に max(60 秒, 長さ × 3)（上限 5 分）を渡す。長さ 0 でも 60 秒で、success（avg_scene_ms は null）", async () => {
+    const seen: (number | undefined)[] = [];
+    const detect = async (_p: string, _t: number, timeoutMs?: number) => {
+      seen.push(timeoutMs);
+      return [];
+    };
+    await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 40_000 }), detect });
+    await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 600_000 }), detect });
+    const zero = await analyzeVideo(baseInput(), { fetchImpl: fakeFetch().fetchImpl, probe: async () => ({ ...PROBE, durationMs: 0 }), detect });
+    expect(seen).toEqual([120_000, 300_000, 60_000]);
+    expect(zero.row).toMatchObject({ status: "success", duration_ms: 0, avg_scene_ms: null, cut_count: 0 });
+  });
+
+  it("ダウンロードの content-type が video/ でなければ failed（download）で、probe も detect も呼ばない", async () => {
+    let probeCalls = 0;
+    const fetchImpl: typeof fetch = async () =>
+      new Response(streamOf([encoder.encode("<html>")]), { status: 200, headers: { "content-type": "text/html" } });
+    const result = await analyzeVideo(baseInput(), {
+      fetchImpl,
+      probe: async () => {
+        probeCalls += 1;
+        return PROBE;
+      },
+      detect: async () => [],
+    });
+    expect(result.row).toMatchObject({ status: "failed", error: "content-type が想定外" });
+    expect(result.failureClass).toBe("download");
+    expect(probeCalls).toBe(0);
+  });
+
+  it("detect の点数を cuts の scene_score に入れる（時刻は normalizeCutTimes と同じ規則で整える）", async () => {
+    const result = await analyzeVideo(baseInput(), {
+      fetchImpl: fakeFetch().fetchImpl,
+      probe: async () => PROBE,
+      detect: async () => [
+        { atMs: 4200.4, score: 0.5 },
+        { atMs: 1500, score: 0.312345 },
+        { atMs: 1500, score: 0.9 },
+        { atMs: 999_999, score: 0.8 },
+      ],
+    });
+    expect(result.cuts).toEqual([
+      { seq: 1, at_ms: 1500, scene_score: 0.312345 },
+      { seq: 2, at_ms: 4200, scene_score: 0.5 },
+    ]);
+    expect(result.row.cut_count).toBe(2);
+  });
+});
+
+describe("normalizeSceneChanges", () => {
+  it("数値だけの要素は点数 null。時刻は normalizeCutTimes と同じ列になる", () => {
+    const input = [3000, { atMs: -1, score: 0.5 }, { atMs: 2000, score: Number.NaN }, Number.NaN, 2000.6];
+    const out = normalizeSceneChanges(10_000, input);
+    expect(out).toEqual([
+      { at_ms: 2000, scene_score: null },
+      { at_ms: 2001, scene_score: null },
+      { at_ms: 3000, scene_score: null },
+    ]);
+    expect(out.map((c) => c.at_ms)).toEqual(normalizeCutTimes(10_000, [3000, -1, 2000, Number.NaN, 2000.6]));
   });
 });

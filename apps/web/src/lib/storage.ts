@@ -2,7 +2,7 @@
  * サムネイルの署名付き URL（設計 1.4 章。R2 設計 3.3 章）。
  *
  * バケット `thumbnails` は非公開。ログインした本人のセッション（`@supabase/ssr` のサーバークライアント、利用者の JWT）で
- * `storage.from('thumbnails').createSignedUrls(paths, ttl)` を呼び、1 ページ分（最大 50 件）を 1 回で署名する。
+ * `storage.from('thumbnails').createSignedUrls(paths, ttl)` を呼び、1 ページ分（投稿一覧は最大 PAGE_SIZE 件）を 1 回で署名する。
  * 読めるのは `storage.objects` の RLS ポリシー（`private.web_users` にある利用者）だけ。サービスロールキーは使わない。
  *
  * 応答は要素ごとに `{ error, path, signedURL }`（`signedURL` は `/object/sign/thumbnails/<path>?token=...` の相対パス。

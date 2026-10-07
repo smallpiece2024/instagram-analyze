@@ -144,7 +144,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(oldest.ok && oldest.data[0]?.media_id).toBe(feedIds[FEED_COUNT - 1]);
   });
 
-  it("listMedia: ER は分母がリーチ。ER の順に並び、分母 0 は null", async () => {
+  it("listMedia: ER は分母がリーチ数。ER の順に並び、分母 0 は null", async () => {
     const r = await listMedia(accountId, { ...DEFAULT_PARAMS, sort: "er", order: "desc" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -195,11 +195,11 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
 /**
  * 2 アカウントの分離、削除済み（`gone_at`）の投稿、基準値の材料（R3 設計 9.2 節の `test/db/media.test.ts` の行）。
  * 上の describe の件数を変えないように、架空のアカウント A と B を別に作り、`afterAll` で消す。
- *   g1 フィード 10 日前の投稿。7 日 + 1 時間でリーチ 150、10 日（最新）で 200（基準値は 200 だけを使う）
- *   g2 フィード 20 日前の投稿。gone_at あり、20 日でリーチ 100
- *   g3 フィード 2 時間前の投稿。1 時間でリーチ 10（経過の短い投稿も基準値に入る）
- *   g4 フィード 300 日前の投稿。最初のスナップショットが 200 日後でリーチ 400（7d は許容外でも基準値に入る）
- *   b1（アカウント B）フィード 1 日前の投稿。リーチ 5000（A の一覧と基準値に入らない）
+ *   g1 フィード 10 日前の投稿。7 日 + 1 時間でリーチ数 150、10 日（最新）で 200（基準値は 200 だけを使う）
+ *   g2 フィード 20 日前の投稿。gone_at あり、20 日でリーチ数 100
+ *   g3 フィード 2 時間前の投稿。1 時間でリーチ数 10（経過の短い投稿も基準値に入る）
+ *   g4 フィード 300 日前の投稿。最初のスナップショットが 200 日後でリーチ数 400（7d は許容外でも基準値に入る）
+ *   b1（アカウント B）フィード 1 日前の投稿。リーチ数 5000（A の一覧と基準値に入らない）
  */
 describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウントの分離と削除済みの投稿", () => {
   const url = TEST_DATABASE_URL ?? "";
@@ -290,7 +290,7 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウン�
     expect(countB.ok && countB.data.total).toBe(1);
   });
 
-  it("listMedia: リーチの並べ替えにほかのアカウントの値（5000）が入らない", async () => {
+  it("listMedia: リーチ数の並べ替えにほかのアカウントの値（5000）が入らない", async () => {
     const r = await listMedia(accountA, { ...DEFAULT_PARAMS, sort: "reach", order: "desc" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -309,5 +309,71 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 2 アカウン�
     if (!csv.ok) return;
     expect(csv.data.map((m) => m.media_id)).toEqual([ids.g3, ids.g1, ids.g2, ids.g4]);
     expect(csv.data.find((m) => m.media_id === ids.g2)?.gone_at_jst).toBeInstanceOf(Date);
+  });
+});
+
+/**
+ * 投稿一覧のページ数の境目（ちょうど PAGE_SIZE 件は 1 ページ、PAGE_SIZE + 1 件は 2 ページ）。
+ * 上の describe の件数を変えないように、架空のアカウントを別に作り、`afterAll` で消す。
+ * フィードを PAGE_SIZE 件入れて確かめ、1 件足してもう一度確かめる
+ */
+describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: ページ数の境目", () => {
+  const url = TEST_DATABASE_URL ?? "";
+  const igUserId = fakeIgUserId();
+  const now = new Date();
+  // 上の describe と ID が重ならないよう 300 番台を使う。seq が小さいほど新しい
+  const ids = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => fakeMediaId(300 + i));
+  let sql: postgres.Sql;
+  let accountId = "";
+  let restoreEnv: () => void = () => {};
+
+  const insertFeed = (id: string, seq: number) => sql`
+    insert into public.media (id, account_id, media_type, media_product_type, posted_at)
+    values (${id}, ${accountId}, 'IMAGE', 'FEED', ${new Date(now.getTime() - (seq + 1) * MINUTE_MS)})
+  `;
+
+  beforeAll(async () => {
+    restoreEnv = setWebEnv(url);
+    sql = postgres(url, { max: 1, onnotice: () => {} });
+    const [account] = await sql<{ id: string }[]>`
+      insert into public.accounts (ig_user_id, username, name)
+      values (${igUserId}, 'fake_web_media_pages', null)
+      returning id
+    `;
+    accountId = account?.id ?? "";
+    expect(accountId).not.toBe("");
+    for (let i = 0; i < PAGE_SIZE; i++) await insertFeed(ids[i] as string, i);
+  });
+
+  afterAll(async () => {
+    if (accountId !== "") await sql`delete from public.accounts where id = ${accountId}`;
+    await closeAllDb();
+    await sql.end({ timeout: 5 });
+    restoreEnv();
+  });
+
+  it("ちょうど 10 件は 1 ページ、11 件は 2 ページ（2 ページ目は最も古い 1 件）", async () => {
+    expect(PAGE_SIZE).toBe(10);
+    const ten = await getMediaPage(accountId, { sort: "posted", order: "desc", page: 1 });
+    expect(ten.ok).toBe(true);
+    if (!ten.ok) return;
+    expect(ten.data.total).toBe(PAGE_SIZE);
+    expect(ten.data.pageCount).toBe(1);
+    expect(ten.data.items.map((m) => m.media_id)).toEqual(ids.slice(0, PAGE_SIZE));
+    const tenPage2 = await listMedia(accountId, { sort: "posted", order: "desc", page: 2 });
+    expect(tenPage2.ok && tenPage2.data).toEqual([]);
+
+    await insertFeed(ids[PAGE_SIZE] as string, PAGE_SIZE);
+    const eleven = await getMediaPage(accountId, { sort: "posted", order: "desc", page: 1 });
+    expect(eleven.ok).toBe(true);
+    if (!eleven.ok) return;
+    expect(eleven.data.total).toBe(PAGE_SIZE + 1);
+    expect(eleven.data.pageCount).toBe(2);
+    expect(eleven.data.items).toHaveLength(PAGE_SIZE);
+    const elevenPage2 = await getMediaPage(accountId, { sort: "posted", order: "desc", page: 2 });
+    expect(elevenPage2.ok).toBe(true);
+    if (!elevenPage2.ok) return;
+    expect(elevenPage2.data.pageCount).toBe(2);
+    expect(elevenPage2.data.items.map((m) => m.media_id)).toEqual([ids[PAGE_SIZE]]);
   });
 });

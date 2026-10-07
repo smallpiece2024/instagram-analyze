@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DownloadError, downloadToFile, isAllowedDownloadUrl, type DownloadLimits } from "../src/lib/download.js";
+import { CONTENT_TYPE_ERROR, DownloadError, downloadToFile, isAllowedDownloadUrl, type DownloadLimits } from "../src/lib/download.js";
 
 const HOSTS = ["cdninstagram.com", "fbcdn.net"];
 const LIMITS: DownloadLimits = { maxBytes: 1024, timeoutMs: 1000, allowedHosts: HOSTS };
@@ -262,6 +262,35 @@ describe("downloadToFile", () => {
       const dest = join(dir, "redirect.mp4");
       await expectDownloadError(downloadToFile(URL_OK, dest, LIMITS, fetchImpl), "ネットワークエラー");
       expect(await exists(dest)).toBe(false);
+    });
+  });
+});
+
+describe("downloadToFile の content-type の検査（R4 設計 3.5 節）", () => {
+  const VIDEO_LIMITS: DownloadLimits = { ...LIMITS, contentTypePrefix: "video/" };
+
+  it("video/ で始まらなければ本文を読まずに DownloadError（固定文言）で、ファイルを作らない", async () => {
+    await withTempDir(async (dir) => {
+      const dest = join(dir, "video.mp4");
+      for (const type of ["text/html", "application/vnd.apple.mpegurl", undefined]) {
+        const fetchImpl: typeof fetch = async () =>
+          new Response(streamOf([encoder.encode("#EXTM3U")]), { status: 200, headers: type ? { "content-type": type } : {} });
+        const error = await downloadToFile(URL_OK, dest, VIDEO_LIMITS, fetchImpl).catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(DownloadError);
+        expect((error as Error).message).toBe(CONTENT_TYPE_ERROR);
+        await expect(stat(dest)).rejects.toThrow();
+      }
+    });
+  });
+
+  it("Video/MP4 のような大文字でも通り、contentTypePrefix がなければ検査しない（サムネイル）", async () => {
+    await withTempDir(async (dir) => {
+      const fetchImpl: typeof fetch = async () =>
+        new Response(streamOf([encoder.encode("abc")]), { status: 200, headers: { "content-type": "Video/MP4" } });
+      expect((await downloadToFile(URL_OK, join(dir, "a.mp4"), VIDEO_LIMITS, fetchImpl)).bytes).toBe(3);
+      const html: typeof fetch = async () =>
+        new Response(streamOf([encoder.encode("abc")]), { status: 200, headers: { "content-type": "image/jpeg" } });
+      expect((await downloadToFile(URL_OK, join(dir, "b.jpg"), LIMITS, html)).bytes).toBe(3);
     });
   });
 });

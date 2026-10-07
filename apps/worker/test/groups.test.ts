@@ -23,6 +23,8 @@ function config(): WorkerConfig {
     logLevel: "debug",
     outputDir: ".local",
     downloadAllowedHosts: ["cdninstagram.com"],
+    videoMaxPerRun: 5,
+    videoBudgetMs: 480_000,
   };
 }
 
@@ -162,8 +164,8 @@ describe("runGroup", () => {
   });
 
   it("HOURLY_JOBS と DAILY_JOBS は設計 6.1 章の順で、daily の media_sync だけ --full", () => {
-    expect(HOURLY_JOBS.map((e) => e.def.name)).toEqual(["stories", "media_sync", "media_snapshot", "account_backfill"]);
-    expect(HOURLY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(HOURLY_JOBS.map((e) => e.def.name)).toEqual(["stories", "media_sync", "media_snapshot", "video_analysis", "account_backfill"]);
+    expect(HOURLY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, undefined]);
     expect(DAILY_JOBS.map((e) => e.def.name)).toEqual(["token_check", "profile_daily", "account_daily", "media_sync"]);
     expect(DAILY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, { full: true }]);
     // hourly と daily の media_sync は同じ定義（options だけが違う）
