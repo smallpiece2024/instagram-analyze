@@ -1,6 +1,7 @@
 /** `commands/daily-due.ts` の判定（DB に触れない純粋関数） */
 import { describe, expect, it } from "vitest";
 import { DAILY_DUE_HOURS, isDailyDue } from "../src/commands/daily-due.js";
+import { DAILY_JOBS } from "../src/jobs/groups.js";
 
 const NOW = new Date("2026-10-06T21:17:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600 * 1000);
@@ -19,5 +20,13 @@ describe("isDailyDue", () => {
 
   it("記録がなければ due", () => {
     expect(isDailyDue(undefined, NOW)).toBe(true);
+  });
+});
+
+describe("daily-due の目印と daily グループ（R5）", () => {
+  it("目印の account_daily は daily グループにあり、audience_demographics はその後に動く（属性を足しても判定は変わらない）", () => {
+    const names = DAILY_JOBS.map((e) => e.def.name);
+    expect(names).toContain("account_daily");
+    expect(names.indexOf("audience_demographics")).toBeGreaterThan(names.indexOf("account_daily"));
   });
 });

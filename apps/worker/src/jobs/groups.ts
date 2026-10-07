@@ -5,13 +5,14 @@
  * - hourly（毎時 `WORKER_HOURLY_MINUTE` 分）: `stories` → `media_sync` → `media_snapshot` → `video_analysis` →
  *   `account_backfill`（ストーリーズは消えるので最優先。投稿一覧を先に同期してから新しい投稿のスナップショットを取る。
  *   動画の解析は指標の収集の後（R4 設計 3.2 節。新しい投稿も同じ回に解析できる）。バックフィルは余ったレート制限で進める）
- * - daily（JST `WORKER_DAILY_TIME_JST`）: `token_check` → `profile_daily` → `account_daily` → `media_sync --full`
- *   （トークンの状態を先に更新する。残りは独立）
+ * - daily（JST `WORKER_DAILY_TIME_JST`）: `token_check` → `profile_daily` → `account_daily` → `audience_demographics` →
+ *   `media_sync --full`（トークンの状態を先に更新する。残りは独立。属性は週にまだなければ取る。R5 設計 3.2 節）
  *
  * 各ジョブは `export const job` だけを出し、ここで順番と options（`media_sync --full`）を決める。
  */
 import { job as accountBackfillJob } from "./account-backfill.js";
 import { job as accountDailyJob } from "./account-daily.js";
+import { job as audienceDemographicsJob } from "./audience-demographics.js";
 import { describeError, runJobsForActiveAccounts, type JobDefinition, type JobDeps, type JobOptions } from "./framework.js";
 import { job as mediaSnapshotJob } from "./media-snapshot.js";
 import { job as mediaSyncJob } from "./media-sync.js";
@@ -42,6 +43,7 @@ export const DAILY_JOBS: GroupEntry[] = [
   { def: tokenCheckJob },
   { def: profileDailyJob },
   { def: accountDailyJob },
+  { def: audienceDemographicsJob },
   { def: mediaSyncJob, options: { full: true } },
 ];
 
