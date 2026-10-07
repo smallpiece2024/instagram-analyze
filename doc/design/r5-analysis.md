@@ -1,6 +1,6 @@
 # R5 投稿分類、ストーリーズ、オーディエンス、投稿時刻の分析の設計
 
-- 版: 0.2（2026-10-08）。3 本のレビュー（SQL、セキュリティ、テスト）を反映した。確認事項（9 章）はまだ回答がない
+- 版: 0.3（2026-10-08）。確認事項 Q1〜Q17 はすべて推奨どおり（ユーザー）
 
 ## 版と変更履歴
 
@@ -8,6 +8,7 @@
 |---|---|---|
 | 0.1 | 2026-10-08 | 起草（`nextjs-developer`。親が 2026-10-08 に確かめた事実票をもとにする） |
 | 0.2 | 2026-10-08 | レビューを反映した。**3 章（収集）**: D10（`ok` は値が 1 件以上）、D11（`do nothing returning id`）、T5（切り詰めはコードポイント）、T14（例外の扱い、同じ value_key）、S6（fixture は形だけ）、S7（ログにトークンなどを出さない）。**5 章（DB）**: D2（`no action`）、D3（`lock_timeout`）、D4（identity の権限）、D5、D6（先に NFKC）、D7（comment で互いを参照する案を選んだ）、D8〜D9（check）、D10（年齢は value_key の順を選んだ）、D12（一意制約の列の順）、D13（索引）、D14（トリガー）、D15（名前の check）、S5（列ごとの grant と 4 本のポリシー。件数の上限は画面だけにした）、S13（sequence の権限）。**6 章（画面）**: S1（`checkAccess` には固定の経路）、S2（同一オリジンの検査）、S3（SQL は `lib/queries/tag-edit.ts`）、S4（`tag_values` は軸を通してアカウントで絞る）、S8（名前の検査）、S9 と T6（エラーの文言）、S10（軸の削除は 2 段階）、S11（JSX の子として出す）、S12（`no-store`）、T9（最新の週の決め方）、T10（期間の境目）、T11（並び順）、T12（`axis` の検査）。**7 章（テスト）**: T1〜T16 と S1〜S11 のテストを足し、担当ごとのファイルの表を作った（T13）。**8 章（段階）**: D3（db push の時刻）、T1、T2、T13（段階 3 は 5 人）。**9 章**: Q3 に T17、Q6 に T4、Q10 に T7、Q16 に S10 を書き足し、Q17（T18）を足した |
+| 0.3 | 2026-10-08 | 確認事項 Q1〜Q17 をすべて推奨どおりに決めた（ユーザー） |
 
 - 要件: `doc/requirements/requirements-definition.md` 4.6 章（F-UI-30〜32、F-UI-40〜42、F-COL-30）、5.1 章（独自タグ、属性データの週次記録）、5.2 章（属性データは週 1 回）、5.5 章（時刻）、7 章（指標の定義）、9 章（画面一覧）、10 章（R5 の完了条件「タグを付けた投稿の比較、ストーリーズの離脱ファネル、属性の推移が表示される」）
 - 既存: R1 のビュー（`20261001100400_r1_views.sql` の `story_final_metrics`、`media_analysis_dataset`）、R2 の `web_app` ロール（`20261002005926_r2_web_role.sql`）、R3 のビュー（`20261005000000_r3_analysis_views.sql`）、R4 のビュー（`20261007000000_r4_video.sql`）、R3 と R4 の画面（`doc/design/r3-analysis-screens.md`、`doc/design/r4-video-analysis.md`）、ワーカーの `jobs/profile-daily.ts` と `jobs/groups.ts`、Web の `lib/auth.ts`（`checkAccess(pathname)`）と `lib/request-guard.ts`（`isSameOriginPost`）
@@ -74,7 +75,7 @@
 - パラメータは `period=lifetime`、`metric_type=total_value`、`timeframe`（確認事項 Q7。推奨は `this_month`）
 - 内訳つきの指標は内訳なしの指標と同じリクエストに入れられない（P5）。内訳も 1 リクエスト 1 つにする。1 回で **2 指標 × 4 内訳 = 8 リクエスト**
 - 返るのは上位 45 件だけ。計算に使うデータは最大 48 時間遅れる
-- 応答の形（`total_value.breakdowns[].results[].dimension_values` と `value` の想定）は未確認。段階 0 で本番の `raw_api_responses` にある R0／R1 の応答を見て決める。年齢の区分（`18-24` など）、性別の値（`F`／`M`／`U` の想定）も同じく確かめる
+- 応答の形（段階 0 で確認。2026-10-08、親が `.local/api-verification/` の R1 の検証の応答（2026-10-01）を見た）: `data[0].total_value.breakdowns[0].results[]` の各要素が `dimension_values`（区分の名前 1 つの配列）と `value`（数値）を持つ。`dimension_keys` は指定した内訳の名前 1 つ。年齢は `18-24`、`25-34`、`35-44`、`45-54`、`55-64`、`65+` の 6 区分（`13-17` は返らなかった。文字列の順で若い順になる）、性別は `F`、`M`、`U`。国は 2 文字のコード（10 区分）、都市は「市区町村, 都道府県」の英語の文字列（45 区分、最長 49 文字）。国と都市の `results` は値の大きい順に並んでいない（表示側で並べる）
 - **段階 0 で応答を写すときの決まり（S6）**: テストの fixture には応答の**形だけ**を写し、値は架空にする（都市は `CityA`、国は実在のコードでよいが人数は架空）。ID、ユーザー名、URL を入れない。`doc/` に残すのは件数と形だけ
 
 ### 3.2 いつ取るか
@@ -91,7 +92,7 @@
 - **同じ週の 2 回目（D11、T14）**: `insert … on conflict (account_id, metric, timeframe, breakdown, week_start) do nothing returning id`。行が返らなければ（手元のワーカーと Actions が同時に動いたなど）値を書かず `skipped_this_week` に数える。事前の「その週の行があるか」の確認で通常は API を呼ばずに飛ばす
 - API の失敗（`transient` の再試行を使い切った、`fatal`）は行を書かず `recordFailure`（`code` と `errorClass`。API の `message` は固定文言に置き換える）。翌日に同じ週の取り直しになる。一部の組が失敗したら `partial`（枠組みの既定の規則）
 - `RateLimitExceeded` と `AuthError` は捕まえず外へ出し、枠組みに任せる（`stories` と同じ）
-- 100 未満のときに「空の応答」が返るのか「エラー」が返るのかは未確認（R0 の V10 は空と記録）。エラーが返るなら、そのエラーコードを段階 0 で確かめ、`empty` として扱う
+- 反応が 100 未満のときは、エラーではなく空が返る（段階 0 で確認。`engaged_audience_demographics` の 4 内訳とも、`total_value.breakdowns[0]` に `dimension_keys` だけがあり `results` がない）。これを `empty` とする。フォロワーが 100 未満のときの形は対象アカウントでは確かめられない（同じ形とみて `empty` とし、`data` が空の配列の場合も `empty` とする）
 - 値は整数（`toCount` と同じ検査。`profile-daily.ts`）
 - 区分の名前は 200 **コードポイント**までに切る（`[...s].slice(0, 200).join("")`。サロゲートペアの途中で切らない。T5）。切り詰めで同じ `value_key` が 2 つできたら、その組は書かずに失敗に数え（`recordFailure`、固定の文言）、件数だけをログに出す（T14）
 - 生の応答は既定どおり保存する（`raw_response_id` を行に持たせる）
