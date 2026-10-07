@@ -2,7 +2,8 @@
  * `/api/meta/login` と `/api/meta/callback` の Route Handler のテスト。node 環境で `NextRequest` を作って呼ぶ。
  * `markDynamic` と `server-only` は `vitest.config.mts` の alias でスタブ。環境変数は `vi.stubEnv` で与える。
  * `handleCallback` は `vi.fn` で包み、必要なときだけ戻り値や例外を差し替える（既定は本物）。
- * 末尾で、R3 で足す URL（`/compare`、`/export/*`、`/media/[id]`）が proxy を通ることを確かめる。
+ * 末尾で、R3 で足す URL（`/compare`、`/export/*`、`/media/[id]`）と R4・R5 の画面の URL が proxy を通ること、
+ * R5 の画面の `no-store` とナビの並びを確かめる。
  */
 import { NextRequest, NextResponse } from "next/server";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +13,8 @@ import { checkAccess } from "../src/lib/auth";
 import { handleCallback } from "../src/lib/meta-connect";
 import { GET as callbackGet } from "../src/app/api/meta/callback/route";
 import * as login from "../src/app/api/meta/login/route";
+import { activeNavHref, NAV_ITEMS } from "../src/components/NavLinks";
+import nextConfig from "../next.config";
 
 // R3 の新しい URL が proxy を通ることの確認用（test/proxy.test.ts と同じ差し替え。route handler には影響しない）
 const getClaims = vi.fn();
@@ -266,6 +269,16 @@ describe("routes", () => {
       // R4 のリール分析（R4 設計 6.2 節）
       "/reels",
       "/reels?y=views&sort=duration&dir=asc",
+      // R5 の画面（R5 設計 4 章。画面は段階 3 で作る。proxy は変えない）
+      "/tags",
+      "/tags?axis=12&kind=reel&m=save_rate",
+      "/tags/edit",
+      "/tags/edit?missing=12&confirm_delete=12",
+      "/stories",
+      "/stories?range=90&sort=views&dir=asc",
+      "/audience",
+      "/timing",
+      "/timing?m=views_latest&kind=feed",
     ];
     // matcher は列挙しない 1 本の正規表現（src/proxy.ts）。Next.js と同じく pathname 全体に当てる
     const matchers = proxyConfig.matcher.map((m) => new RegExp(`^${m}$`));
@@ -297,6 +310,53 @@ describe("routes", () => {
 
       getClaims.mockResolvedValue({ data: { claims: { sub: ALLOWED } }, error: null });
       expect((await proxy(pageRequest(path))).status).toBe(200);
+    });
+  });
+
+  /** R5 の画面の応答は `Cache-Control: private, no-store`（R5 設計 4 章の S12。`next.config.ts` の `headers()`） */
+  describe("R5 の画面のキャッシュ", () => {
+    const R5_PAGES = ["/tags", "/tags/edit", "/stories", "/audience", "/timing"];
+
+    it.each(R5_PAGES)("%s は Cache-Control: private, no-store", async (source) => {
+      const rules = nextConfig.headers ? await nextConfig.headers() : [];
+      const rule = rules.find((r) => r.source === source);
+      expect(rule, source).toBeDefined();
+      expect(rule?.headers.find((h) => h.key === "Cache-Control")?.value).toBe("private, no-store");
+    });
+
+    it("R3・R4 のページの no-store も残っている", async () => {
+      const rules = nextConfig.headers ? await nextConfig.headers() : [];
+      for (const source of ["/media", "/media/:id", "/reels"]) {
+        expect(rules.find((r) => r.source === source)?.headers.some((h) => h.value === "private, no-store"), source).toBe(true);
+      }
+    });
+  });
+
+  /** ナビの並び（R5 設計 4 章、確認事項 Q11） */
+  describe("R5 のナビ", () => {
+    it("9 項目を決めた順に並べる", () => {
+      expect(NAV_ITEMS.map((i) => [i.href, i.label])).toEqual([
+        ["/", "概要"],
+        ["/media", "投稿一覧"],
+        ["/reels", "リール分析"],
+        ["/tags", "タグ分析"],
+        ["/stories", "ストーリーズ"],
+        ["/timing", "投稿時刻"],
+        ["/audience", "オーディエンス"],
+        ["/compare", "期間比較"],
+        ["/jobs", "接続と収集ログ"],
+      ]);
+    });
+
+    it("タグの編集はナビに出さず、現在位置はタグ分析", () => {
+      expect(NAV_ITEMS.map((i): string => i.href)).not.toContain("/tags/edit");
+      expect(activeNavHref("/tags/edit")).toBe("/tags");
+      expect(activeNavHref("/tags")).toBe("/tags");
+      expect(activeNavHref("/timing")).toBe("/timing");
+      expect(activeNavHref("/stories")).toBe("/stories");
+      expect(activeNavHref("/audience")).toBe("/audience");
+      // 前方一致は「/」の区切りまで（/tagsx は現在位置にしない）
+      expect(activeNavHref("/tagsx")).toBeUndefined();
     });
   });
 });

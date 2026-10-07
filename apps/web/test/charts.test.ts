@@ -6,7 +6,11 @@ import { LineChart, type LineChartProps } from "@/components/charts/LineChart";
 import { Legend } from "@/components/charts/Legend";
 import { Stacked100, type Stacked100Props } from "@/components/charts/Stacked100";
 import { VBars, type VBarsProps } from "@/components/charts/VBars";
-import { dimRuns, niceMax, segments, yDomain } from "@/components/charts/scale";
+import { Heatmap, HeatmapLegend, heatmapRange, heatPercent, type HeatmapProps } from "@/components/charts/Heatmap";
+import { HBars, type HBarsProps } from "@/components/charts/HBars";
+import { HStack, type HStackProps } from "@/components/charts/HStack";
+import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
+import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
 import { BaselineBand, bandDomain } from "@/app/compare/_compare/BaselineBand";
 import { jpRange, monthDay } from "@/app/compare/_compare/labels";
@@ -357,5 +361,235 @@ describe("期間比較の日付の表記", () => {
   it("monthDay は「9/1」", () => {
     expect(monthDay("2026-09-01")).toBe("9/1");
     expect(monthDay("2026-12-31")).toBe("12/31");
+  });
+});
+
+// ---------- R5 の部品（R5 設計 6.6 節、7.1 節の「グラフの部品の空と 1 点」、S11、T16） ----------
+
+/** 利用者の文字（キャプション、タグの名前、ハッシュタグ、国と都市の名前）に入りうる HTML（S11） */
+const EVIL = ["#<img src=x onerror=alert(1)>", "<script>alert(1)</script>", '"><svg onload=alert(1)>'];
+
+/** 利用者の文字が要素にならず、文字として出ていること */
+function expectEscaped(html: string) {
+  expect(html).not.toMatch(/<img|<script|<svg onload/i);
+  expect(html).toMatch(/&lt;(img|script|svg)/);
+}
+
+const strip = (p: Partial<StripProps>) =>
+  renderToStaticMarkup(createElement(Strip, { label: "t", points: [], domain: { min: 0, max: 1 }, ...p }));
+const heat = (p: Partial<HeatmapProps>) =>
+  renderToStaticMarkup(createElement(Heatmap, { title: "t", rows: [], cols: [], values: [], counts: [], ...p }));
+const hbars = (p: Partial<HBarsProps>) => renderToStaticMarkup(createElement(HBars, { title: "t", rows: [], ...p }));
+const hstack = (p: Partial<HStackProps>) =>
+  renderToStaticMarkup(createElement(HStack, { title: "t", segments: [], rows: [], ...p }));
+
+describe("Strip（帯グラフの 1 行）", () => {
+  it("stripDomain は全行の点と全体の中央値を含む。値なし、全部同じ値でも上端 > 下端", () => {
+    expect(stripDomain([[{ value: 10 }, { value: 30 }], [{ value: 50 }]], 5)).toEqual({ min: 5, max: 50 });
+    expect(stripDomain([], null)).toEqual({ min: 0, max: 1 });
+    const same = stripDomain([[{ value: 100 }, { value: 100 }]], 100);
+    expect(same.max).toBeGreaterThan(same.min);
+    const zero = stripDomain([[{ value: 0 }]]);
+    expect(zero.max).toBeGreaterThan(zero.min);
+  });
+
+  it("stripStats は percentile_cont と同じ線形補間。null は数えない", () => {
+    expect(stripStats([{ value: 4 }, { value: null }, { value: 1 }, { value: 2 }, { value: 3 }])).toEqual({
+      n: 4,
+      min: 1,
+      max: 4,
+      p25: 1.75,
+      median: 2.5,
+      p75: 3.25,
+    });
+    expect(stripStats([])).toEqual({ n: 0, min: null, max: null, p25: null, median: null, p75: null });
+  });
+
+  it("点 0 個、1 個、全部同じ値、壊れた目盛で例外を投げず NaN を出さない", () => {
+    const empty = strip({ points: [], overall: 5, domain: { min: 0, max: 10 } });
+    expectClean(empty);
+    expect(empty).toContain("投稿なし");
+    expect(empty).toContain('data-part="overall"');
+    expect(empty).not.toContain('data-part="point"');
+    expectClean(strip({ points: [{ value: 3 }], domain: stripDomain([[{ value: 3 }]]) }));
+    expectClean(strip({ points: [{ value: 3 }, { value: 3 }], domain: { min: 3, max: 3 } }));
+    expectClean(strip({ points: [{ value: 3 }, { value: null }], domain: { min: Number.NaN, max: Number.POSITIVE_INFINITY } }));
+  });
+
+  it("点ごとに円を描き、帯と中央値の線を描く。目盛は行で共通（同じ値は同じ x）", () => {
+    const domain = { min: 0, max: 100 };
+    const a = strip({ points: [{ value: 0 }, { value: 50 }, { value: 100 }], domain, overall: 50 });
+    const cxs = (html: string) => [...html.matchAll(/data-part="point" cx="([\d.]+)"/g)].map((m) => m[1]);
+    expect(cxs(a)).toHaveLength(3);
+    expect(a).toContain('data-part="band"');
+    expect(a).toContain('data-part="median"');
+    const b = strip({ points: [{ value: 50 }], domain });
+    expect(cxs(b)[0]).toBe(cxs(a)[1]);
+  });
+
+  it("点のリンクはアプリ内の経路だけ（// や javascript: はリンクにしない）", () => {
+    const html = strip({
+      points: [
+        { value: 1, href: "/media/123" },
+        { value: 2, href: "javascript:alert(1)" },
+        { value: 3, href: "//evil.example.com/" },
+      ],
+      domain: { min: 0, max: 3 },
+    });
+    expect(html).toContain('href="/media/123"');
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("evil.example.com");
+    expect(html.match(/<a /g)?.length).toBe(1);
+  });
+
+  it("dim で薄く描く", () => {
+    expect(strip({ points: [{ value: 1 }], dim: true })).toContain('data-dim="true"');
+    expect(strip({ points: [{ value: 1 }] })).not.toContain("data-dim");
+  });
+
+  it.each(EVIL)("行の名前と点のヒントの HTML は文字として出る: %s", (evil) => {
+    const html = strip({ label: `${evil}<script>x</script>`, points: [{ value: 1, tip: evil, href: "/media/1" }] });
+    expectClean(html);
+    expectEscaped(html);
+  });
+});
+
+describe("Heatmap", () => {
+  const rows = ["月", "火"];
+  const cols = ["0-3", "3-6", "6-9"];
+
+  it("0 行、全部空欄で例外を投げず NaN を出さない", () => {
+    expectClean(heat({}));
+    const blank = heat({ rows, cols, values: [[null, null, null], [null, null, null]], counts: [[0, 0, 0], [0, 0, 0]] });
+    expectClean(blank);
+    expect(blank.match(/data-part="empty"/g)?.length).toBe(6);
+    expect(blank).not.toContain('data-part="cell"');
+  });
+
+  it("全部同じ値でも 0 で割らず、同じ色で描く（T16）", () => {
+    const html = heat({ rows, cols, values: [[5, 5, null], [5, null, 5]], counts: [[2, 3, 0], [1, 0, 4]] });
+    expectClean(html);
+    const fills = [...html.matchAll(/data-part="cell"[^>]*fill="([^"]+)"/g)].map((m) => m[1]);
+    expect(fills.length).toBe(4);
+    expect(new Set(fills).size).toBe(1);
+    expect(heatPercent(5, { min: 5, max: 5 })).toBe(100);
+  });
+
+  it("色は表示している値の最小〜最大で決める。件数 0 のセルの値は範囲に入れない", () => {
+    const values = [[10, 20, 999], [30, null, null]];
+    const counts = [[1, 2, 0], [3, 0, 0]];
+    expect(heatmapRange(values, counts)).toEqual({ min: 10, max: 30 });
+    expect(heatPercent(10, { min: 10, max: 30 })).toBe(12);
+    expect(heatPercent(30, { min: 10, max: 30 })).toBe(100);
+    expect(heatmapRange([[null]], [[2]])).toBeNull();
+  });
+
+  it("件数 0 は空欄（数字なし）、件数 1 は数字に ※、2 以上は数字だけ", () => {
+    const html = heat({ rows: ["月"], cols: ["0-3", "3-6", "6-9"], values: [[100, 200, 300]], counts: [[1, 2, 0]], width: 600 });
+    expect(html).toContain(">100※<");
+    expect(html).toContain(">200<");
+    expect(html).not.toContain("300");
+    expect(html.match(/data-part="empty"/g)?.length).toBe(1);
+  });
+
+  it("凡例は値の範囲。範囲がなければ何も出さない。全部同じ値でも NaN を出さない", () => {
+    const legend = renderToStaticMarkup(createElement(HeatmapLegend, { values: [[10, 30]], counts: [[1, 1]] }));
+    expect(legend).toContain("最小 10");
+    expect(legend).toContain("最大 30");
+    expect(renderToStaticMarkup(createElement(HeatmapLegend, { values: [[null]], counts: [[0]] }))).toBe("");
+    const same = renderToStaticMarkup(createElement(HeatmapLegend, { values: [[7, 7]], counts: [[1, 2]] }));
+    expect(same).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("heatColor は 0〜100 に丸める", () => {
+    expect(heatColor(150)).toContain(" 100%");
+    expect(heatColor(-3)).toContain(" 0%");
+    expect(heatColor(Number.NaN)).toContain(" 0%");
+  });
+});
+
+describe("HBars（割合の横棒）", () => {
+  it("0 行、割合 null、割合 0 で例外を投げず NaN を出さない", () => {
+    expectClean(hbars({}));
+    const html = hbars({
+      rows: [
+        { label: "F", value: null, share: null },
+        { label: "M", value: 0, share: 0 },
+      ],
+    });
+    expectClean(html);
+    expect(html).not.toContain('data-part="bar"');
+    expect(html).toContain("—");
+  });
+
+  it("1 行でも棒を描き、人数と割合を書く。最も大きい割合を全幅にする", () => {
+    const one = hbars({ rows: [{ label: "JP", value: 1234, share: 0.5 }], width: 520, labelWidth: 120 });
+    expectClean(one);
+    expect(one).toContain("1,234（50.0%）");
+    expect(/data-part="bar"[^>]*width="([\d.]+)"/.exec(one)?.[1]).toBe("288");
+  });
+
+  it("長い名前はコードポイントで切り、全体は <title> に出す", () => {
+    const name = "Shibuya-ku, Tokyo \u{1F468}‍\u{1F469}‍\u{1F467} long city name";
+    const html = hbars({ rows: [{ label: name, value: 3, share: 1 }], maxLabelChars: 20 });
+    expect(html).toContain(`>${[...name].slice(0, 19).join("")}…<`);
+    expect(html).toContain(`<title>${name}: 3（100.0%）</title>`);
+    expect(html).not.toContain("�");
+  });
+
+  it.each(EVIL)("区分の名前の HTML は文字として出る: %s", (evil) => {
+    const html = hbars({ rows: [{ label: `${evil}<script>`, value: 1, share: 1 }], maxLabelChars: 200 });
+    expectClean(html);
+    expectEscaped(html);
+  });
+});
+
+describe("HStack（横の 100% 積み上げ）", () => {
+  const segs = [
+    { label: "次へ", color: heatColor(90) },
+    { label: "戻る", color: heatColor(65) },
+    { label: "離脱", color: heatColor(45) },
+    { label: "次のアカウントへ", color: heatColor(25) },
+  ];
+
+  it("0 行、合計 0、全部 null で例外を投げず NaN を出さない。合計 0 は「—」", () => {
+    expectClean(hstack({ segments: segs }));
+    const html = hstack({
+      segments: segs,
+      rows: [
+        { label: "9/1 12:00", values: [0, 0, 0, 0] },
+        { label: "9/2 12:00", values: [null, null, null, null] },
+      ],
+    });
+    expectClean(html);
+    expect(html).not.toContain('data-part="segment"');
+    expect(html.match(/>—</g)?.length).toBe(2);
+  });
+
+  it("分母は 4 つの合計。値と割合を <title> と aria-label に出す。0 と null の区分は描かない", () => {
+    const html = hstack({ segments: segs, rows: [{ label: "9/1", values: [60, null, 20, 20] }] });
+    expectClean(html);
+    expect(html.match(/data-part="segment"/g)?.length).toBe(3);
+    expect(html).toContain("<title>9/1 次へ: 60（60%）</title>");
+    expect(html).toContain('aria-label="9/1 離脱: 20（20%）"');
+    expect(html).not.toContain("戻る:");
+  });
+
+  it("1 区分だけでも全幅を 1 本で描く", () => {
+    const html = hstack({ segments: segs, rows: [{ label: "a", values: [5, 0, 0, 0] }], width: 478, labelWidth: 78 });
+    expect(/data-part="segment"[^>]*width="([\d.]+)"/.exec(html)?.[1]).toBe("400");
+  });
+});
+
+describe("LineChart（欠けで線を切る。オーディエンスの推移）", () => {
+  it("前後が null の 1 点は線を描かず点だけ（dots）。欠けの前後をつながない", () => {
+    const html = line({ labels: ["a", "b", "c", "d", "e"], series: [{ label: "s", values: [1, null, 3, null, 5], color: "red", dots: true }] });
+    expectClean(html);
+    expect(/class="chart-line" d="([^"]+)"/.exec(html)?.[1] ?? "").not.toContain("L");
+    expect(html.match(/class="chart-dot"/g)?.length).toBe(3);
+    const two = line({ labels: ["a", "b", "c", "d"], series: [{ label: "s", values: [1, 2, null, 4], dots: true }] });
+    const d = /class="chart-line" d="([^"]+)"/.exec(two)?.[1] ?? "";
+    expect(d.match(/M/g)?.length).toBe(2);
+    expect(d.match(/L/g)?.length).toBe(1);
   });
 });

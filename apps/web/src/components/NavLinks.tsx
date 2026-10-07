@@ -6,12 +6,18 @@ import { PendingMark } from "./PendingMark";
 
 /**
  * ナビの項目（R3 設計 2.2 節）。投稿詳細はナビに出さず、現在位置は「投稿一覧」にする。
- * リール分析は投稿詳細の次（見本の順。R4 設計 6.2 節）
+ * リール分析は投稿詳細の次（見本の順。R4 設計 6.2 節）。
+ * R5 で、投稿の分析（タグ分析、ストーリーズ、投稿時刻）をリール分析の後に、アカウントの分析（オーディエンス）を
+ * その後に足した（R5 設計 4 章、確認事項 Q11）。タグの編集（`/tags/edit`）はナビに出さず、現在位置は「タグ分析」
  */
 export const NAV_ITEMS = [
   { href: "/", label: "概要" },
   { href: "/media", label: "投稿一覧" },
   { href: "/reels", label: "リール分析" },
+  { href: "/tags", label: "タグ分析" },
+  { href: "/stories", label: "ストーリーズ" },
+  { href: "/timing", label: "投稿時刻" },
+  { href: "/audience", label: "オーディエンス" },
   { href: "/compare", label: "期間比較" },
   { href: "/jobs", label: "接続と収集ログ" },
 ] as const;

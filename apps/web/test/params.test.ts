@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseAxisId,
   parseCsvDateRange,
   parseDateRange,
+  parseKindFilter,
+  parseSelectedAxis,
+  parseStoryRange,
+  parseTagMetric,
+  parseTimingMetric,
   parseJob,
   parseJobStatus,
   parseMediaId,
@@ -124,6 +130,62 @@ describe("日付の範囲", () => {
     expect(parseCsvDateRange("2026-09-01", "2026-09-30")).toEqual({
       kind: "range",
       period: { from: "2026-09-01", to: "2026-09-30" },
+    });
+  });
+});
+
+/** R5 の画面の入力（R5 設計 6 章、7.1 節の「入力の検査」、T12、T15） */
+describe("R5 の入力", () => {
+  const BAD = ["", "ALL", " all", "story", "all;drop", undefined, ["all"], ["reel", "feed"]];
+
+  it("kind は all、reel、feed、carousel だけ。ほか（story を含む）は all", () => {
+    for (const v of ["all", "reel", "feed", "carousel"] as const) expect(parseKindFilter(v)).toBe(v);
+    for (const v of BAD) expect(parseKindFilter(v)).toBe("all");
+  });
+
+  it("タグ分析の m は 6 つだけ。ほかは reach", () => {
+    for (const v of ["reach", "views", "save_rate", "share_rate", "er", "reach_rate"] as const) expect(parseTagMetric(v)).toBe(v);
+    for (const v of [...BAD, "reach_24h", "REACH"]) expect(parseTagMetric(v)).toBe("reach");
+  });
+
+  it("投稿時刻の m は 4 つだけ。ほか（タグ分析の reach を含む）は reach_24h", () => {
+    for (const v of ["reach_24h", "views_24h", "reach_latest", "views_latest"] as const) expect(parseTimingMetric(v)).toBe(v);
+    for (const v of [...BAD, "reach", "reach_7d"]) expect(parseTimingMetric(v)).toBe("reach_24h");
+  });
+
+  it("ストーリーズの range は 30、90、365 だけ。ほかは 30", () => {
+    expect(parseStoryRange("30")).toBe(30);
+    expect(parseStoryRange("90")).toBe(90);
+    expect(parseStoryRange("365")).toBe(365);
+    for (const v of ["7", "366", "030", "1e2", "", "abc", undefined, ["90"]]) expect(parseStoryRange(v)).toBe(30);
+  });
+
+  describe("軸の id（axis、missing、confirm_delete）", () => {
+    // 対象のアカウントの、いまある軸（並び順）。"3" は消された軸、"99" は別のアカウントの軸のつもり
+    const AXES = ["12", "5", "7"];
+
+    it("いまある軸の id だけを返す", () => {
+      expect(parseAxisId("5", AXES)).toBe("5");
+      expect(parseAxisId("12", AXES)).toBe("12");
+    });
+
+    it("形が違う、消された軸、別のアカウントの軸、配列は undefined（絞り込みなし）", () => {
+      for (const v of ["3", "99", "", "05", "-5", "5 ", "5;", "1".repeat(19), "abc", undefined, ["5"]]) {
+        expect(parseAxisId(v, AXES)).toBeUndefined();
+      }
+    });
+
+    it("19 桁以上は軸の一覧にあっても通さない（18 桁まで）", () => {
+      const long = "1".repeat(19);
+      expect(parseAxisId(long, [long])).toBeUndefined();
+      expect(parseAxisId("1".repeat(18), ["1".repeat(18)])).toBe("1".repeat(18));
+    });
+
+    it("axis は不正なら並び順の最初の軸。軸が 0 件なら undefined", () => {
+      expect(parseSelectedAxis("7", AXES)).toBe("7");
+      for (const v of ["3", "99", "x", undefined, ["7"]]) expect(parseSelectedAxis(v, AXES)).toBe("12");
+      expect(parseSelectedAxis("7", [])).toBeUndefined();
+      expect(parseSelectedAxis(undefined, [])).toBeUndefined();
     });
   });
 });

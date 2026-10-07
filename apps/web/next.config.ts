@@ -10,10 +10,23 @@ import type { NextConfig } from "next";
  * - `headers()`: 全ルートに固定のセキュリティヘッダ。`Referrer-Policy` は `same-origin`（`no-referrer` にすると
  *   ブラウザが同一オリジンのフォーム送信でも `Origin: null` を送り、`/api/meta/login` の Origin 検査が 403 になる。
  *   `same-origin` でも Referer は他のオリジン（Storage、Meta）には送られない。`test/next-config.test.ts`）。
- *   署名付き URL を含むページ（`/media`、`/media/:id`、`/reels`）は `Cache-Control: private, no-store`
+ *   署名付き URL か本人のデータを含むページ（`NO_STORE_PAGES`）は `Cache-Control: private, no-store`
  */
-/** 署名付き URL を含むページの経路（投稿一覧、投稿詳細、リール分析） */
-const SIGNED_URL_PAGES = ["/media", "/media/:id", "/reels"] as const;
+/**
+ * 共有のキャッシュにも履歴のキャッシュにも残さないページの経路。
+ * R3・R4: 署名付き URL を含むページ（投稿一覧、投稿詳細、リール分析）。
+ * R5: タグ分析、タグの編集、ストーリーズ、オーディエンス、投稿時刻（R5 設計 4 章の S12）
+ */
+const NO_STORE_PAGES = [
+  "/media",
+  "/media/:id",
+  "/reels",
+  "/tags",
+  "/tags/edit",
+  "/stories",
+  "/audience",
+  "/timing",
+] as const;
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["postgres"],
@@ -32,8 +45,9 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
         ],
       },
-      // 署名付き URL（サムネイル）を含むページは共有のキャッシュにも履歴のキャッシュにも残さない（R3 設計 4.7 節）
-      ...SIGNED_URL_PAGES.map((source) => ({
+      // 署名付き URL（サムネイル）か本人のデータを含むページは共有のキャッシュにも履歴のキャッシュにも残さない
+      // （R3 設計 4.7 節、R5 設計 4 章）
+      ...NO_STORE_PAGES.map((source) => ({
         source,
         headers: [{ key: "Cache-Control", value: "private, no-store" }],
       })),
