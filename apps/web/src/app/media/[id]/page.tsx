@@ -11,6 +11,7 @@ import { getMedia, signMediaThumbnail } from "@/lib/queries/media-detail";
 import { CutTimelineCard } from "./_detail/CutTimelineCard";
 import { GrowthCard } from "./_detail/GrowthCard";
 import { MediaInfo } from "./_detail/MediaInfo";
+import { MediaTags } from "./_detail/MediaTags";
 import { QualityCard, QuantityCard } from "./_detail/MetricBands";
 
 const TITLE = "投稿詳細";
@@ -79,6 +80,9 @@ export default async function MediaDetailPage({ params }: { params: Promise<{ id
         </ol>
       </nav>
       <PageHead title={TITLE} sub={lastUpdatedLabel(media.latest_fetched_at)} />
+      <Suspense fallback={null}>
+        <MediaTags accountId={account.data.id} mediaId={id} />
+      </Suspense>
       <MediaInfo media={media} title={title} thumbnailUrl={thumbnailUrl} />
       <div className="grid">
         <Suspense fallback={<CardLoading title="量の指標" className="col-6" />}>

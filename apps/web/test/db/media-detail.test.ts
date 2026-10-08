@@ -19,7 +19,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { topPercent } from "@/app/media/[id]/_detail/text";
 import { closeAllDb } from "@/lib/db";
 import { getMedia, getMediaHorizons, getPeerHorizonStats, getPeerStats } from "@/lib/queries/media-detail";
-import { fakeIgUserId, fakeMediaId, setWebEnv } from "./fixtures";
+import { tagEditHref } from "@/app/media/[id]/_detail/MediaTags";
+import { getMediaTagSummary } from "@/lib/queries/tag-edit";
+import {
+  fakeIgUserId,
+  fakeMediaId,
+  HOUR_MS,
+  insertFakeAccount,
+  insertMedia,
+  insertMediaTag,
+  insertTagAxis,
+  insertTagValue,
+  setWebEnv,
+} from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -226,5 +238,87 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
     if (!c2.ok) return;
     expect(c2.data.stats.reach).toMatchObject({ n: 1, min: 9999, max: 9999, median: 9999 });
     expect(c2.data.reachGreater).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------
+// R5: 投稿詳細のタグの表示（R5 設計 6.2 節「投稿詳細の変更」。担当 3B）
+// ---------------------------------------------------------------
+
+describe("投稿詳細の「タグを編集」のリンク", () => {
+  it("tagEditHref: 編集画面の表（1 ページ 50 件）でのページと行のアンカー。1 ページ目には page を付けない", () => {
+    expect(tagEditHref("1789", 0)).toBe("/tags/edit#m-1789");
+    expect(tagEditHref("1789", 49)).toBe("/tags/edit#m-1789");
+    expect(tagEditHref("1789", 50)).toBe("/tags/edit?page=2#m-1789");
+    expect(tagEditHref("1789", 120)).toBe("/tags/edit?page=3#m-1789");
+    expect(tagEditHref("1789", -1)).toBe("/tags/edit#m-1789");
+  });
+});
+
+describe.skipIf(!TEST_DATABASE_URL)("queries/tag-edit の getMediaTagSummary（結合）", () => {
+  const url = TEST_DATABASE_URL ?? "";
+  let sql: postgres.Sql;
+  let accountA = "";
+  let accountB = "";
+  let restoreEnv: () => void = () => {};
+  const P = new Date("2026-08-01T00:00:00Z");
+  const ids = { old: fakeMediaId(201), mid: fakeMediaId(202), story: fakeMediaId(203), newer: fakeMediaId(204), b1: fakeMediaId(205) };
+  let axis1 = "";
+  let axis2 = "";
+
+  beforeAll(async () => {
+    restoreEnv = setWebEnv(url);
+    sql = postgres(url, { max: 1, onnotice: () => {} });
+    accountA = await insertFakeAccount(sql, "fake_detail_tag_a");
+    accountB = await insertFakeAccount(sql, "fake_detail_tag_b");
+    await insertMedia(sql, { id: ids.old, accountId: accountA, postedAt: P });
+    await insertMedia(sql, { id: ids.mid, accountId: accountA, postedAt: new Date(P.getTime() + HOUR_MS) });
+    // ストーリーズは編集画面の表に出ないので、位置に数えない
+    await insertMedia(sql, { id: ids.story, accountId: accountA, postedAt: new Date(P.getTime() + 2 * HOUR_MS), productType: "STORY" });
+    await insertMedia(sql, { id: ids.newer, accountId: accountA, postedAt: new Date(P.getTime() + 3 * HOUR_MS) });
+    await insertMedia(sql, { id: ids.b1, accountId: accountB, postedAt: new Date(P.getTime() + 4 * HOUR_MS) });
+    // 軸の並び順は 2 番目に作った軸を先に（sort_order で並ぶことを確かめる）
+    axis1 = await insertTagAxis(sql, { accountId: accountA, name: "テーマ", sortOrder: 1 });
+    axis2 = await insertTagAxis(sql, { accountId: accountA, name: "<script>目的</script>", sortOrder: 0 });
+    const v1 = await insertTagValue(sql, { axisId: axis1, name: "旅" });
+    const v2 = await insertTagValue(sql, { axisId: axis2, name: "認知" });
+    await insertMediaTag(sql, { mediaId: ids.old, accountId: accountA, axisId: axis1, valueId: v1 });
+    await insertMediaTag(sql, { mediaId: ids.old, accountId: accountA, axisId: axis2, valueId: v2 });
+    const bAxis = await insertTagAxis(sql, { accountId: accountB, name: "B の軸" });
+    const bValue = await insertTagValue(sql, { axisId: bAxis, name: "B の値" });
+    await insertMediaTag(sql, { mediaId: ids.b1, accountId: accountB, axisId: bAxis, valueId: bValue });
+  });
+
+  afterAll(async () => {
+    for (const id of [accountA, accountB]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
+    await closeAllDb();
+    await sql.end({ timeout: 5 });
+    restoreEnv();
+  });
+
+  it("付いているタグを軸の並び順（sort_order、同じなら id）で返す。名前は文字列のまま", async () => {
+    const r = await getMediaTagSummary(accountA, ids.old);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.tags).toEqual([
+      { axis_name: "<script>目的</script>", value_name: "認知" },
+      { axis_name: "テーマ", value_name: "旅" },
+    ]);
+  });
+
+  it("位置は編集画面の表（新しい順、ストーリーズを除く）で前にある投稿の数", async () => {
+    const old = await getMediaTagSummary(accountA, ids.old);
+    const newer = await getMediaTagSummary(accountA, ids.newer);
+    expect(old.ok && old.data.position).toBe(2);
+    expect(newer.ok && newer.data.position).toBe(0);
+  });
+
+  it("タグがなければ空。別のアカウントの投稿のタグは読めない", async () => {
+    const mid = await getMediaTagSummary(accountA, ids.mid);
+    expect(mid.ok && mid.data.tags).toEqual([]);
+    const other = await getMediaTagSummary(accountA, ids.b1);
+    expect(other.ok && other.data).toEqual({ tags: [], position: 0 });
   });
 });
