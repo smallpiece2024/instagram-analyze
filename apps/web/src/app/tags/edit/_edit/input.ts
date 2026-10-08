@@ -37,9 +37,10 @@ export const INITIAL_TAG_EDIT_STATE: TagEditState = { status: "idle", message: "
 
 export type MoveDirection = "up" | "down";
 
-const ID_PATTERN = /^\d{1,18}$/;
+// 先頭の 0 を拒む（`axis_1` と `axis_01` が別のキーとして重複の検査をすり抜けないように）
+const ID_PATTERN = /^[1-9]\d{0,17}$/;
 const MEDIA_ID_PATTERN = /^\d{1,25}$/;
-const AXIS_KEY_PATTERN = /^axis_(\d{1,18})$/;
+const AXIS_KEY_PATTERN = /^axis_([1-9]\d{0,17})$/;
 const FORBIDDEN_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}]/u;
 
 /** FormData のすべての値が文字列か（`File` があれば偽） */

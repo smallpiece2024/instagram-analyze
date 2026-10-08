@@ -288,6 +288,10 @@ describe("setMediaTags の入力（S8）", () => {
     expect(parseMediaTagsForm(form({ media_id: "1".repeat(26), axis_1: "1" }))).toBeUndefined();
     expect(parseMediaTagsForm(form({ media_id: "abc", axis_1: "1" }))).toBeUndefined();
     expect(parseMediaTagsForm(form({ axis_1: "1" }))).toBeUndefined();
+    // 先頭の 0 は拒む（axis_1 と axis_01 で同じ軸に 2 回書かせない）
+    expect(parseMediaTagsForm(form({ media_id: "1", axis_01: "1" }))).toBeUndefined();
+    expect(parseMediaTagsForm(form({ media_id: "1", axis_1: "01" }))).toBeUndefined();
+    expect(parseMediaTagsForm(form({ media_id: "1", axis_1: "0" }))).toBeUndefined();
     expect(
       parseMediaTagsForm(
         form([
