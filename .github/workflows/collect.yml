@@ -84,19 +84,43 @@ jobs:
       - run: npm ci --workspace worker --ignore-scripts
       - run: npm run build --workspace worker
 
-      # 入らなくても収集は進める（stories と video_analysis の動画解析だけ failed になり、メールで分かる）。
-      # apt-get が止まるとジョブの上限（30 分）まで待つことになるので、ステップに上限を付ける（2026-10-07 に 10 分以上止まった）
+      # ffmpeg と ffprobe は、BtbN/FFmpeg-Builds の静的ビルド（月末の版。月末の版は長く残る）を版と SHA-256 で固定し、
+      # Actions のキャッシュに置いて使う。Ubuntu のミラーからの apt-get は遅いことがあり、
+      # 5 分の上限に当たって video_analysis が「ffmpeg がない」で失敗していた（2026-10-07〜08 に約 30 回中 3 回）。
+      # 入らなくても収集は進める（stories と video_analysis の動画解析だけ failed になり、メールで分かる）
+      - id: ffmpeg-cache
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/ffmpeg-bin
+          key: ffmpeg-7d6d93e9c39e0e461feb13c118e91e4eec2515e4da3a01d4ad6790996731bbee
       - name: ffmpeg
+        id: ffmpeg
         continue-on-error: true
         timeout-minutes: 5
+        env:
+          FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/ffmpeg-n8.1.2-50-g1a748fe2cd-linux64-lgpl-8.1.tar.xz
+          FFMPEG_SHA256: 7d6d93e9c39e0e461feb13c118e91e4eec2515e4da3a01d4ad6790996731bbee
+          CACHE_HIT: ${{ steps.ffmpeg-cache.outputs.cache-hit }}
         run: |
-          if command -v ffmpeg > /dev/null; then exit 0; fi
-          for i in 1 2 3; do
-            sudo apt-get update -qq \
-              && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
-              && break
-            sleep 15
-          done
+          dir="$HOME/ffmpeg-bin"
+          if [ "$CACHE_HIT" != "true" ] || [ ! -x "$dir/ffmpeg" ] || [ ! -x "$dir/ffprobe" ]; then
+            rm -rf "$dir" && mkdir -p "$dir"
+            curl -fsSL --retry 3 --max-time 120 -o /tmp/ffmpeg.tar.xz "$FFMPEG_URL"
+            echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+            tar -xJf /tmp/ffmpeg.tar.xz -C "$dir" --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+            rm -f /tmp/ffmpeg.tar.xz
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+          "$dir/ffmpeg" -hide_banner -version | head -n 1
+      # ジョブの最後ではなく、入れた直後に保存する（収集が失敗した回でも保存されるように）
+      - if: ${{ steps.ffmpeg.outputs.downloaded == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/ffmpeg-bin
+          key: ffmpeg-7d6d93e9c39e0e461feb13c118e91e4eec2515e4da3a01d4ad6790996731bbee
 
       # 05 時台の回が GitHub の側で動かなかった日の補い（2026-10-06 にランナーが割り当てられず取り消された）。
       # 標準出力は due=true|false の 1 行だけ（ログは標準エラー）。DB を読めなくても毎時の収集は止めない
