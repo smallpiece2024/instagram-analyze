@@ -27,14 +27,6 @@ function kindOf(kind: string): MediaKind {
   return isMediaKind(kind) ? kind : "feed";
 }
 
-/** 行の今のタグを文字列にする（行の `key` 用。軸の id の順） */
-function tagsKey(tags: Readonly<Record<string, string>>): string {
-  return Object.keys(tags)
-    .sort()
-    .map((k) => `${k}=${tags[k]}`)
-    .join(",");
-}
-
 export function MediaTagTable({
   axes,
   data,
@@ -82,8 +74,9 @@ export function MediaTagTable({
                   const title = mediaTitle(m.caption);
                   const formId = `tag-form-${m.media_id}`;
                   const href = `/media/${m.media_id}`;
+                  // key は投稿の id だけ。タグを含めると保存のたびに行が作り直され、「保存しました」の状態が消える
                   return (
-                    <tr key={`${m.media_id}|${tagsKey(m.tags)}`} id={`m-${m.media_id}`} className={m.gone_at ? "dim" : undefined}>
+                    <tr key={m.media_id} id={`m-${m.media_id}`} className={m.gone_at ? "dim" : undefined}>
                       <td>
                         <Link href={href} aria-label={title}>
                           <Thumb src={m.thumbnail_url} kind={kind} />
@@ -98,7 +91,10 @@ export function MediaTagTable({
                       </td>
                       {axes.map((a) => (
                         <td key={a.id}>
+                          {/* 保存後のフォームのリセットは defaultValue に戻すが、select は defaultValue の変更を DOM に写さない。
+                              保存済みの値を key に含め、値が変わったら select だけを作り直す（行を作り直すと「保存しました」が消える） */}
                           <select
+                            key={m.tags[a.id] ?? ""}
                             className="input"
                             name={`axis_${a.id}`}
                             form={formId}
