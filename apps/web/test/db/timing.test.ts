@@ -104,7 +104,8 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/timing（結合）", () => {
     expect(got).not.toContain(ids.outside);
     expect(got).not.toContain(ids.story);
     expect(got).not.toContain(ids.other);
-    expect(got).toHaveLength(9);
+    // フィード 7 件のうち期間外の 1 件を除く 6 件と、リール、カルーセル
+    expect(got).toHaveLength(8);
     expect(r.data.last_fetched_at).toBeInstanceOf(Date);
 
     const rb = await getTimingRows(accountB);
