@@ -528,3 +528,10 @@
   .group-cell { grid-column: span 12; }
   .reel-table td.sticky-title { max-width: 8em; }
 }
+
+/* ---------- 表の行のホバー（PC だけ。横に広い表で、見ている行を分かりやすくする） ----------
+   セルに色を塗る（行に塗ると、背景を持つ固定列のセルだけ白く残るため）。色は不透明にして、横にずらした列が固定列の下に透けないようにする */
+@media (min-width: 701px) and (hover: hover) {
+  .table tbody tr:hover > th,
+  .table tbody tr:hover > td { background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface)); }
+}
