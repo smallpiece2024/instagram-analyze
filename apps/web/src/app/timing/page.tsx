@@ -67,7 +67,8 @@ export default async function TimingPage(props: PageProps<"/timing">) {
   const tools = (
     <>
       <ChoiceChips
-        label="指標"
+        label="比べる指標"
+        lead="比べる指標"
         current={m}
         options={TIMING_METRICS.map((v) => ({
           value: v,
@@ -76,7 +77,8 @@ export default async function TimingPage(props: PageProps<"/timing">) {
         }))}
       />
       <ChoiceChips
-        label="種類"
+        label="投稿の種類"
+        lead="投稿の種類"
         current={kind}
         options={KIND_FILTERS.map((v) => ({
           value: v,

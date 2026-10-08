@@ -108,12 +108,14 @@ export default async function TagsPage(props: PageProps<"/tags">) {
         {axes.length > 0 && (
           <ChoiceChips
             label="タグの軸"
+            lead="タグの軸"
             current={params.axis ?? ""}
             options={axes.map((a) => ({ value: a.id, label: a.name, href: tagsHref(params, firstAxisId, { axis: a.id }) }))}
           />
         )}
         <ChoiceChips
-          label="種類"
+          label="投稿の種類"
+          lead="投稿の種類"
           current={params.kind}
           options={KIND_FILTERS.map((k) => ({
             value: k,
@@ -123,6 +125,7 @@ export default async function TagsPage(props: PageProps<"/tags">) {
         />
         <ChoiceChips
           label="比べる指標"
+          lead="比べる指標"
           current={params.m}
           options={TAG_METRICS.map((m) => ({
             value: m,
