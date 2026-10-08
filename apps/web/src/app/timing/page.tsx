@@ -64,8 +64,9 @@ export default async function TimingPage(props: PageProps<"/timing">) {
   const { rows, last_fetched_at } = result.data;
   const view = buildTimingView(rows, m, kind);
 
-  const tools = (
-    <>
+  // 選択は見出しの下に段を分けて並べる（タグ分析と同じ形）
+  const selectors = (
+    <div className="stack">
       <ChoiceChips
         label="比べる指標"
         lead="比べる指標"
@@ -86,7 +87,7 @@ export default async function TimingPage(props: PageProps<"/timing">) {
           href: buildHref(PATH, timingQuery(m, v)),
         }))}
       />
-    </>
+    </div>
   );
 
   return (
@@ -94,8 +95,8 @@ export default async function TimingPage(props: PageProps<"/timing">) {
       <PageHead
         title={TITLE}
         sub={`${TIMING_METRIC_LABEL[m]}（過去 1 年間の投稿 ${view.total} 件）・${lastUpdatedLabel(last_fetched_at)}`}
-        tools={tools}
       />
+      {selectors}
       <div className="grid">
         {view.total === 0 ? (
           <NoTiming />
