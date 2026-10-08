@@ -19,6 +19,7 @@ import { verifyApi } from "./commands/verify-api.js";
 import { videoTune } from "./commands/video-tune.js";
 import { job as accountBackfillJob } from "./jobs/account-backfill.js";
 import { job as accountDailyJob } from "./jobs/account-daily.js";
+import { job as audienceDemographicsJob } from "./jobs/audience-demographics.js";
 import { cleanOldTempDirs, describeError, processSecrets } from "./jobs/framework.js";
 import { DAILY_JOBS, HOURLY_JOBS } from "./jobs/groups.js";
 import { job as mediaSnapshotJob } from "./jobs/media-snapshot.js";
@@ -39,6 +40,10 @@ const COMMANDS: Record<string, Command> = {
   "token-check": jobCommand(tokenCheckJob, "トークンの期限と状態を確かめて private.credentials を更新する"),
   "profile-daily": jobCommand(profileDailyJob, "プロフィールの日次記録"),
   "account-daily": jobCommand(accountDailyJob, "アカウント日次指標の直近 4 日と follower_count（--days <n> で日数を変える）"),
+  "audience-demographics": jobCommand(
+    audienceDemographicsJob,
+    "フォロワー属性と反応したユーザーの属性（2 指標 × 4 内訳）を、その週（JST の月曜始まり）にまだなければ記録する",
+  ),
   "account-backfill": jobCommand(accountBackfillJob, "アカウント日次指標の 2 年分のバックフィル。job_state で再開"),
   "media-sync": jobCommand(mediaSyncJob, "投稿一覧の同期。--full で全ページを読み、消えた投稿を検出する"),
   "media-snapshot": jobCommand(mediaSnapshotJob, "投稿指標のスナップショット"),
@@ -49,7 +54,7 @@ const COMMANDS: Record<string, Command> = {
     HOURLY_JOBS,
     "stories → media-sync → media-snapshot → video-analysis → account-backfill を順に実行",
   ),
-  "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → media-sync --full を順に実行"),
+  "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → audience-demographics → media-sync --full を順に実行"),
   "daily-due": {
     description: "前回の account-daily の成功から 24 時間を過ぎていれば due=true、そうでなければ due=false を標準出力に書く",
     run: () => dailyDue(),

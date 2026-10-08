@@ -31,6 +31,9 @@ const VIEWS = [
   "media_analysis_dataset",
   // R4（20261007000000_r4_video.sql）
   "media_video_features",
+  // R5（20261009000000_r5_analysis.sql）
+  "media_hashtags",
+  "story_list_metrics",
 ] as const;
 
 const READABLE_TABLES = [
@@ -42,6 +45,12 @@ const READABLE_TABLES = [
   "video_analyses",
   "video_cuts",
   "metric_definitions",
+  // R5（20261009000000_r5_analysis.sql）。タグの 3 表の書き込みと属性の 2 表の書けないことは r5-views.test.ts で確かめる
+  "tag_axes",
+  "tag_values",
+  "media_tags",
+  "audience_captures",
+  "audience_values",
 ] as const;
 
 function fakeIgUserId(): string {
@@ -125,6 +134,11 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
     `;
     expect(row?.analyzer_version).toBe("1");
     expect(Number(row?.scene_threshold)).toBe(0.3);
+  });
+
+  it("web_app は caption_hashtags() を実行できる（R5。media_hashtags が使う）", async () => {
+    const [row] = await web<{ tags: string[] }[]>`select array(select public.caption_hashtags('#Role')) as tags`;
+    expect(row?.tags).toEqual(["role"]);
   });
 
   it.each(READABLE_TABLES)("web_app はテーブル %s を読める", async (table) => {
@@ -247,6 +261,7 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
       expect(await sqlstate(asRole(role, "select private.dispatch_collect()"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select public.metric_value('{}'::jsonb, array['a'])"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select * from public.current_video_condition()"))).toBe(INSUFFICIENT_PRIVILEGE);
+      expect(await sqlstate(asRole(role, "select public.caption_hashtags('#x')"))).toBe(INSUFFICIENT_PRIVILEGE);
     }
     expect(await sqlstate(asRole("anon", "select private.is_web_user()"))).toBe(INSUFFICIENT_PRIVILEGE);
   });

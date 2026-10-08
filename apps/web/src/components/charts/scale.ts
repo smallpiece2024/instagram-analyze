@@ -95,5 +95,14 @@ export function dimRuns<T extends { i: number }>(
   return out;
 }
 
+/**
+ * `--heat` を面の色に混ぜた色（見本の `color-mix(in oklab, var(--heat) p%, var(--color-surface))`）。
+ * p は 0〜100 に丸める（有限でなければ 0）。ヒートマップと、ストーリーズの操作の内訳の色に使う
+ */
+export function heatColor(percent: number): string {
+  const p = Number.isFinite(percent) ? Math.round(Math.min(100, Math.max(0, percent))) : 0;
+  return `color-mix(in oklab, var(--heat) ${p}%, var(--color-surface))`;
+}
+
 /** 投稿の印（▲）のヒントを出す透明な四角の一辺（px）。▲ は幅 6px と小さく、カーソルを合わせにくい */
 export const MARKER_HIT = 18;

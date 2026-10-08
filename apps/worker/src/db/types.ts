@@ -37,6 +37,7 @@ export type JobName =
   | "token_check"
   | "profile_daily"
   | "account_daily"
+  | "audience_demographics"
   | "account_backfill"
   | "media_sync"
   | "media_snapshot"

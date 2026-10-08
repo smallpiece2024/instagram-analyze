@@ -166,10 +166,13 @@ describe("runGroup", () => {
   it("HOURLY_JOBS と DAILY_JOBS は設計 6.1 章の順で、daily の media_sync だけ --full", () => {
     expect(HOURLY_JOBS.map((e) => e.def.name)).toEqual(["stories", "media_sync", "media_snapshot", "video_analysis", "account_backfill"]);
     expect(HOURLY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, undefined]);
-    expect(DAILY_JOBS.map((e) => e.def.name)).toEqual(["token_check", "profile_daily", "account_daily", "media_sync"]);
-    expect(DAILY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, { full: true }]);
+    // R5 設計 3.2 節: audience_demographics は account_daily の後、media_sync --full の前
+    expect(DAILY_JOBS.map((e) => e.def.name)).toEqual(["token_check", "profile_daily", "account_daily", "audience_demographics", "media_sync"]);
+    expect(DAILY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, { full: true }]);
     // hourly と daily の media_sync は同じ定義（options だけが違う）
-    expect(DAILY_JOBS[3]?.def).toBe(HOURLY_JOBS[1]?.def);
+    expect(DAILY_JOBS[4]?.def).toBe(HOURLY_JOBS[1]?.def);
+    // 属性は daily だけ（hourly には入れない）
+    expect(HOURLY_JOBS.some((e) => e.def.name === "audience_demographics")).toBe(false);
     for (const entry of [...HOURLY_JOBS, ...DAILY_JOBS]) expect(typeof entry.def.run).toBe("function");
   });
 });
