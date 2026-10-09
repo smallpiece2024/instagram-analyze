@@ -11,8 +11,6 @@ export interface PieSlice {
   share: number | null;
   /** 色（`var(--chart-1)` など） */
   color: string;
-  /** 扇の中の文字の色。既定は白 */
-  textColor?: string;
 }
 
 export interface PieProps {
@@ -90,7 +88,7 @@ export function Pie({ title, slices, size = 200 }: PieProps) {
       const mid = start + sweep / 2;
       const lx = drawn === 1 ? c : c + r * LABEL_R * Math.cos(mid);
       const ly = drawn === 1 ? c : c + r * LABEL_R * Math.sin(mid);
-      // 色は style で付ける（CSS の fill は SVG の fill 属性より強い）
+      // 文字は扇の色によらず濃い色にし、白の縁取りで読ませる。色は style で付ける（CSS の fill は SVG の fill 属性より強い）
       labels.push(
         <text
           key={i}
@@ -99,7 +97,7 @@ export function Pie({ title, slices, size = 200 }: PieProps) {
           y={coord(ly)}
           textAnchor="middle"
           fontSize="12"
-          style={{ fill: s.textColor ?? "#ffffff" }}
+          style={{ fill: "#1c2430", stroke: "#ffffff", strokeWidth: 3, strokeLinejoin: "round", paintOrder: "stroke" }}
           aria-hidden="true"
           pointerEvents="none"
         >
