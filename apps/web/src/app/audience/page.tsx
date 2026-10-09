@@ -100,8 +100,6 @@ export default async function AudiencePage() {
             <BreakdownCards metric="follower_demographics" view={fv} />
             <TrendCard
               weeks={fv.weeks}
-              gender={fv.gender.series}
-              age={fv.age.series}
               country={fv.country.series}
               latestWeek={fv.latestWeek}
               lastFetchedAt={fv.lastFetchedAt}

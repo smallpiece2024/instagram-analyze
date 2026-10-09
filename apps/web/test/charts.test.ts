@@ -10,7 +10,6 @@ import { Heatmap, HeatmapLegend, heatmapRange, heatPercent, type HeatmapProps } 
 import { HBars, type HBarsProps } from "@/components/charts/HBars";
 import { HStack, type HStackProps } from "@/components/charts/HStack";
 import { Pie, type PieProps } from "@/components/charts/Pie";
-import { StackedArea, type StackedAreaProps } from "@/components/charts/StackedArea";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
 import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
@@ -636,47 +635,26 @@ describe("Pie（割合の円グラフ）", () => {
     expect(html).toContain("女性: 70（70.0%）");
     expect(html).toMatch(/A\S+ \S+ 0 1 1/);
   });
-});
 
-const area = (p: Partial<StackedAreaProps>) =>
-  renderToStaticMarkup(createElement(StackedArea, { title: "t", labels: [], series: [], ...p }));
-
-describe("StackedArea（100% 積み上げ面）", () => {
-  it("0 点、0 系列、全部 null で例外を投げず NaN を出さない。面は描かない", () => {
-    expectClean(area({}));
-    const html = area({
-      labels: ["9/28", "10/5"],
-      series: [{ label: "女性", values: [null, null], color: "red" }],
-    });
-    expectClean(html);
-    expect(html).not.toContain('data-part="area"');
-  });
-
-  it("1 点だけでも柱で描き、内訳を title に出す。合計が 1 でなくても 100% に直す", () => {
-    const html = area({
-      labels: ["10/5"],
-      series: [
-        { label: "女性", values: [3], color: "red" },
-        { label: "男性", values: [1], color: "blue" },
+  it("5% 以上の扇だけ、中に名前と割合を 2 行で書く", () => {
+    const html = pie({
+      slices: [
+        { label: "女性", value: 66, share: 0.66, color: "red" },
+        { label: "男性", value: 29, share: 0.29, color: "blue" },
+        { label: "不明", value: 5, share: 0.05, color: "green" },
+        { label: "その他", value: 0, share: 0.0499, color: "gray" },
       ],
     });
     expectClean(html);
-    expect(html.match(/data-part="area"/g)).toHaveLength(2);
-    expect(html).toContain("10/5: 女性 75.0%・男性 25.0%");
+    expect(html.match(/data-part="slice-label"/g)).toHaveLength(3);
+    expect(html).toContain(">女性</tspan>");
+    expect(html).toContain(">66.0%</tspan>");
+    expect(html).toContain(">5.0%</tspan>");
+    expect(html).not.toContain(">その他</tspan>");
   });
 
-  it("全系列が null の週で面を切る。値のある週の null の系列は 0 として積む", () => {
-    const html = area({
-      labels: ["a", "b", "c", "d"],
-      series: [
-        { label: "女性", values: [0.6, 0.5, null, 0.4], color: "red" },
-        { label: "男性", values: [0.4, null, null, 0.6], color: "blue" },
-      ],
-    });
-    expectClean(html);
-    // 区間は a〜b と d の 2 つ。女性は両方、男性は a〜b（b は 0）と d
-    expect(html.match(/data-part="area"/g)).toHaveLength(4);
-    expect(html).toContain("b: 女性 100.0%・男性 0.0%");
-    expect(html).not.toContain("c: ");
+  it("扇が 1 つだけなら文字は中心に書く", () => {
+    const html = pie({ slices: [{ label: "女性", value: 10, share: 1, color: "red" }], size: 200 });
+    expect(html).toMatch(/data-part="slice-label" x="116" y="116"/);
   });
 });

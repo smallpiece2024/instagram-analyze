@@ -52,8 +52,6 @@ describe("割合と並び", () => {
   it("性別は表示名にし、女性、男性、不明の順（DB の値は F、M、U）", () => {
     const rows = shareRows(new Map([["U", 1], ["M", 2], ["F", 3]]), "gender");
     expect(rows.map((r) => r.label)).toEqual(["女性", "男性", "不明"]);
-    const view = buildAudienceView(capture(W1, "gender", { U: 1, M: 1, F: 2 }));
-    expect(view.gender.series.map((s) => s.label)).toEqual(["女性", "男性", "不明"]);
   });
 
   it("合計が 0 なら割合は null（0 で割らない）", () => {
@@ -138,12 +136,12 @@ describe("最新の週（T9、T15）", () => {
 
 describe("推移（T9）", () => {
   it("週の軸は記録のない週も含め、その週は欠け（線を切る）", () => {
-    const rows = [...capture(W1, "gender", { F: 1, M: 3 }), ...capture(W3, "gender", { F: 1, M: 1 })];
+    const rows = [...capture(W1, "country", { JP: 1, KR: 3 }), ...capture(W3, "country", { JP: 1, KR: 1 })];
     const view = buildAudienceView(rows);
     expect(view.weeks).toEqual([W1, W2, W3]);
-    expect(view.gender.series).toEqual([
-      { label: "女性", values: [0.25, null, 0.5] },
-      { label: "男性", values: [0.75, null, 0.5] },
+    expect(view.country.series).toEqual([
+      { label: "JP", values: [0.25, null, 0.5] },
+      { label: "KR", values: [0.75, null, 0.5] },
     ]);
   });
 
@@ -159,8 +157,8 @@ describe("推移（T9）", () => {
   });
 
   it("empty の週は欠け", () => {
-    const rows = [...capture(W1, "age", { "18-24": 1 }), ...capture(W2, "age", {}), ...capture(W3, "age", { "18-24": 1 })];
-    expect(buildAudienceView(rows).age.series[0]?.values).toEqual([1, null, 1]);
+    const rows = [...capture(W1, "country", { JP: 1 }), ...capture(W2, "country", {}), ...capture(W3, "country", { JP: 1 })];
+    expect(buildAudienceView(rows).country.series[0]?.values).toEqual([1, null, 1]);
   });
 
   it("国は最新の週の上位 5 か国だけ", () => {
@@ -172,11 +170,6 @@ describe("推移（T9）", () => {
   it("最新の週に国がなければ国の系列は 0 本", () => {
     const view = buildAudienceView([...capture(W1, "country", { JP: 1 }), ...capture(W2, "age", { "18-24": 1 })]);
     expect(view.country.series).toEqual([]);
-  });
-
-  it("年齢の系列は期間中に返った区分の名前の順", () => {
-    const view = buildAudienceView([...capture(W1, "age", { "35-44": 1 }), ...capture(W2, "age", { "18-24": 1 })]);
-    expect(view.age.series.map((s) => s.label)).toEqual(["18-24", "35-44"]);
   });
 
   it("日付の加算は月と年をまたぐ", () => {
@@ -209,20 +202,17 @@ describe("描画（S11）", () => {
     expect(renderToStaticMarkup(createElement(BreakdownCardView, { card, week: W1, metricLabel: "x" }))).toContain("ほか 2 件");
   });
 
-  it("1 週だけの推移は、性別と年齢を柱で描き NaN を出さない", () => {
-    const view = buildAudienceView([...capture(W1, "gender", { F: 1, M: 1 }), ...capture(W1, "age", { "18-24": 2 })]);
+  it("1 週だけの推移は点だけで NaN を出さない", () => {
+    const view = buildAudienceView(capture(W1, "country", { JP: 1, KR: 1 }));
     const html = renderToStaticMarkup(
       createElement(TrendCard, {
         weeks: view.weeks,
-        gender: view.gender.series,
-        age: view.age.series,
         country: view.country.series,
         latestWeek: W1,
         lastFetchedAt: view.lastFetchedAt,
       }),
     );
     expect(html).not.toContain("NaN");
-    // 性別は女性と男性の 2 面、年齢は 1 面
-    expect(html.match(/data-part="area"/g)).toHaveLength(3);
+    expect(html).toContain("<circle");
   });
 });
