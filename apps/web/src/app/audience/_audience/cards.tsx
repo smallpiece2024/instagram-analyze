@@ -4,8 +4,7 @@
  */
 import { Card } from "@/components/Card";
 import { HBars } from "@/components/charts/HBars";
-import { Legend, type LegendItem } from "@/components/charts/Legend";
-import { LineChart, type LineSeries } from "@/components/charts/LineChart";
+import { Legend } from "@/components/charts/Legend";
 import { Pie, type PieSlice } from "@/components/charts/Pie";
 import { MissingValue } from "@/components/MissingValue";
 import {
@@ -13,31 +12,16 @@ import {
   DENOMINATOR_NOTE,
   weekLabel,
   type BreakdownCard,
-  type TrendSeries,
 } from "@/lib/audience";
-import { formatCount, formatDateShort, formatJst, formatPercent } from "@/lib/format";
+import { formatCount, formatJst, formatPercent } from "@/lib/format";
 import { MISSING_REASON_TEXT } from "@/lib/metrics";
 
-/** 系列の色。5 本目からは同じ色の破線にして見分ける（色の変数は 4 つだけ） */
-const SERIES_STYLES: readonly { color: string; dashed: boolean }[] = [
-  { color: "var(--chart-1)", dashed: false },
-  { color: "var(--chart-2)", dashed: false },
-  { color: "var(--chart-3)", dashed: false },
-  { color: "var(--chart-4)", dashed: false },
-  { color: "var(--chart-1)", dashed: true },
-  { color: "var(--chart-2)", dashed: true },
-  { color: "var(--chart-3)", dashed: true },
-  { color: "var(--chart-4)", dashed: true },
-];
+/** 円グラフの扇の色の元。色の変数は 4 つだけなので、5 つ目からは同じ色を薄めて見分ける */
+const SLICE_BASES: readonly string[] = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"];
 
-function seriesStyle(i: number): { color: string; dashed: boolean } {
-  return SERIES_STYLES[i % SERIES_STYLES.length] ?? { color: "var(--chart-1)", dashed: false };
-}
-
-/** 円グラフの扇の色。推移の系列と同じ並びの色にし、破線の系列は同じ色を薄めて見分ける */
 function sliceColor(i: number): string {
-  const st = seriesStyle(i);
-  return st.dashed ? `color-mix(in oklab, ${st.color} 45%, var(--color-surface))` : st.color;
+  const base = SLICE_BASES[i % SLICE_BASES.length] ?? "var(--chart-1)";
+  return Math.floor(i / SLICE_BASES.length) % 2 === 1 ? `color-mix(in oklab, ${base} 45%, var(--color-surface))` : base;
 }
 
 /** 性別と年齢は円グラフ、国と都市は横棒 */
@@ -92,85 +76,6 @@ export function BreakdownCardView({ card, week, metricLabel }: { card: Breakdown
     >
       <BreakdownChart card={card} title={`${metricLabel}の${label}の人数と割合`} />
       {card.others > 0 && <p className="small muted">ほか {card.others} 件</p>}
-    </Card>
-  );
-}
-
-function trendLines(series: readonly TrendSeries[]): LineSeries[] {
-  return series.map((s, i) => ({ label: s.label, values: s.values, dots: true, ...seriesStyle(i) }));
-}
-
-function trendLegend(series: readonly TrendSeries[]): LegendItem[] {
-  return series.map((s, i) => {
-    const st = seriesStyle(i);
-    return { label: s.label, color: st.color, shape: st.dashed ? "dash" : "line" };
-  });
-}
-
-/** 推移の折れ線 1 枚。系列が 0 本なら「—」 */
-function TrendChart({
-  title,
-  heading,
-  series,
-  labels,
-  width,
-}: {
-  title: string;
-  heading: string;
-  series: readonly TrendSeries[];
-  labels: readonly string[];
-  width: number;
-}) {
-  return (
-    <div>
-      <p className="small muted">{heading}</p>
-      {series.length === 0 ? (
-        <p>
-          <MissingValue missing={{ reason: "missing", text: MISSING_REASON_TEXT.missing }} />
-        </p>
-      ) : (
-        <>
-          <div className="chart">
-            <LineChart title={title} labels={labels} series={trendLines(series)} format="percent" width={width} height={200} min={0} />
-          </div>
-          <Legend items={trendLegend(series)} />
-        </>
-      )}
-    </div>
-  );
-}
-
-/** 推移（全幅）。国（最新の週の上位 5 か国）の割合の折れ線。性別と年齢は内訳のカードの円グラフだけにする */
-export function TrendCard({
-  weeks,
-  country,
-  latestWeek,
-  lastFetchedAt,
-}: {
-  weeks: readonly string[];
-  country: readonly TrendSeries[];
-  latestWeek: string;
-  lastFetchedAt: Date | null;
-}) {
-  const labels = weeks.map(formatDateShort);
-  return (
-    <Card
-      title="推移"
-      sub="週ごとの割合"
-      className="col-12"
-      foot={
-        <>
-          点は週の月曜の日付・{DENOMINATOR_NOTE}・{timeNote(latestWeek, lastFetchedAt)}
-        </>
-      }
-    >
-      <TrendChart
-        title="国の割合の週ごとの推移（最新の週の上位 5 か国）"
-        heading="国（最新の週の上位 5 か国）"
-        series={country}
-        labels={labels}
-        width={760}
-      />
     </Card>
   );
 }
