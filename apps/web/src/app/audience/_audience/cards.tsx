@@ -7,7 +7,6 @@ import { HBars } from "@/components/charts/HBars";
 import { Legend, type LegendItem } from "@/components/charts/Legend";
 import { LineChart, type LineSeries } from "@/components/charts/LineChart";
 import { Pie, type PieSlice } from "@/components/charts/Pie";
-import { StackedArea } from "@/components/charts/StackedArea";
 import { MissingValue } from "@/components/MissingValue";
 import {
   BREAKDOWN_LABEL,
@@ -41,6 +40,14 @@ function sliceColor(i: number): string {
   return st.dashed ? `color-mix(in oklab, ${st.color} 45%, var(--color-surface))` : st.color;
 }
 
+/**
+ * 扇の中の文字の色。濃い青（1 色目）だけ白、ほか（橙、緑、黄、薄めた色）は濃い文字にする（見分けやすい方）
+ */
+function sliceTextColor(i: number): string {
+  const st = seriesStyle(i);
+  return st.color === "var(--chart-1)" && !st.dashed ? "#ffffff" : "#1c2430";
+}
+
 /** 性別と年齢は円グラフ、国と都市は横棒 */
 function BreakdownChart({ card, title }: { card: Extract<BreakdownCard, { kind: "ok" }>; title: string }) {
   if (card.breakdown === "country" || card.breakdown === "city") {
@@ -50,7 +57,7 @@ function BreakdownChart({ card, title }: { card: Extract<BreakdownCard, { kind: 
       </div>
     );
   }
-  const slices: PieSlice[] = card.rows.map((r, i) => ({ ...r, color: sliceColor(i) }));
+  const slices: PieSlice[] = card.rows.map((r, i) => ({ ...r, color: sliceColor(i), textColor: sliceTextColor(i) }));
   return (
     <>
       <div className="chart">
@@ -108,21 +115,19 @@ function trendLegend(series: readonly TrendSeries[]): LegendItem[] {
   });
 }
 
-/** 推移の 1 枚。`stacked` なら 100% 積み上げ面（色は円グラフと同じ）、ほかは折れ線。系列が 0 本なら「—」 */
+/** 推移の折れ線 1 枚。系列が 0 本なら「—」 */
 function TrendChart({
   title,
   heading,
   series,
   labels,
   width,
-  stacked = false,
 }: {
   title: string;
   heading: string;
   series: readonly TrendSeries[];
   labels: readonly string[];
   width: number;
-  stacked?: boolean;
 }) {
   return (
     <div>
@@ -134,37 +139,23 @@ function TrendChart({
       ) : (
         <>
           <div className="chart">
-            {stacked ? (
-              <StackedArea
-                title={title}
-                labels={labels}
-                series={series.map((s, i) => ({ ...s, color: sliceColor(i) }))}
-                width={width}
-                height={200}
-              />
-            ) : (
-              <LineChart title={title} labels={labels} series={trendLines(series)} format="percent" width={width} height={200} min={0} />
-            )}
+            <LineChart title={title} labels={labels} series={trendLines(series)} format="percent" width={width} height={200} min={0} />
           </div>
-          <Legend items={stacked ? series.map((s, i) => ({ label: s.label, color: sliceColor(i) })) : trendLegend(series)} />
+          <Legend items={trendLegend(series)} />
         </>
       )}
     </div>
   );
 }
 
-/** 推移（全幅）。性別と年齢を半幅ずつ並べ、その下に国（最新の週の上位 5 か国） */
+/** 推移（全幅）。国（最新の週の上位 5 か国）の割合の折れ線。性別と年齢は内訳のカードの円グラフだけにする */
 export function TrendCard({
   weeks,
-  gender,
-  age,
   country,
   latestWeek,
   lastFetchedAt,
 }: {
   weeks: readonly string[];
-  gender: readonly TrendSeries[];
-  age: readonly TrendSeries[];
   country: readonly TrendSeries[];
   latestWeek: string;
   lastFetchedAt: Date | null;
@@ -181,23 +172,13 @@ export function TrendCard({
         </>
       }
     >
-      <div className="grid">
-        <div className="col-6">
-          <TrendChart title="性別の割合の週ごとの推移" heading="性別" series={gender} labels={labels} width={360} stacked />
-        </div>
-        <div className="col-6">
-          <TrendChart title="年齢の割合の週ごとの推移" heading="年齢" series={age} labels={labels} width={360} stacked />
-        </div>
-        <div className="col-12">
-          <TrendChart
-            title="国の割合の週ごとの推移（最新の週の上位 5 か国）"
-            heading="国（最新の週の上位 5 か国）"
-            series={country}
-            labels={labels}
-            width={760}
-          />
-        </div>
-      </div>
+      <TrendChart
+        title="国の割合の週ごとの推移（最新の週の上位 5 か国）"
+        heading="国（最新の週の上位 5 か国）"
+        series={country}
+        labels={labels}
+        width={760}
+      />
     </Card>
   );
 }

@@ -138,8 +138,6 @@ export interface AudienceView {
   cards: BreakdownCard[];
   /** 推移の週の軸（最初の週から最新の週まで 7 日ごと） */
   weeks: string[];
-  gender: Trend;
-  age: Trend;
   country: Trend;
 }
 
@@ -254,16 +252,6 @@ export function trendSeries(index: CaptureIndex, weeks: readonly string[], break
   }));
 }
 
-/** 期間中に返ったすべての区分の名前（名前の順）。性別と年齢の推移の系列 */
-export function allKeys(index: CaptureIndex, breakdown: AudienceBreakdown): string[] {
-  const keys = new Set<string>();
-  for (const byBreakdown of index.values()) {
-    const values = usableValues(byBreakdown.get(breakdown));
-    if (values !== null) for (const k of values.keys()) keys.add(k);
-  }
-  return [...keys].sort(breakdown === "gender" ? compareGender : compareKey);
-}
-
 /** 指標 1 つ分の行から画面の値を作る */
 export function buildAudienceView(rows: readonly AudienceRow[]): AudienceView {
   const index = indexCaptures(rows);
@@ -290,8 +278,6 @@ export function buildAudienceView(rows: readonly AudienceRow[]): AudienceView {
     hasOk,
     cards: AUDIENCE_BREAKDOWNS.map((b) => breakdownCard(index, latestWeek, b)),
     weeks,
-    gender: { series: trendSeries(index, weeks, "gender", allKeys(index, "gender")) },
-    age: { series: trendSeries(index, weeks, "age", allKeys(index, "age")) },
     country: { series: trendSeries(index, weeks, "country", topCountries) },
   };
 }
