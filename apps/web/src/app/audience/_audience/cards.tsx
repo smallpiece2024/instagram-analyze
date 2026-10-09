@@ -7,6 +7,7 @@ import { HBars } from "@/components/charts/HBars";
 import { Legend, type LegendItem } from "@/components/charts/Legend";
 import { LineChart, type LineSeries } from "@/components/charts/LineChart";
 import { Pie, type PieSlice } from "@/components/charts/Pie";
+import { StackedArea } from "@/components/charts/StackedArea";
 import { MissingValue } from "@/components/MissingValue";
 import {
   BREAKDOWN_LABEL,
@@ -107,19 +108,21 @@ function trendLegend(series: readonly TrendSeries[]): LegendItem[] {
   });
 }
 
-/** 推移の折れ線 1 枚。系列が 0 本なら「—」 */
+/** 推移の 1 枚。`stacked` なら 100% 積み上げ面（色は円グラフと同じ）、ほかは折れ線。系列が 0 本なら「—」 */
 function TrendChart({
   title,
   heading,
   series,
   labels,
   width,
+  stacked = false,
 }: {
   title: string;
   heading: string;
   series: readonly TrendSeries[];
   labels: readonly string[];
   width: number;
+  stacked?: boolean;
 }) {
   return (
     <div>
@@ -131,9 +134,19 @@ function TrendChart({
       ) : (
         <>
           <div className="chart">
-            <LineChart title={title} labels={labels} series={trendLines(series)} format="percent" width={width} height={200} min={0} />
+            {stacked ? (
+              <StackedArea
+                title={title}
+                labels={labels}
+                series={series.map((s, i) => ({ ...s, color: sliceColor(i) }))}
+                width={width}
+                height={200}
+              />
+            ) : (
+              <LineChart title={title} labels={labels} series={trendLines(series)} format="percent" width={width} height={200} min={0} />
+            )}
           </div>
-          <Legend items={trendLegend(series)} />
+          <Legend items={stacked ? series.map((s, i) => ({ label: s.label, color: sliceColor(i) })) : trendLegend(series)} />
         </>
       )}
     </div>
@@ -170,10 +183,10 @@ export function TrendCard({
     >
       <div className="grid">
         <div className="col-6">
-          <TrendChart title="性別の割合の週ごとの推移" heading="性別" series={gender} labels={labels} width={360} />
+          <TrendChart title="性別の割合の週ごとの推移" heading="性別" series={gender} labels={labels} width={360} stacked />
         </div>
         <div className="col-6">
-          <TrendChart title="年齢の割合の週ごとの推移" heading="年齢" series={age} labels={labels} width={360} />
+          <TrendChart title="年齢の割合の週ごとの推移" heading="年齢" series={age} labels={labels} width={360} stacked />
         </div>
         <div className="col-12">
           <TrendChart

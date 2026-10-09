@@ -10,6 +10,7 @@ import { Heatmap, HeatmapLegend, heatmapRange, heatPercent, type HeatmapProps } 
 import { HBars, type HBarsProps } from "@/components/charts/HBars";
 import { HStack, type HStackProps } from "@/components/charts/HStack";
 import { Pie, type PieProps } from "@/components/charts/Pie";
+import { StackedArea, type StackedAreaProps } from "@/components/charts/StackedArea";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
 import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
@@ -634,5 +635,48 @@ describe("Pie（割合の円グラフ）", () => {
     expect(html.match(/<path/g)).toHaveLength(3);
     expect(html).toContain("女性: 70（70.0%）");
     expect(html).toMatch(/A\S+ \S+ 0 1 1/);
+  });
+});
+
+const area = (p: Partial<StackedAreaProps>) =>
+  renderToStaticMarkup(createElement(StackedArea, { title: "t", labels: [], series: [], ...p }));
+
+describe("StackedArea（100% 積み上げ面）", () => {
+  it("0 点、0 系列、全部 null で例外を投げず NaN を出さない。面は描かない", () => {
+    expectClean(area({}));
+    const html = area({
+      labels: ["9/28", "10/5"],
+      series: [{ label: "女性", values: [null, null], color: "red" }],
+    });
+    expectClean(html);
+    expect(html).not.toContain('data-part="area"');
+  });
+
+  it("1 点だけでも柱で描き、内訳を title に出す。合計が 1 でなくても 100% に直す", () => {
+    const html = area({
+      labels: ["10/5"],
+      series: [
+        { label: "女性", values: [3], color: "red" },
+        { label: "男性", values: [1], color: "blue" },
+      ],
+    });
+    expectClean(html);
+    expect(html.match(/data-part="area"/g)).toHaveLength(2);
+    expect(html).toContain("10/5: 女性 75.0%・男性 25.0%");
+  });
+
+  it("全系列が null の週で面を切る。値のある週の null の系列は 0 として積む", () => {
+    const html = area({
+      labels: ["a", "b", "c", "d"],
+      series: [
+        { label: "女性", values: [0.6, 0.5, null, 0.4], color: "red" },
+        { label: "男性", values: [0.4, null, null, 0.6], color: "blue" },
+      ],
+    });
+    expectClean(html);
+    // 区間は a〜b と d の 2 つ。女性は両方、男性は a〜b（b は 0）と d
+    expect(html.match(/data-part="area"/g)).toHaveLength(4);
+    expect(html).toContain("b: 女性 100.0%・男性 0.0%");
+    expect(html).not.toContain("c: ");
   });
 });
