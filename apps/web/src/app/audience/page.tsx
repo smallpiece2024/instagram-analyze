@@ -14,7 +14,7 @@ import { AUDIENCE_TIMEFRAME, buildAudienceView, METRIC_LABEL, type AudienceMetri
 import { lastUpdatedLabel } from "@/lib/format";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { getAudience } from "@/lib/queries/audience";
-import { BreakdownCardView, TrendCard } from "./_audience/cards";
+import { BreakdownCardView } from "./_audience/cards";
 
 const TITLE = "オーディエンス";
 
@@ -98,12 +98,6 @@ export default async function AudiencePage() {
         ) : (
           <div className="grid">
             <BreakdownCards metric="follower_demographics" view={fv} />
-            <TrendCard
-              weeks={fv.weeks}
-              country={fv.country.series}
-              latestWeek={fv.latestWeek}
-              lastFetchedAt={fv.lastFetchedAt}
-            />
           </div>
         )}
       </section>

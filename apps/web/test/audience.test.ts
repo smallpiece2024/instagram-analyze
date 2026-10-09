@@ -5,7 +5,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BreakdownCardView, TrendCard } from "@/app/audience/_audience/cards";
+import { BreakdownCardView } from "@/app/audience/_audience/cards";
 import {
   addDays,
   breakdownCard,
@@ -117,7 +117,6 @@ describe("最新の週（T9、T15）", () => {
     expect(view.weekCount).toBe(0);
     expect(view.hasOk).toBe(false);
     expect(view.cards.every((c) => c.kind === "missing")).toBe(true);
-    expect(view.weeks).toEqual([]);
   });
 
   it("記録の週の数と最終更新", () => {
@@ -134,44 +133,7 @@ describe("最新の週（T9、T15）", () => {
   });
 });
 
-describe("推移（T9）", () => {
-  it("週の軸は記録のない週も含め、その週は欠け（線を切る）", () => {
-    const rows = [...capture(W1, "country", { JP: 1, KR: 3 }), ...capture(W3, "country", { JP: 1, KR: 1 })];
-    const view = buildAudienceView(rows);
-    expect(view.weeks).toEqual([W1, W2, W3]);
-    expect(view.country.series).toEqual([
-      { label: "JP", values: [0.25, null, 0.5] },
-      { label: "KR", values: [0.75, null, 0.5] },
-    ]);
-  });
-
-  it("上位 45 件から外れて返らなかった週は 0 ではなく欠け", () => {
-    const rows = [
-      ...capture(W1, "country", { JP: 8, KR: 2 }),
-      ...capture(W2, "country", { JP: 10 }),
-      ...capture(W3, "country", { JP: 6, KR: 4 }),
-    ];
-    const view = buildAudienceView(rows);
-    const kr = view.country.series.find((s) => s.label === "KR");
-    expect(kr?.values).toEqual([0.2, null, 0.4]);
-  });
-
-  it("empty の週は欠け", () => {
-    const rows = [...capture(W1, "country", { JP: 1 }), ...capture(W2, "country", {}), ...capture(W3, "country", { JP: 1 })];
-    expect(buildAudienceView(rows).country.series[0]?.values).toEqual([1, null, 1]);
-  });
-
-  it("国は最新の週の上位 5 か国だけ", () => {
-    const latest = { AA: 9, BB: 8, CC: 7, DD: 6, EE: 5, FF: 4 };
-    const view = buildAudienceView([...capture(W1, "country", { FF: 100 }), ...capture(W2, "country", latest)]);
-    expect(view.country.series.map((s) => s.label)).toEqual(["AA", "BB", "CC", "DD", "EE"]);
-  });
-
-  it("最新の週に国がなければ国の系列は 0 本", () => {
-    const view = buildAudienceView([...capture(W1, "country", { JP: 1 }), ...capture(W2, "age", { "18-24": 1 })]);
-    expect(view.country.series).toEqual([]);
-  });
-
+describe("日付", () => {
   it("日付の加算は月と年をまたぐ", () => {
     expect(addDays("2026-12-28", 7)).toBe("2027-01-04");
   });
@@ -202,17 +164,4 @@ describe("描画（S11）", () => {
     expect(renderToStaticMarkup(createElement(BreakdownCardView, { card, week: W1, metricLabel: "x" }))).toContain("ほか 2 件");
   });
 
-  it("1 週だけの推移は点だけで NaN を出さない", () => {
-    const view = buildAudienceView(capture(W1, "country", { JP: 1, KR: 1 }));
-    const html = renderToStaticMarkup(
-      createElement(TrendCard, {
-        weeks: view.weeks,
-        country: view.country.series,
-        latestWeek: W1,
-        lastFetchedAt: view.lastFetchedAt,
-      }),
-    );
-    expect(html).not.toContain("NaN");
-    expect(html).toContain("<circle");
-  });
 });

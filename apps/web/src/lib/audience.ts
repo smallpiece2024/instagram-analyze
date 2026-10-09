@@ -4,8 +4,7 @@
  * - 最新の週（T9）: 指標ごとに、記録の行がある最も新しい `week_start` を全体で 1 つ決める。その週のある内訳が
  *   `empty` か行なしなら、そのカードは「—」。前の週の値で埋めない（T15）
  * - 割合の分母: その週・その内訳で返った区分の合計（上位 45 件まで）。合計が 0 なら割合は null
- * - 推移の欠け（T9）: ある週に区分が返らなかった、週の行がない、`empty` の週は null（0 で描かない）。
- *   週の軸は最初の週から最新の週まで 7 日ごとに並べ、記録のない週も欠けとして置く（線を切る）
+ * - 週ごとの推移は画面に出さない（2026-10-09、ユーザー。国はほぼ日本だけのため）。収集は続け、過去の週の行も DB に残る
  * - 区分の名前（国コード、都市名）は API の値をそのまま使う（確認事項 Q13）
  */
 
@@ -54,9 +53,6 @@ function compareGender(a: string, b: string): number {
 
 /** 国と都市のカードに出す上位の件数。これを超えた分は「ほか n 件」 */
 export const TOP_LIMIT = 10;
-
-/** 国の推移に出す件数（最新の週の上位） */
-export const TREND_COUNTRY_LIMIT = 5;
 
 /** 読み出す週の数（直近 52 週） */
 export const AUDIENCE_WEEKS = 52;
@@ -112,18 +108,6 @@ export type BreakdownCard =
       fetchedAt: Date;
     };
 
-/** 推移の折れ線の系列 */
-export interface TrendSeries {
-  label: string;
-  /** 週ごとの割合。欠けは null */
-  values: (number | null)[];
-}
-
-/** 推移（週の軸と系列）。系列が 0 本なら描けない */
-export interface Trend {
-  series: TrendSeries[];
-}
-
 /** 指標 1 つ分の画面の値 */
 export interface AudienceView {
   /** 記録のある週の数（どれかの内訳に行がある週） */
@@ -136,9 +120,6 @@ export interface AudienceView {
   hasOk: boolean;
   /** `AUDIENCE_BREAKDOWNS` の順のカード */
   cards: BreakdownCard[];
-  /** 推移の週の軸（最初の週から最新の週まで 7 日ごと） */
-  weeks: string[];
-  country: Trend;
 }
 
 /** 文字列の比較（コードポイント順ではなく UTF-16 の順。照合順序に依らず決まる） */
@@ -227,31 +208,6 @@ export function addDays(ymd: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** 最初の週から最新の週までの月曜（7 日ごと）。記録のない週も含める（推移の線を切るため） */
-export function weekAxis(index: CaptureIndex, latestWeek: string | null): string[] {
-  if (latestWeek === null) return [];
-  let first = latestWeek;
-  for (const w of index.keys()) if (compareKey(w, first) < 0) first = w;
-  const out: string[] = [];
-  // 週は月曜なので 7 日ずつ進めれば最新の週に当たる。万一ずれても最新の週を超えたら止める
-  for (let w = first; compareKey(w, latestWeek) <= 0; w = addDays(w, 7)) out.push(w);
-  return out;
-}
-
-/** 週ごとの割合の系列。区分が返らなかった週、`empty`、行なし、分母 0 は null */
-export function trendSeries(index: CaptureIndex, weeks: readonly string[], breakdown: AudienceBreakdown, keys: readonly string[]): TrendSeries[] {
-  return keys.map((key) => ({
-    label: displayLabel(breakdown, key),
-    values: weeks.map((w) => {
-      const values = usableValues(index.get(w)?.get(breakdown));
-      if (values === null) return null;
-      const v = values.get(key);
-      const total = totalOf(values);
-      return v === undefined || total <= 0 ? null : v / total;
-    }),
-  }));
-}
-
 /** 指標 1 つ分の行から画面の値を作る */
 export function buildAudienceView(rows: readonly AudienceRow[]): AudienceView {
   const index = indexCaptures(rows);
@@ -264,21 +220,12 @@ export function buildAudienceView(rows: readonly AudienceRow[]): AudienceView {
       if (usableValues(cap) !== null) hasOk = true;
     }
   }
-  const weeks = weekAxis(index, latestWeek);
-  const latestCountry = usableValues(latestWeek === null ? undefined : index.get(latestWeek)?.get("country"));
-  const topCountries = latestCountry
-    ? shareRows(latestCountry, "country")
-        .slice(0, TREND_COUNTRY_LIMIT)
-        .map((r) => r.label)
-    : [];
   return {
     weekCount: index.size,
     latestWeek,
     lastFetchedAt,
     hasOk,
     cards: AUDIENCE_BREAKDOWNS.map((b) => breakdownCard(index, latestWeek, b)),
-    weeks,
-    country: { series: trendSeries(index, weeks, "country", topCountries) },
   };
 }
 
