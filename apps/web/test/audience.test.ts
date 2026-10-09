@@ -209,7 +209,7 @@ describe("描画（S11）", () => {
     expect(renderToStaticMarkup(createElement(BreakdownCardView, { card, week: W1, metricLabel: "x" }))).toContain("ほか 2 件");
   });
 
-  it("1 週だけの推移は点だけで NaN を出さない", () => {
+  it("1 週だけの推移は、性別と年齢を柱で描き NaN を出さない", () => {
     const view = buildAudienceView([...capture(W1, "gender", { F: 1, M: 1 }), ...capture(W1, "age", { "18-24": 2 })]);
     const html = renderToStaticMarkup(
       createElement(TrendCard, {
@@ -222,6 +222,7 @@ describe("描画（S11）", () => {
       }),
     );
     expect(html).not.toContain("NaN");
-    expect(html).toContain("<circle");
+    // 性別は女性と男性の 2 面、年齢は 1 面
+    expect(html.match(/data-part="area"/g)).toHaveLength(3);
   });
 });
