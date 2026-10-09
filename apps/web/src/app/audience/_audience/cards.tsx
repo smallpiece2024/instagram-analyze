@@ -40,14 +40,6 @@ function sliceColor(i: number): string {
   return st.dashed ? `color-mix(in oklab, ${st.color} 45%, var(--color-surface))` : st.color;
 }
 
-/**
- * 扇の中の文字の色。濃い青（1 色目）だけ白、ほか（橙、緑、黄、薄めた色）は濃い文字にする（見分けやすい方）
- */
-function sliceTextColor(i: number): string {
-  const st = seriesStyle(i);
-  return st.color === "var(--chart-1)" && !st.dashed ? "#ffffff" : "#1c2430";
-}
-
 /** 性別と年齢は円グラフ、国と都市は横棒 */
 function BreakdownChart({ card, title }: { card: Extract<BreakdownCard, { kind: "ok" }>; title: string }) {
   if (card.breakdown === "country" || card.breakdown === "city") {
@@ -57,7 +49,7 @@ function BreakdownChart({ card, title }: { card: Extract<BreakdownCard, { kind: 
       </div>
     );
   }
-  const slices: PieSlice[] = card.rows.map((r, i) => ({ ...r, color: sliceColor(i), textColor: sliceTextColor(i) }));
+  const slices: PieSlice[] = card.rows.map((r, i) => ({ ...r, color: sliceColor(i) }));
   return (
     <>
       <div className="chart">
