@@ -6,6 +6,7 @@ import { Card } from "@/components/Card";
 import { HBars } from "@/components/charts/HBars";
 import { Legend, type LegendItem } from "@/components/charts/Legend";
 import { LineChart, type LineSeries } from "@/components/charts/LineChart";
+import { Pie, type PieSlice } from "@/components/charts/Pie";
 import { MissingValue } from "@/components/MissingValue";
 import {
   BREAKDOWN_LABEL,
@@ -14,7 +15,7 @@ import {
   type BreakdownCard,
   type TrendSeries,
 } from "@/lib/audience";
-import { formatCount, formatDateShort, formatJst } from "@/lib/format";
+import { formatCount, formatDateShort, formatJst, formatPercent } from "@/lib/format";
 import { MISSING_REASON_TEXT } from "@/lib/metrics";
 
 /** 系列の色。5 本目からは同じ色の破線にして見分ける（色の変数は 4 つだけ） */
@@ -31,6 +32,34 @@ const SERIES_STYLES: readonly { color: string; dashed: boolean }[] = [
 
 function seriesStyle(i: number): { color: string; dashed: boolean } {
   return SERIES_STYLES[i % SERIES_STYLES.length] ?? { color: "var(--chart-1)", dashed: false };
+}
+
+/** 円グラフの扇の色。推移の系列と同じ並びの色にし、破線の系列は同じ色を薄めて見分ける */
+function sliceColor(i: number): string {
+  const st = seriesStyle(i);
+  return st.dashed ? `color-mix(in oklab, ${st.color} 45%, var(--color-surface))` : st.color;
+}
+
+/** 性別と年齢は円グラフ、国と都市は横棒 */
+function BreakdownChart({ card, title }: { card: Extract<BreakdownCard, { kind: "ok" }>; title: string }) {
+  if (card.breakdown === "country" || card.breakdown === "city") {
+    return (
+      <div className="chart">
+        <HBars title={title} rows={card.rows} />
+      </div>
+    );
+  }
+  const slices: PieSlice[] = card.rows.map((r, i) => ({ ...r, color: sliceColor(i) }));
+  return (
+    <>
+      <div className="chart">
+        <Pie title={title} slices={slices} />
+      </div>
+      <Legend
+        items={slices.map((s) => ({ label: `${s.label} ${formatCount(s.value)}（${formatPercent(s.share, 1)}）`, color: s.color }))}
+      />
+    </>
+  );
 }
 
 /** カードの下の時点。「2026-10-12 の週（日本時間）の記録・取得 2026-10-13 05:31」 */
@@ -61,9 +90,7 @@ export function BreakdownCardView({ card, week, metricLabel }: { card: Breakdown
         </>
       }
     >
-      <div className="chart">
-        <HBars title={`${metricLabel}の${label}の人数と割合`} rows={card.rows} />
-      </div>
+      <BreakdownChart card={card} title={`${metricLabel}の${label}の人数と割合`} />
       {card.others > 0 && <p className="small muted">ほか {card.others} 件</p>}
     </Card>
   );

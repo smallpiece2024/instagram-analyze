@@ -9,6 +9,7 @@ import { VBars, type VBarsProps } from "@/components/charts/VBars";
 import { Heatmap, HeatmapLegend, heatmapRange, heatPercent, type HeatmapProps } from "@/components/charts/Heatmap";
 import { HBars, type HBarsProps } from "@/components/charts/HBars";
 import { HStack, type HStackProps } from "@/components/charts/HStack";
+import { Pie, type PieProps } from "@/components/charts/Pie";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
 import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
@@ -591,5 +592,47 @@ describe("LineChart（欠けで線を切る。オーディエンスの推移）"
     const d = /class="chart-line" d="([^"]+)"/.exec(two)?.[1] ?? "";
     expect(d.match(/M/g)?.length).toBe(2);
     expect(d.match(/L/g)?.length).toBe(1);
+  });
+});
+
+const pie = (p: Partial<PieProps>) => renderToStaticMarkup(createElement(Pie, { title: "t", slices: [], ...p }));
+
+describe("Pie（割合の円グラフ）", () => {
+  it("0 件、割合 null、割合 0 で例外を投げず NaN を出さない。扇は描かない", () => {
+    expectClean(pie({}));
+    const html = pie({
+      slices: [
+        { label: "女性", value: null, share: null, color: "red" },
+        { label: "男性", value: 0, share: 0, color: "blue" },
+      ],
+    });
+    expectClean(html);
+    expect(html).not.toContain('data-part="slice"');
+  });
+
+  it("割合のある扇が 1 つだけなら円を描く", () => {
+    const html = pie({
+      slices: [
+        { label: "女性", value: 10, share: 1, color: "red" },
+        { label: "男性", value: 0, share: 0, color: "blue" },
+      ],
+    });
+    expectClean(html);
+    expect(html.match(/data-part="slice"/g)).toHaveLength(1);
+    expect(html).toContain("<circle");
+  });
+
+  it("扇ごとに値と割合を title に出し、半分を超える扇は大きい弧にする", () => {
+    const html = pie({
+      slices: [
+        { label: "女性", value: 70, share: 0.7, color: "red" },
+        { label: "男性", value: 20, share: 0.2, color: "blue" },
+        { label: "不明", value: 10, share: 0.1, color: "green" },
+      ],
+    });
+    expectClean(html);
+    expect(html.match(/<path/g)).toHaveLength(3);
+    expect(html).toContain("女性: 70（70.0%）");
+    expect(html).toMatch(/A\S+ \S+ 0 1 1/);
   });
 });
