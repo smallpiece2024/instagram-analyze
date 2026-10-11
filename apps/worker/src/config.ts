@@ -3,7 +3,9 @@
  *
  * - 秘密情報（トークン、アプリシークレット、接続文字列、サービスロールキー）はログに出さないこと（NF-SEC-06）
  * - 書式が不正なときは、変数名だけを示して例外を投げる。値は例外のメッセージに入れない（設計 2.3 章、11.3 章）
+ * - Vision の鍵（`GCP_VISION_KEY_JSON`／`GCP_VISION_KEY_FILE`）だけは例外にせず `visionKey.ok = false` で返す（R4.1 設計 3.8 節）
  */
+import { readFileSync } from "node:fs";
 
 export const DEFAULT_GRAPH_API_VERSION = "v25.0";
 
@@ -12,10 +14,35 @@ export const DEFAULT_VIDEO_MAX_PER_RUN = 5;
 /** video_analysis の時間の予算の既定値（8 分。R4 設計 3.2 節） */
 export const DEFAULT_VIDEO_BUDGET_MS = 8 * 60 * 1000;
 
+/** video_text が 1 回に OCR する本数の既定値（R4.1 設計 3.2 節。0 なら候補を数えるだけ） */
+export const DEFAULT_VIDEO_TEXT_MAX_PER_RUN = 5;
+/** video_text の時間の予算の既定値（8 分。R4.1 設計 3.2 節） */
+export const DEFAULT_VIDEO_TEXT_BUDGET_MS = 8 * 60 * 1000;
+/** video_text が 1 回に使うユニットの上限の既定値（R4.1 設計 3.2 節） */
+export const DEFAULT_VIDEO_TEXT_MAX_UNITS_PER_RUN = 200;
+/** video_text の月のユニットの上限の既定値（R4.1 設計 3.3 節。Vision の無料枠） */
+export const DEFAULT_VIDEO_TEXT_MONTHLY_UNIT_LIMIT = 1000;
+/** 月のユニットの上限に設定できる最大値。無料枠と同じにして、打ち間違いで有料の領域に入らない（R4.1 設計 3.3 節） */
+export const VIDEO_TEXT_MONTHLY_UNIT_LIMIT_MAX = 1000;
+/** video_text の月の本数の上限の既定値（R4.1 設計 3.3 節） */
+export const DEFAULT_VIDEO_TEXT_MONTHLY_MAX_VIDEOS = 30;
+
+/** Google のサービスアカウントの鍵に書かれているべき token_uri。これ以外の鍵は使わない（R4.1 設計 3.8 節） */
+export const GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
+
 /** 動画とサムネイルのダウンロードを許可するホスト（後方一致）。設計 3.7 章。環境変数にしない */
 export const DOWNLOAD_ALLOWED_HOSTS: readonly string[] = ["cdninstagram.com", "fbcdn.net"];
 
 export type LogLevel = "info" | "debug";
+
+/**
+ * Vision API のサービスアカウントの鍵（R4.1 設計 3.8 節）。
+ * `missing` は変数がない、`invalid` は読めないか形が合わない。どちらでも起動は失敗させない（Vision は任意の機能）。
+ * 値（`privateKey`）はログや例外に出さない。ジョブの枠組みがマスクの対象に加える
+ */
+export type VisionKey =
+  | { ok: true; key: { clientEmail: string; privateKey: string } }
+  | { ok: false; reason: "missing" | "invalid" };
 
 /** `DATABASE_SSL_CA` なしで接続してよい（平文のまま）ホスト。これ以外は CA が必須（R2 設計 2.2 章のフェイルクローズ） */
 export const LOCAL_DB_HOSTS: readonly string[] = ["127.0.0.1", "localhost", "host.docker.internal"];
@@ -50,6 +77,18 @@ export interface WorkerConfig {
   videoMaxPerRun: number;
   /** video_analysis の時間の予算（ミリ秒）。ジョブの開始からの経過がこれを超えたら新しい 1 本を始めない（R4 設計 3.2 節） */
   videoBudgetMs: number;
+  /** video_text が 1 回に OCR する本数の上限（0〜100）。0 なら候補を数えて info を出すだけ（R4.1 設計 3.2 節） */
+  videoTextMaxPerRun: number;
+  /** video_text の時間の予算（ミリ秒）。超えていたら新しい 1 本を始めず、失敗した要求の再送もしない（R4.1 設計 3.2 節） */
+  videoTextBudgetMs: number;
+  /** video_text が 1 回に使うユニットの上限（1〜1,000。R4.1 設計 3.2 節） */
+  videoTextMaxUnitsPerRun: number;
+  /** video_text の月（UTC の暦月）のユニットの上限（0〜1,000。R4.1 設計 3.3 節） */
+  videoTextMonthlyUnitLimit: number;
+  /** video_text の月（UTC の暦月）の本数の上限（0〜1,000。R4.1 設計 3.3 節） */
+  videoTextMonthlyMaxVideos: number;
+  /** Vision API の鍵。ない・形が不正でも起動は失敗させない（R4.1 設計 3.8 節） */
+  visionKey: VisionKey;
 }
 
 /** `register-token` コマンドの設定。`.env` のトークンを読むのはこのコマンドと `verify-api` だけ（設計 4.1 章） */
@@ -198,6 +237,66 @@ function databaseSslCa(env: Env, databaseUrl: string): string | undefined {
   return pem;
 }
 
+const PEM_PRIVATE_KEY_HEADER = "-----BEGIN PRIVATE KEY-----";
+/** サービスアカウントの client_email の形（`<名前>@<プロジェクト>.iam.gserviceaccount.com`） */
+const SERVICE_ACCOUNT_EMAIL_PATTERN = /@[a-z0-9-]+\.iam\.gserviceaccount\.com$/;
+
+/** 鍵のファイルを読む関数。テストで差し替える */
+export type ReadTextFile = (path: string) => string;
+
+function readTextFileSync(path: string): string {
+  return readFileSync(path, "utf8");
+}
+
+/**
+ * 鍵の JSON（サービスアカウントの鍵ファイルの中身）を検査して、使う 2 つの値だけを取り出す。
+ * `JSON.parse` の例外は入力の断片を含むので捨てる。`token_uri` は定数と一致することだけを見て値は持たない
+ */
+function parseVisionKey(json: string): VisionKey {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: "invalid" };
+  }
+  const record = parsed as Record<string, unknown>;
+  const clientEmail = record["client_email"];
+  const privateKey = record["private_key"];
+  const tokenUri = record["token_uri"];
+  if (typeof clientEmail !== "string" || !SERVICE_ACCOUNT_EMAIL_PATTERN.test(clientEmail)) {
+    return { ok: false, reason: "invalid" };
+  }
+  if (typeof privateKey !== "string" || !privateKey.startsWith(PEM_PRIVATE_KEY_HEADER)) {
+    return { ok: false, reason: "invalid" };
+  }
+  if (tokenUri !== GOOGLE_OAUTH_TOKEN_URI) {
+    return { ok: false, reason: "invalid" };
+  }
+  return { ok: true, key: { clientEmail, privateKey } };
+}
+
+/**
+ * Vision API の鍵（R4.1 設計 3.8 節）。`GCP_VISION_KEY_JSON` があれば JSON として読み、なければ
+ * `GCP_VISION_KEY_FILE` のファイルを読む（`process.env` とこのファイルを読むのは `config.ts` だけ）。
+ * ファイルの読み込みの例外はパスを含むので捨てて `invalid` にする。どの場合も例外を投げない（起動を失敗させない）
+ */
+export function loadVisionKey(env: Env = process.env, readFile: ReadTextFile = readTextFileSync): VisionKey {
+  const inline = optional(env, "GCP_VISION_KEY_JSON");
+  if (inline !== undefined) return parseVisionKey(inline);
+  const path = optional(env, "GCP_VISION_KEY_FILE");
+  if (path === undefined) return { ok: false, reason: "missing" };
+  let json: string;
+  try {
+    json = readFile(path);
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+  return parseVisionKey(json);
+}
+
 /** 検証結果などのローカル出力先（Git 管理外） */
 export function outputDir(env: Env = process.env): string {
   return optional(env, "WORKER_OUTPUT_DIR") ?? ".local";
@@ -230,6 +329,19 @@ export function loadWorkerConfig(env: Env = process.env): WorkerConfig {
     downloadAllowedHosts: [...DOWNLOAD_ALLOWED_HOSTS],
     videoMaxPerRun: integerInRange(env, "WORKER_VIDEO_MAX_PER_RUN", DEFAULT_VIDEO_MAX_PER_RUN, 1, 100),
     videoBudgetMs: integerInRange(env, "WORKER_VIDEO_BUDGET_MS", DEFAULT_VIDEO_BUDGET_MS, 0, 30 * 60 * 1000),
+    // R4.1: 本数の下限は 0（本番で一時的に止める）。月のユニットの上限の範囲は無料枠まで（有料の領域に入らない）
+    videoTextMaxPerRun: integerInRange(env, "WORKER_VIDEO_TEXT_MAX_PER_RUN", DEFAULT_VIDEO_TEXT_MAX_PER_RUN, 0, 100),
+    videoTextBudgetMs: integerInRange(env, "WORKER_VIDEO_TEXT_BUDGET_MS", DEFAULT_VIDEO_TEXT_BUDGET_MS, 0, 30 * 60 * 1000),
+    videoTextMaxUnitsPerRun: integerInRange(env, "WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN", DEFAULT_VIDEO_TEXT_MAX_UNITS_PER_RUN, 1, 1000),
+    videoTextMonthlyUnitLimit: integerInRange(
+      env,
+      "WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT",
+      DEFAULT_VIDEO_TEXT_MONTHLY_UNIT_LIMIT,
+      0,
+      VIDEO_TEXT_MONTHLY_UNIT_LIMIT_MAX,
+    ),
+    videoTextMonthlyMaxVideos: integerInRange(env, "WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS", DEFAULT_VIDEO_TEXT_MONTHLY_MAX_VIDEOS, 0, 1000),
+    visionKey: loadVisionKey(env),
   };
 }
 

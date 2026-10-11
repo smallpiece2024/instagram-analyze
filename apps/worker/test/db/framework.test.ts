@@ -91,6 +91,12 @@ describe.skipIf(!TEST_DATABASE_URL)("jobs/framework（結合）", () => {
     downloadAllowedHosts: ["cdninstagram.com"],
     videoMaxPerRun: 5,
     videoBudgetMs: 480_000,
+    videoTextMaxPerRun: 5,
+    videoTextBudgetMs: 480_000,
+    videoTextMaxUnitsPerRun: 200,
+    videoTextMonthlyUnitLimit: 1000,
+    videoTextMonthlyMaxVideos: 30,
+    visionKey: { ok: false, reason: "missing" },
   };
 
   const fetchImpl: typeof fetch = async () => {
