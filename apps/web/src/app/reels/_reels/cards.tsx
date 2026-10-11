@@ -3,6 +3,7 @@
  * 各カードに母集団の件数 n を添える（除いた理由ごとの説明の文言は出さない）
  */
 import Link from "next/link";
+import { Fragment } from "react";
 import { Card } from "@/components/Card";
 import { Forest } from "@/components/charts/Forest";
 import { Legend } from "@/components/charts/Legend";
@@ -15,9 +16,11 @@ import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import { kindColor } from "@/lib/metrics";
 import {
   FACTORS,
+  FIRST_3S_TEXT,
   formatFactor,
   GROUP_FAINT_MIN,
   groupFactorSummary,
+  groupFirst3sTextShare,
   isEdgeCutFactor,
   groupObjectiveMedian,
   OBJECTIVE_LABEL,
@@ -33,18 +36,21 @@ import {
 const COLOR = kindColor("reel");
 
 export function objectiveFormat(y: Objective): ValueFormat {
-  return y === "reach_rate" ? "percent" : "count";
+  return y === "reach_rate" || y === "skip_rate" ? "percent" : "count";
 }
 
 export function objectiveHint(y: Objective): string {
   if (y === "reach_rate") return METRIC_DEFINITIONS.reach_rate.hint;
   if (y === "reach") return METRIC_DEFINITIONS.reach.hint;
+  if (y === "skip_rate") return `${METRIC_DEFINITIONS.skip_rate.hint}。スキップ率は低いほどよい（上位と下位は値の大小のまま）`;
   return METRIC_DEFINITIONS.views.hint;
 }
 
 /** 要因の散布図の X の書式 */
 function factorAxisFormat(f: FactorDef): ValueFormat {
-  return f.unit === "seconds" ? "seconds" : "count";
+  if (f.unit === "seconds") return "seconds";
+  if (f.unit === "percent") return "percent";
+  return "count";
 }
 
 /** 解析済みが 0 件のとき（6.2 節「空のとき」） */
@@ -125,7 +131,7 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
       title={`${label}の上位と下位`}
       sub={`n = ${tb.n}`}
       className="col-6"
-      foot={'値は各群の中央値。"冒頭 3 秒の画面変化"と"最後 3 秒の画面変化"は 1 回以上のリールの割合。'}
+      foot={'値は各群の中央値。"冒頭 3 秒の画面変化"と"最後 3 秒の画面変化"は 1 回以上のリールの割合、"冒頭 3 秒の文字"は文字があるリールの割合。'}
     >
       <div className="table-wrap">
         <table className="table">
@@ -157,14 +163,30 @@ export function TopBottomCard({ view, urls }: { view: ReelsView; urls: ReadonlyM
                 const v = groupFactorSummary(g, f.key);
                 return isEdgeCutFactor(f.key) ? (v === null ? "—" : `${formatPercent(v, 0)} が 1 回以上`) : formatFactor(v, f.unit);
               };
+              // 「冒頭 3 秒の文字」は 2 値なので要因に入れず、「最初の文字まで」の次に割合で 1 行（R4.1 設計 6.2 節）
+              const textShare = (g: readonly ReelRow[]) => {
+                const v = groupFirst3sTextShare(g);
+                return v === null ? "—" : `${formatPercent(v, 0)} があり`;
+              };
               return (
-                <tr key={f.key}>
-                  <th scope="row" className="row-head">
-                    <MetricHint label={f.label} text={f.hint} />
-                  </th>
-                  <td className="num">{show(tb.top)}</td>
-                  <td className="num">{show(tb.bottom)}</td>
-                </tr>
+                <Fragment key={f.key}>
+                  <tr>
+                    <th scope="row" className="row-head">
+                      <MetricHint label={f.label} text={f.hint} />
+                    </th>
+                    <td className="num">{show(tb.top)}</td>
+                    <td className="num">{show(tb.bottom)}</td>
+                  </tr>
+                  {f.key === "first_text" && (
+                    <tr data-row={FIRST_3S_TEXT.key}>
+                      <th scope="row" className="row-head">
+                        <MetricHint label={FIRST_3S_TEXT.label} text={FIRST_3S_TEXT.hint} />
+                      </th>
+                      <td className="num">{textShare(tb.top)}</td>
+                      <td className="num">{textShare(tb.bottom)}</td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -306,9 +328,10 @@ export function ResponseScatterCard({ view }: { view: ReelsView }) {
  * 区分
  * ------------------------------------------------------------------ */
 
-/** グループ別の棒グラフの viewBox の幅。PC の 4 分の 1 と半分のマス、スマートフォンの全幅（文字の大きさをそろえるため） */
+/** グループ別の棒グラフの viewBox の幅。PC の 4 分の 1、半分、全幅のマス、スマートフォンの全幅（文字の大きさをそろえるため） */
 const GROUP_WIDTH_QUARTER = 280;
 const GROUP_WIDTH_HALF = 580;
+const GROUP_WIDTH_FULL = 1140;
 const GROUP_WIDTH_MOBILE = 340;
 
 function GroupCell({
@@ -320,7 +343,7 @@ function GroupCell({
   label: string;
   bars: readonly GroupBar[];
   y: Objective;
-  className: "col-3" | "col-6";
+  className: "col-3" | "col-6" | "col-12";
 }) {
   const fmt = objectiveFormat(y);
   const common = {
@@ -337,7 +360,7 @@ function GroupCell({
     noAxis: true,
   };
   // 図はマスの幅に近い大きさで描き、それより大きくは拡大しない（拡大すると、幅の違うマスで文字の大きさがそろわない）
-  const width = className === "col-6" ? GROUP_WIDTH_HALF : GROUP_WIDTH_QUARTER;
+  const width = className === "col-12" ? GROUP_WIDTH_FULL : className === "col-6" ? GROUP_WIDTH_HALF : GROUP_WIDTH_QUARTER;
   return (
     <div className={`${className} group-cell`}>
       <p className="small muted">{label}</p>
@@ -359,23 +382,34 @@ export function GroupsCard({ view, analyzed }: { view: ReelsView; analyzed: bool
       className="col-12"
       foot={`棒は${label}の中央値。n は件数で、3 件未満のグループは薄く表示する。曜日と時間帯は日本時間（朝は 11 時より前、昼は 11〜17 時、夜は 17 時以降）。`}
     >
+      {/* 配置（R4.1 設計 6.2 節）: 1 行目 長さ 6 / 冒頭 3 秒の画面変化 3 / 最後 3 秒の画面変化 3、
+          2 行目 冒頭 3 秒の文字 3 / 平日と土日 3 / 時間帯 6、3 行目 曜日 12。解析済みが 0 件でも配置は変えない */}
       <div className="grid">
         {analyzed ? (
           <>
             <GroupCell label="動画の長さ" bars={view.groups.length} y={view.y} className="col-6" />
             <GroupCell label="冒頭 3 秒の画面変化" bars={view.groups.first3s} y={view.y} className="col-3" />
             <GroupCell label="最後 3 秒の画面変化" bars={view.groups.last3s} y={view.y} className="col-3" />
+            <GroupCell label={FIRST_3S_TEXT.label} bars={view.groups.text3s} y={view.y} className="col-3" />
           </>
         ) : (
-          <div className="col-12">
-            <p>
-              <span className="muted">—</span> <Link href="/jobs">収集ログ</Link>
-            </p>
-          </div>
+          <>
+            <div className="col-12">
+              <p>
+                <span className="muted">—</span> <Link href="/jobs">収集ログ</Link>
+              </p>
+            </div>
+            <div className="col-3 group-cell">
+              <p className="small muted">{FIRST_3S_TEXT.label}</p>
+              <p>
+                <span className="muted">—</span>
+              </p>
+            </div>
+          </>
         )}
         <GroupCell label="平日と土日" bars={view.groups.day} y={view.y} className="col-3" />
-        <GroupCell label="投稿の曜日" bars={view.groups.weekday} y={view.y} className="col-6" />
-        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} className="col-3" />
+        <GroupCell label="投稿の時間帯" bars={view.groups.band} y={view.y} className="col-6" />
+        <GroupCell label="投稿の曜日" bars={view.groups.weekday} y={view.y} className="col-12" />
       </div>
     </Card>
   );

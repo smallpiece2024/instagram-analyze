@@ -208,3 +208,28 @@ describe("evaluateAlerts", () => {
     expect(JSON.stringify(data)).toBe(snapshot);
   });
 });
+
+describe("evaluateAlerts: ocr_monthly_cap（R4.1 設計 3.3 節）", () => {
+  const limits = { unitLimit: 1000, maxVideos: 30 };
+
+  it("daily だけ。ユニットか本数が上限以上（>=）で該当。ちょうど上限も該当", () => {
+    const over = account({ ocrMonthly: { units: 1000, videos: 3 } });
+    expect(evaluateAlerts({ ...input(over), ocrLimits: limits }, NOW, "daily", false).alerts).toEqual([
+      { kind: "ocr_monthly_cap", ordinal: 1, total: 1, units: 1000, videos: 3 },
+    ]);
+    expect(evaluateAlerts({ ...input(over), ocrLimits: limits }, NOW, "hourly", false).alerts).toEqual([]);
+    const videos = account({ ocrMonthly: { units: 10, videos: 30 } });
+    expect(evaluateAlerts({ ...input(videos), ocrLimits: limits }, NOW, "daily", false).alerts).toHaveLength(1);
+    const under = account({ ocrMonthly: { units: 999, videos: 29 } });
+    expect(evaluateAlerts({ ...input(under), ocrLimits: limits }, NOW, "daily", false).alerts).toEqual([]);
+  });
+
+  it("上限 0 なら利用 0 でも該当。利用を読んでいない、上限がない、active でないアカウントは判定しない", () => {
+    const zero = account({ ocrMonthly: { units: 0, videos: 0 } });
+    expect(evaluateAlerts({ ...input(zero), ocrLimits: { unitLimit: 0, maxVideos: 30 } }, NOW, "daily", false).alerts).toHaveLength(1);
+    expect(evaluateAlerts({ ...input(account()), ocrLimits: limits }, NOW, "daily", false).alerts).toEqual([]);
+    expect(evaluateAlerts(input(account({ ocrMonthly: { units: 5000, videos: 50 } })), NOW, "daily", false).alerts).toEqual([]);
+    const paused = account({ status: "paused", ocrMonthly: { units: 5000, videos: 50 } });
+    expect(evaluateAlerts({ ...input(paused), ocrLimits: limits }, NOW, "daily", false).alerts).toEqual([]);
+  });
+});

@@ -9,6 +9,7 @@
  * | `token` | daily のみ | `active` のアカウントで、credential がない、`status <> 'valid'`、または残り日数が 14 日未満（`token_check` と同じ計算。14 日ちょうどは警告しない） |
  * | `stories_failed` | 両方（daily の回も hourly を含む） | `stories` の直近 2 回（`running` を除く）がどちらも `failed`（`partial`／`skipped` は数えない） |
  * | `stories_skipped` | 両方 | `stories` の直近 3 回がすべて `skipped` |
+ * | `ocr_monthly_cap` | daily のみ | 今月（UTC）の Vision のユニットか本数が上限以上（`>=`。R4.1 設計 3.3 節） |
  * | 履歴なし | 両方 | `stories` の記録が 2 回に満たない → 判定しない（`noHistory`） |
  *
  * アカウントは `ordinal/total` の連番で表し、ID やユーザー名は持ち込まない
@@ -31,17 +32,22 @@ export interface AlertAccount {
   credential: AlertCredential | null;
   /** `stories` の直近の実行。`started_at desc`、最大 3 件。`running` が混じっていても除く */
   recentStoriesRuns: { status: string }[];
+  /** 今月（UTC）の Vision の利用（`ocr_usage` の合計）。読んでいなければ省略（判定しない） */
+  ocrMonthly?: { units: number; videos: number };
 }
 
 export interface AlertInput {
   accounts: AlertAccount[];
+  /** `ocr_monthly_cap` の上限（`WorkerConfig` の 2 つ）。省略時は判定しない */
+  ocrLimits?: { unitLimit: number; maxVideos: number };
 }
 
 export type Alert =
   | { kind: "simulated" }
   | { kind: "token"; ordinal: number; total: number; daysLeft: number | undefined; status: string }
   | { kind: "stories_failed"; ordinal: number; total: number; runs: number }
-  | { kind: "stories_skipped"; ordinal: number; total: number; runs: number };
+  | { kind: "stories_skipped"; ordinal: number; total: number; runs: number }
+  | { kind: "ocr_monthly_cap"; ordinal: number; total: number; units: number; videos: number };
 
 export interface AlertEvaluation {
   alerts: Alert[];
@@ -68,6 +74,16 @@ function evaluateToken(account: AlertAccount, total: number, now: Date): Alert |
   // 期限が不明（null）はページトークンでは起きないはずなので、分からないまま黙らず警告する（フェイルクローズ。days_left=unknown）
   if (left === undefined || left < DATA_ACCESS_WARN_DAYS) {
     return { kind: "token", ordinal, total, daysLeft: left, status: credential.status };
+  }
+  return undefined;
+}
+
+/** 月のユニットか本数が上限以上（`>=`）なら `ocr_monthly_cap`（R4.1 設計 3.3 節。`daily` だけ） */
+function evaluateOcrMonthlyCap(account: AlertAccount, total: number, limits: AlertInput["ocrLimits"]): Alert | undefined {
+  if (!limits || !account.ocrMonthly) return undefined;
+  const { units, videos } = account.ocrMonthly;
+  if (units >= limits.unitLimit || videos >= limits.maxVideos) {
+    return { kind: "ocr_monthly_cap", ordinal: account.ordinal, total, units, videos };
   }
   return undefined;
 }
@@ -99,6 +115,8 @@ export function evaluateAlerts(input: AlertInput, now: Date, scope: AlertScope, 
     if (scope === "daily") {
       const token = evaluateToken(account, total, now);
       if (token) alerts.push(token);
+      const ocr = evaluateOcrMonthlyCap(account, total, input.ocrLimits);
+      if (ocr) alerts.push(ocr);
     }
     const stories = evaluateStories(account, total);
     if (stories.alert) alerts.push(stories.alert);

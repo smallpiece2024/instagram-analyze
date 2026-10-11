@@ -13,6 +13,7 @@ import { PageHead } from "@/components/PageHead";
 import { parseJob, parseJobStatus, parsePageNumber } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { ConnectionStatusList } from "./_components/connection-status";
+import { OcrUsageCard } from "./_components/ocr-usage-card";
 import { RunsCard } from "./_components/runs-card";
 import { ScheduleCard } from "./_components/schedule-card";
 import { JobsHeadSub, JobsSummary } from "./_components/summary";
@@ -68,6 +69,9 @@ export default async function JobsPage(props: PageProps<"/jobs">) {
         </Suspense>
         <Suspense fallback={<Loading className="col-12" />}>
           <RunsCard accountId={accountId} job={job} status={status} page={page} className="col-12" />
+        </Suspense>
+        <Suspense fallback={<Loading className="col-12" />}>
+          <OcrUsageCard accountId={accountId} className="col-12" />
         </Suspense>
       </div>
     </main>

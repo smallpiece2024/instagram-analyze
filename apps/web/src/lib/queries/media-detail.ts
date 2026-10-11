@@ -306,7 +306,20 @@ export const getPeerStats = cache(
  * 動画の特徴量（R4 設計 6.1 節。カットのタイムラインと視聴維持率）
  * ------------------------------------------------------------------ */
 
-/** `media_video_features` の 1 行と画面変化の時刻。`error` 列は読まない */
+/** 文字の区間 1 本（`video_text_segments`。R4.1 設計 6.1 節の表）。`words` は読まない */
+export interface TextSegment {
+  seq: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  /** `vertical_position`（`top`／`middle`／`bottom`） */
+  position: string;
+  is_caption_like: boolean;
+  /** 0〜1。null は値なし */
+  confidence: number | null;
+}
+
+/** `media_video_features` の 1 行と画面変化の時刻、文字の区間。`error` 列は読まない */
 export interface VideoFeatures {
   /** 今の条件の解析の状態。null はまだ解析していない */
   analysis_status: string | null;
@@ -319,11 +332,26 @@ export interface VideoFeatures {
   retention_rate: number | null;
   /** 画面変化の時刻（ミリ秒、`seq` の順）。`success` でなければ空 */
   cut_times_ms: number[];
+  /** 今の OCR の条件の文字の解析の状態。null はまだ読んでいない */
+  text_status: string | null;
+  /** 区間化の版が今の版か。偽なら計算し直し待ち（特徴量は null）。行がなければ null */
+  text_segmenter_current: boolean | null;
+  first_text_ms: number | null;
+  has_text_in_first_3s: boolean | null;
+  /** 0〜1 */
+  text_coverage_ratio: number | null;
+  total_text_chars: number | null;
+  segment_count: number | null;
+  /** `is_caption_like` の区間の数（`text_segments` から数える。文字の解析がなければ 0） */
+  caption_segment_count: number;
+  caption_total_chars: number | null;
+  /** 文字の区間（`seq` の順）。`success` で今の版でなければ空 */
+  text_segments: TextSegment[];
 }
 
 /**
  * 動画の投稿（リールとフィード動画）の特徴量。ビューに行がない（動画でない、対象のアカウントのものでない）なら null。
- * 値はビューのものをそのまま使い、画面で計算し直さない
+ * 値はビューのものをそのまま使い、画面で計算し直さない。文字の区間は `cut_times_ms` と同じく同じ 1 行に JSON で載せる
  */
 export const getVideoFeatures = cache(async (accountId: string, id: string): Promise<QueryResult<VideoFeatures | null>> =>
   runQuery(async (db) => {
@@ -338,11 +366,39 @@ export const getVideoFeatures = cache(async (accountId: string, id: string): Pro
             where c.analysis_id = f.analysis_id and f.analysis_status = 'success'
           ),
           '{}'::integer[]
-        ) as cut_times_ms
+        ) as cut_times_ms,
+        f.text_status, f.text_segmenter_current,
+        f.first_text_ms, f.has_text_in_first_3s, f.text_coverage_ratio::float8 as text_coverage_ratio,
+        f.total_text_chars, f.segment_count, f.caption_total_chars,
+        coalesce(
+          (
+            select count(*)::int
+            from public.video_text_segments s
+            where s.analysis_id = f.text_analysis_id and f.text_status = 'success' and f.text_segmenter_current
+              and s.is_caption_like
+          ),
+          0
+        ) as caption_segment_count,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object(
+                'seq', s.seq, 'start_ms', s.start_ms, 'end_ms', s.end_ms, 'text', s.text,
+                'position', s.vertical_position, 'is_caption_like', s.is_caption_like, 'confidence', s.confidence::float8
+              )
+              order by s.seq
+            )
+            from public.video_text_segments s
+            where s.analysis_id = f.text_analysis_id and f.text_status = 'success' and f.text_segmenter_current
+          ),
+          '[]'::json
+        ) as text_segments
       from public.media_video_features f
       where f.account_id = ${accountId} and f.media_id = ${id}
     `;
     const row = rows[0];
-    return row === undefined ? null : { ...row, cut_times_ms: [...row.cut_times_ms] };
+    return row === undefined
+      ? null
+      : { ...row, cut_times_ms: [...row.cut_times_ms], text_segments: row.text_segments.map((s) => ({ ...s })) };
   }),
 );

@@ -1,13 +1,40 @@
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ConfigError,
   DEFAULT_GRAPH_API_VERSION,
   DOWNLOAD_ALLOWED_HOSTS,
+  GOOGLE_OAUTH_TOKEN_URI,
   loadRegisterTokenConfig,
   loadVerifyConfig,
+  loadVisionKey,
   loadWorkerConfig,
   outputDir,
 } from "../src/config.js";
+
+/** テスト用の秘密鍵（PEM、PKCS#8）。コミットしないよう、テストの中で作る（R4.1 設計 8 章） */
+const TEST_PRIVATE_KEY_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+  type: "pkcs8",
+  format: "pem",
+}) as string;
+
+/** 架空のサービスアカウントの鍵（Google が出す JSON の形。値は架空） */
+function visionKeyJson(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    type: "service_account",
+    project_id: "fake-project",
+    private_key_id: "0123456789abcdef",
+    private_key: TEST_PRIVATE_KEY_PEM,
+    client_email: "vision-worker@fake-project.iam.gserviceaccount.com",
+    client_id: "100000000000000000000",
+    auth_uri: "https://accounts.google.com/o/oauth2/auth",
+    token_uri: GOOGLE_OAUTH_TOKEN_URI,
+    ...overrides,
+  });
+}
 
 /** 必須の変数だけを持つ環境。値は架空のもの */
 const BASE = {
@@ -57,6 +84,76 @@ describe("loadWorkerConfig", () => {
       downloadAllowedHosts: [...DOWNLOAD_ALLOWED_HOSTS],
       videoMaxPerRun: 5,
       videoBudgetMs: 480_000,
+      videoTextMaxPerRun: 5,
+      videoTextBudgetMs: 480_000,
+      videoTextMaxUnitsPerRun: 200,
+      videoTextMonthlyUnitLimit: 1000,
+      videoTextMonthlyMaxVideos: 30,
+      visionKey: { ok: false, reason: "missing" },
+    });
+  });
+
+  it("WORKER_VIDEO_TEXT_MAX_PER_RUN: 0〜100 の整数（0 は候補を数えるだけ。R4 の下限 1 と違う）", () => {
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "0" })).videoTextMaxPerRun).toBe(0);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "100" })).videoTextMaxPerRun).toBe(100);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "" })).videoTextMaxPerRun).toBe(5);
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "-1" })), "WORKER_VIDEO_TEXT_MAX_PER_RUN", "-1");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "101" })), "WORKER_VIDEO_TEXT_MAX_PER_RUN", "101");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_PER_RUN: "five" })), "WORKER_VIDEO_TEXT_MAX_PER_RUN", "five");
+  });
+
+  it("WORKER_VIDEO_TEXT_BUDGET_MS: 0〜30 分の整数（ミリ秒）", () => {
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_BUDGET_MS: "0" })).videoTextBudgetMs).toBe(0);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_BUDGET_MS: "1800000" })).videoTextBudgetMs).toBe(1_800_000);
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_BUDGET_MS: "1800001" })), "WORKER_VIDEO_TEXT_BUDGET_MS", "1800001");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_BUDGET_MS: "8m" })), "WORKER_VIDEO_TEXT_BUDGET_MS", "8m");
+  });
+
+  it("WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN: 1〜1000 の整数", () => {
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN: "1" })).videoTextMaxUnitsPerRun).toBe(1);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN: "1000" })).videoTextMaxUnitsPerRun).toBe(1000);
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN: "0" })), "WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN");
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN: "1001" })), "WORKER_VIDEO_TEXT_MAX_UNITS_PER_RUN", "1001");
+  });
+
+  it("WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: 0〜1000 の整数。上限は無料枠と同じで、超える値は受け付けない", () => {
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "0" })).videoTextMonthlyUnitLimit).toBe(0);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "700" })).videoTextMonthlyUnitLimit).toBe(700);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "1000" })).videoTextMonthlyUnitLimit).toBe(1000);
+    expectConfigError(
+      () => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "1001" })),
+      "WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT",
+      "1001",
+    );
+    expectConfigError(
+      () => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "10000" })),
+      "WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT",
+      "10000",
+    );
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: "-1" })), "WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT", "-1");
+  });
+
+  it("WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS: 0〜1000 の整数", () => {
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS: "0" })).videoTextMonthlyMaxVideos).toBe(0);
+    expect(loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS: "1000" })).videoTextMonthlyMaxVideos).toBe(1000);
+    expectConfigError(
+      () => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS: "1001" })),
+      "WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS",
+      "1001",
+    );
+    expectConfigError(() => loadWorkerConfig(env({ WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS: "30本" })), "WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS", "30本");
+  });
+
+  it("Vision の鍵は loadWorkerConfig の visionKey に入り、形が不正でも起動（設定の読み込み）は失敗しない", () => {
+    const valid = loadWorkerConfig(env({ GCP_VISION_KEY_JSON: visionKeyJson() }));
+    expect(valid.visionKey).toEqual({
+      ok: true,
+      key: { clientEmail: "vision-worker@fake-project.iam.gserviceaccount.com", privateKey: TEST_PRIVATE_KEY_PEM },
+    });
+    expect(loadWorkerConfig(env({ GCP_VISION_KEY_JSON: "{not json" })).visionKey).toEqual({ ok: false, reason: "invalid" });
+    expect(loadWorkerConfig(env({ GCP_VISION_KEY_FILE: join(tmpdir(), "no-such-dir", "no-such-key.json") })).visionKey).toEqual({
+      ok: false,
+      reason: "invalid",
     });
   });
 
@@ -242,5 +339,131 @@ describe("outputDir", () => {
   it("WORKER_OUTPUT_DIR がなければ .local", () => {
     expect(outputDir({})).toBe(".local");
     expect(outputDir({ WORKER_OUTPUT_DIR: "/app/.local" })).toBe("/app/.local");
+  });
+});
+
+describe("loadVisionKey（R4.1 設計 3.8 節）", () => {
+  const VALID_EMAIL = "vision-worker@fake-project.iam.gserviceaccount.com";
+
+  it("GCP_VISION_KEY_JSON の中身を読み、client_email と private_key だけを返す（token_uri や project_id は持たない）", () => {
+    const key = loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson() });
+    expect(key).toEqual({ ok: true, key: { clientEmail: VALID_EMAIL, privateKey: TEST_PRIVATE_KEY_PEM } });
+    expect(TEST_PRIVATE_KEY_PEM.startsWith("-----BEGIN PRIVATE KEY-----")).toBe(true);
+  });
+
+  it("どちらの変数もなければ missing。空白だけも missing", () => {
+    expect(loadVisionKey({})).toEqual({ ok: false, reason: "missing" });
+    expect(loadVisionKey({ GCP_VISION_KEY_JSON: "  ", GCP_VISION_KEY_FILE: "" })).toEqual({ ok: false, reason: "missing" });
+  });
+
+  it("GCP_VISION_KEY_JSON があれば GCP_VISION_KEY_FILE より優先し、ファイルは読まない", () => {
+    let reads = 0;
+    const readFile = (): string => {
+      reads += 1;
+      return visionKeyJson({ client_email: "from-file@fake-project.iam.gserviceaccount.com" });
+    };
+    const key = loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson(), GCP_VISION_KEY_FILE: "/keys/vision.json" }, readFile);
+    expect(key.ok).toBe(true);
+    expect(key.ok && key.key.clientEmail).toBe(VALID_EMAIL);
+    expect(reads).toBe(0);
+  });
+
+  it("GCP_VISION_KEY_FILE のファイルを読む（差し替えた読み込み関数と、実際のファイルの両方）", () => {
+    const paths: string[] = [];
+    const readFile = (path: string): string => {
+      paths.push(path);
+      return visionKeyJson();
+    };
+    expect(loadVisionKey({ GCP_VISION_KEY_FILE: "/keys/vision.json" }, readFile).ok).toBe(true);
+    expect(paths).toEqual(["/keys/vision.json"]);
+
+    // 実際のファイル。一時ディレクトリに書き、終わりに消す（鍵をコミットしない）
+    const dir = mkdtempSync(join(tmpdir(), "vision-key-test-"));
+    try {
+      const file = join(dir, "key.json");
+      writeFileSync(file, visionKeyJson(), "utf8");
+      expect(loadVisionKey({ GCP_VISION_KEY_FILE: file })).toEqual({
+        ok: true,
+        key: { clientEmail: VALID_EMAIL, privateKey: TEST_PRIVATE_KEY_PEM },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ファイルの読み込みに失敗したら invalid。例外（パスを含む）を外に出さない", () => {
+    const readFile = (path: string): string => {
+      throw new Error(`ENOENT: no such file, open '${path}'`);
+    };
+    expect(loadVisionKey({ GCP_VISION_KEY_FILE: "/secret/path/key.json" }, readFile)).toEqual({ ok: false, reason: "invalid" });
+    // 既定の読み込み関数でも、存在しないパスで例外にならない
+    expect(loadVisionKey({ GCP_VISION_KEY_FILE: join(tmpdir(), "no-such-dir", "no-such-key.json") })).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("JSON として読めない、オブジェクトでない、必要な項目がないときは invalid（例外にしない）", () => {
+    for (const raw of ["{not json", "", "null", "[]", '"string"', "123", "{}", '{"client_email": 1}']) {
+      if (raw === "") continue; // 空は missing（上のテスト）
+      expect(loadVisionKey({ GCP_VISION_KEY_JSON: raw }), raw).toEqual({ ok: false, reason: "invalid" });
+    }
+    expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ client_email: undefined }) })).toEqual({ ok: false, reason: "invalid" });
+    expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ private_key: undefined }) })).toEqual({ ok: false, reason: "invalid" });
+    expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ token_uri: undefined }) })).toEqual({ ok: false, reason: "invalid" });
+    expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ private_key: 123 }) })).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("token_uri が定数 https://oauth2.googleapis.com/token と一致しなければ invalid（別のホストに鍵で署名した JWT を送らない）", () => {
+    expect(GOOGLE_OAUTH_TOKEN_URI).toBe("https://oauth2.googleapis.com/token");
+    for (const tokenUri of [
+      "https://oauth2.googleapis.com/token/",
+      "http://oauth2.googleapis.com/token",
+      "https://oauth2.googleapis.com.evil.example/token",
+      "https://example.com/token",
+      "",
+    ]) {
+      expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ token_uri: tokenUri }) }), tokenUri).toEqual({ ok: false, reason: "invalid" });
+    }
+  });
+
+  it("client_email は @<プロジェクト>.iam.gserviceaccount.com で終わること", () => {
+    for (const email of [
+      "vision-worker@fake-project.iam.gserviceaccount.com",
+      "a@p1.iam.gserviceaccount.com",
+      "x@my-project-123.iam.gserviceaccount.com",
+    ]) {
+      expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ client_email: email }) }).ok, email).toBe(true);
+    }
+    for (const email of [
+      "someone@gmail.com",
+      "vision-worker@fake-project.iam.gserviceaccount.com.evil.example",
+      "vision-worker@Fake-Project.iam.gserviceaccount.com",
+      "vision-worker@fake_project.iam.gserviceaccount.com",
+      "fake-project.iam.gserviceaccount.com",
+      "",
+    ]) {
+      expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ client_email: email }) }), email).toEqual({ ok: false, reason: "invalid" });
+    }
+  });
+
+  it("private_key は -----BEGIN PRIVATE KEY----- で始まること（証明書や RSA 形式の PEM、空は invalid）", () => {
+    for (const privateKey of [
+      "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
+      "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----\n",
+      " -----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n",
+      "",
+    ]) {
+      expect(loadVisionKey({ GCP_VISION_KEY_JSON: visionKeyJson({ private_key: privateKey }) })).toEqual({ ok: false, reason: "invalid" });
+    }
+  });
+
+  it("JSON の中で \\n にエスケープされた private_key は改行に戻って返る（Google の鍵ファイルの形）", () => {
+    const json = visionKeyJson();
+    expect(json).toContain("\\n");
+    expect(json).not.toContain("\n");
+    const key = loadVisionKey({ GCP_VISION_KEY_JSON: json });
+    expect(key.ok && key.key.privateKey).toBe(TEST_PRIVATE_KEY_PEM);
+    expect(key.ok && key.key.privateKey.split("\n").length).toBeGreaterThan(3);
   });
 });

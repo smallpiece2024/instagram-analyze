@@ -73,6 +73,26 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
 
+      # Vision の鍵（JSON）の各値を部分文字列としてマスクする（R4.1 設計 3.8 節）。GitHub のマスクは Secret の値そのもの
+      # （JSON 全体）にしか効かず、JSON.parse 後の値は別の文字列になるため。private_key は改行で分けた各行
+      # （`-----` の行と空行を除く）を登録する。Secret が未登録なら何もしない
+      - name: mask vision key parts
+        if: ${{ env.GCP_VISION_KEY_JSON != '' }}
+        run: |
+          for field in client_email project_id private_key_id; do
+            value=$(printf '%s' "$GCP_VISION_KEY_JSON" | jq -r --arg f "$field" '.[$f] // empty')
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done
+          printf '%s' "$GCP_VISION_KEY_JSON" | jq -r '.private_key // empty' | while IFS= read -r line; do
+            case "$line" in
+              ''|-----*) ;;
+              *) echo "::add-mask::$line" ;;
+            esac
+          done
+          true
+        env:
+          GCP_VISION_KEY_JSON: ${{ secrets.GCP_VISION_KEY_JSON }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -157,6 +177,12 @@ jobs:
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
           META_GRAPH_API_VERSION: v25.0
           WORKER_BACKFILL_HISTORY_DAYS: '400'
+          # Vision の鍵（video_text だけが使う。daily と check-alerts には渡さない。R4.1 設計 3.8 節）
+          GCP_VISION_KEY_JSON: ${{ secrets.GCP_VISION_KEY_JSON }}
+          # video_text の 1 回の本数と月のユニットの上限（R4.1 設計 3.2〜3.3 節、9 章の段階 4）。GitHub の変数。未設定なら既定（5、1000）。
+          # 0 にすると候補を数えるだけで処理しない（本番で一時的に止めるときに使う）
+          WORKER_VIDEO_TEXT_MAX_PER_RUN: ${{ vars.WORKER_VIDEO_TEXT_MAX_PER_RUN }}
+          WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: ${{ vars.WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT }}
 
       # 収集が失敗しても判定は行う（cancelled のときだけ飛ばす）。該当があれば終了コード 1 でこのジョブが失敗になる
       - id: alerts
@@ -166,6 +192,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_SSL_CA: ${{ vars.DATABASE_SSL_CA }}
           WORKER_SIMULATE_ALERT: ${{ env.SIMULATE }}
+          # 月の上限の通知（daily の回だけ判定。R4.1 設計 3.3 節）。hourly のステップと同じ変数
+          WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: ${{ vars.WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT }}
 
       # 走ったことだけを知らせる（成否は GitHub のメールが担う。R2 設計 5.3 章、5.5 章）
       - name: ping

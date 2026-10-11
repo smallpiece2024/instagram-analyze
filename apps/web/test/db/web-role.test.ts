@@ -34,6 +34,8 @@ const VIEWS = [
   // R5（20261009000000_r5_analysis.sql）
   "media_hashtags",
   "story_list_metrics",
+  // R4.1（20261012000000_r4_1_video_text.sql）
+  "ocr_monthly_usage",
 ] as const;
 
 const READABLE_TABLES = [
@@ -51,6 +53,10 @@ const READABLE_TABLES = [
   "media_tags",
   "audience_captures",
   "audience_values",
+  // R4.1（20261012000000_r4_1_video_text.sql）。video_text_frames は画面で使わないので与えない（下で読めないことを確かめる）
+  "video_text_analyses",
+  "video_text_segments",
+  "ocr_usage",
 ] as const;
 
 function fakeIgUserId(): string {
@@ -139,6 +145,18 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
   it("web_app は caption_hashtags() を実行できる（R5。media_hashtags が使う）", async () => {
     const [row] = await web<{ tags: string[] }[]>`select array(select public.caption_hashtags('#Role')) as tags`;
     expect(row?.tags).toEqual(["role"]);
+  });
+
+  it("web_app は current_video_text_condition() を実行できる（R4.1。media_video_features が使う）", async () => {
+    const [row] = await web<{ ocr_method: string; segmenter_version: string }[]>`
+      select ocr_method, segmenter_version from public.current_video_text_condition()
+    `;
+    expect(row?.ocr_method).toBe("google_vision");
+    expect(row?.segmenter_version).toBe("1");
+  });
+
+  it("web_app は video_text_frames を読めない（R4.1。画面で使わないので権限を作らない）", async () => {
+    expect(await sqlstate(() => web`select * from public.video_text_frames limit 1`)).toBe(INSUFFICIENT_PRIVILEGE);
   });
 
   it.each(READABLE_TABLES)("web_app はテーブル %s を読める", async (table) => {
@@ -262,6 +280,7 @@ describe.skipIf(!TEST_DATABASE_URL || !TEST_WEB_DATABASE_URL)("r2_web_role（結
       expect(await sqlstate(asRole(role, "select public.metric_value('{}'::jsonb, array['a'])"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select * from public.current_video_condition()"))).toBe(INSUFFICIENT_PRIVILEGE);
       expect(await sqlstate(asRole(role, "select public.caption_hashtags('#x')"))).toBe(INSUFFICIENT_PRIVILEGE);
+      expect(await sqlstate(asRole(role, "select * from public.current_video_text_condition()"))).toBe(INSUFFICIENT_PRIVILEGE);
     }
     expect(await sqlstate(asRole("anon", "select private.is_web_user()"))).toBe(INSUFFICIENT_PRIVILEGE);
   });

@@ -144,6 +144,12 @@ function config(): WorkerConfig {
     downloadAllowedHosts: ["cdninstagram.com"],
     videoMaxPerRun: 5,
     videoBudgetMs: 480_000,
+    videoTextMaxPerRun: 5,
+    videoTextBudgetMs: 480_000,
+    videoTextMaxUnitsPerRun: 200,
+    videoTextMonthlyUnitLimit: 1000,
+    videoTextMonthlyMaxVideos: 30,
+    visionKey: { ok: false, reason: "missing" },
   };
 }
 

@@ -68,7 +68,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     secrets.addUrlParts(url);
     secrets.add(FAKE_TOKEN);
     deps = {
-      config: { simulateAlert: false },
+      config: { simulateAlert: false, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 },
       db,
       log: createLogger("debug", secrets, (line) => lines.push(line), () => NOW),
       secrets,
@@ -145,7 +145,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
 
   it("simulate は先頭に alert=simulated", async () => {
     lines.length = 0;
-    await expect(runCheckAlerts("hourly", { ...deps, config: { simulateAlert: true } })).resolves.toBe(false);
+    await expect(runCheckAlerts("hourly", { ...deps, config: { ...deps.config, simulateAlert: true } })).resolves.toBe(false);
     expect(lines[0]).toBe("2026-10-01T05:30:00.000Z WARN  alert=simulated");
     expect(lines.at(-1)).toBe("2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=2");
   });

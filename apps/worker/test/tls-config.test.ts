@@ -84,6 +84,8 @@ describe("loadCheckAlertsConfig", () => {
       databaseSslCa: undefined,
       logLevel: "info",
       simulateAlert: false,
+      videoTextMonthlyUnitLimit: 1000,
+      videoTextMonthlyMaxVideos: 30,
     });
     expectConfigError(() => loadCheckAlertsConfig({}), "DATABASE_URL");
   });

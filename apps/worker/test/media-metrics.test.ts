@@ -344,6 +344,7 @@ function fakeContext(handler: Handler): Fake {
     jobRunId: "1",
     startedAt: FIXED_NOW,
     recordFailure: (failure) => void failures.push(failure),
+    addSecret: () => {},
   };
   return { ctx, calls, failures, warns, infos };
 }

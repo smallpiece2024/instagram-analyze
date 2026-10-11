@@ -14,6 +14,7 @@ import { loadCheckAlertsConfig, type CheckAlertsConfig } from "../config.js";
 import { listActiveAccounts, readCredentialStatus } from "../db/accounts.js";
 import { closeDb, connectDb, normalizeDbError, type Db } from "../db/client.js";
 import { listRecentRuns } from "../db/job-runs.js";
+import { monthlyOcrUsage } from "../db/video-text.js";
 import type { AccountRow } from "../db/types.js";
 import { evaluateAlerts, STORIES_SKIPPED_RUNS, type Alert, type AlertAccount, type AlertScope } from "../jobs/alerts.js";
 import { describeError, processSecrets } from "../jobs/framework.js";
@@ -27,7 +28,7 @@ export const SCOPE_ARG_ERROR = "引数が不正（--scope hourly|daily が必須
 const NO_ERROR_CODE = "none";
 
 export interface CheckAlertsDeps {
-  config: Pick<CheckAlertsConfig, "simulateAlert">;
+  config: Pick<CheckAlertsConfig, "simulateAlert" | "videoTextMonthlyUnitLimit" | "videoTextMonthlyMaxVideos">;
   db: Db;
   log: Logger;
   secrets: SecretRegistry;
@@ -61,20 +62,27 @@ export function alertFields(alert: Alert): LogFields {
     case "stories_failed":
     case "stories_skipped":
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, runs: alert.runs };
+    case "ocr_monthly_cap":
+      return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, units: alert.units, videos: alert.videos };
   }
 }
 
-/** アカウントごとに credential の状態と `stories` の直近の実行を読む。接続は 2 本なので順に読む */
-export async function loadAlertAccounts(db: Db, accounts: AccountRow[]): Promise<AlertAccount[]> {
+/**
+ * アカウントごとに credential の状態、`stories` の直近の実行、（`daily` なら）今月の Vision の利用を読む。
+ * 接続は 2 本なので順に読む
+ */
+export async function loadAlertAccounts(db: Db, accounts: AccountRow[], scope: AlertScope = "hourly", now: Date = new Date()): Promise<AlertAccount[]> {
   const out: AlertAccount[] = [];
   for (const [index, account] of accounts.entries()) {
     const credential = await readCredentialStatus(db, account.id);
     const runs = await listRecentRuns(db, account.id, "stories", STORIES_SKIPPED_RUNS);
+    const ocrMonthly = scope === "daily" ? await monthlyOcrUsage(db, account.id, now) : undefined;
     out.push({
       ordinal: index + 1,
       status: account.status,
       credential: credential ? { status: credential.status, dataAccessExpiresAt: credential.data_access_expires_at } : null,
       recentStoriesRuns: runs.map((run) => ({ status: run.status })),
+      ...(ocrMonthly ? { ocrMonthly } : {}),
     });
   }
   return out;
@@ -86,14 +94,19 @@ export async function runCheckAlerts(scope: AlertScope, deps: CheckAlertsDeps): 
   let accounts: AlertAccount[];
   try {
     const rows = await (deps.listAccounts ?? listActiveAccounts)(deps.db);
-    accounts = await loadAlertAccounts(deps.db, rows);
+    accounts = await loadAlertAccounts(deps.db, rows, scope, now());
   } catch (error) {
     const failure = describeError(error, deps.secrets);
     deps.log.error({ command: COMMAND, scope, error_code: failure.code ?? NO_ERROR_CODE, class: failure.errorClass });
     deps.log.debug({ command: COMMAND, scope, error: failure.message });
     return false;
   }
-  const result = evaluateAlerts({ accounts }, now(), scope, deps.config.simulateAlert);
+  const result = evaluateAlerts(
+    { accounts, ocrLimits: { unitLimit: deps.config.videoTextMonthlyUnitLimit, maxVideos: deps.config.videoTextMonthlyMaxVideos } },
+    now(),
+    scope,
+    deps.config.simulateAlert,
+  );
   for (const alert of result.alerts) deps.log.warn(alertFields(alert));
   // reason は該当なしのときだけ（no_accounts: 対象のアカウントがない。no_history: 判定に足りる履歴がない）
   const reason =

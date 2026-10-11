@@ -24,7 +24,15 @@ function fakeDeps(overrides: Partial<CheckAlertsDeps> = {}): { deps: CheckAlerts
   // DB には触れない経路だけを試す（アカウントが 0 件なら読み出しは起きない）
   const db = {} as unknown as Db;
   return {
-    deps: { config: { simulateAlert: false }, db, log, secrets, now: () => NOW, listAccounts: async () => [], ...overrides },
+    deps: {
+      config: { simulateAlert: false, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 },
+      db,
+      log,
+      secrets,
+      now: () => NOW,
+      listAccounts: async () => [],
+      ...overrides,
+    },
     lines,
   };
 }
@@ -89,7 +97,7 @@ describe("runCheckAlerts（DB に触れない経路）", () => {
   });
 
   it("simulate なら WARN alert=simulated を出して false", async () => {
-    const { deps, lines } = fakeDeps({ config: { simulateAlert: true } });
+    const { deps, lines } = fakeDeps({ config: { simulateAlert: true, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 } });
     await expect(runCheckAlerts("daily", deps)).resolves.toBe(false);
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=simulated",

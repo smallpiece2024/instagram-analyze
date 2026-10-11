@@ -7,9 +7,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFile, stat } from "node:fs/promises";
 import {
   CommandError,
   detectScenes,
+  extractFrame,
   generateColorTestVideo,
   probeVideo,
   runCommand,
@@ -83,6 +85,35 @@ describe.skipIf(!HAS_FFMPEG)("本物の ffmpeg（結合）", () => {
         expect(c.score ?? 2).toBeLessThanOrEqual(1);
       }
     }
+  }, 60_000);
+
+  it("extractFrame（最小の env）で指定の時刻の色のフレームが出て、最後の間隔の中の 1 枚も出る。最後のフレームより後の時刻は CommandError（R4.1 設計 3.4 節）", async () => {
+    // 赤 0〜1500、青 1500〜2500、緑 2500〜4000。JPEG の中身は ffmpeg で 1 画素に縮めて色を読む
+    const sampleColor = async (jpg: string): Promise<[number, number, number]> => {
+      const out = join(dir, "px.rgb");
+      await runCommand("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", jpg, "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", out]);
+      const px = await readFile(out);
+      return [px[0] ?? 0, px[1] ?? 0, px[2] ?? 0];
+    };
+    const expectations: [number, "r" | "g" | "b"][] = [
+      [0, "r"],
+      [1600, "b"],
+      [3000, "g"],
+      [3900, "g"],
+    ];
+    for (const [atMs, channel] of expectations) {
+      const out = join(dir, `frame-${atMs}.jpg`);
+      await extractFrame(video, atMs, out, 15_000);
+      expect((await stat(out)).size).toBeGreaterThan(0);
+      const [r, g, b] = await sampleColor(out);
+      // ffmpeg の `green` は (0,128,0) なので、優勢な成分が 100 より大きく、ほかの成分が 60 未満であることを見る
+      const dominant = channel === "r" ? r : channel === "g" ? g : b;
+      expect(dominant, `${atMs} ms`).toBeGreaterThan(100);
+      for (const other of [r, g, b].filter((v) => v !== dominant)) expect(other, `${atMs} ms`).toBeLessThan(60);
+    }
+    // 最後のフレーム（30 fps なら 3.967 秒）より後の時刻は復号するフレームがなく、手元の ffmpeg は終了コードで失敗する
+    // （ジョブは末尾の時刻のこの失敗を計画から外す）
+    await expect(extractFrame(video, 4500, join(dir, "frame-4500.jpg"), 15_000)).rejects.toBeInstanceOf(CommandError);
   }, 60_000);
 
   it("mp4 でない中身（HLS の再生リスト）は -f mp4 で読めず CommandError", async () => {

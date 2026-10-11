@@ -1,10 +1,11 @@
 /**
- * リール分析（`/reels`。R4 設計 6.2 節、見本 `render.js` の `S.reels` から文字の要因を除いたもの）。
+ * リール分析（`/reels`。R4 設計 6.2 節、R4.1 設計 6.2〜6.3 節、見本 `render.js` の `S.reels`）。
  *
  * - 期間は過去 1 年間（365 日）の固定で、選択は置かない。対象はリールだけ
- * - 目的変数は選べる（リーチ率、リーチ数、閲覧数。文言に件数。既定はリーチ率。データの状況で自動では変えない）
- * - クエリ `y`、`sort`、`dir` は `lib/reels.ts` で検査し、不正な値は既定に戻す。並べ替えのたびにページ全体を計算し直す
+ * - 目的変数は選べる（リーチ率、リーチ数、閲覧数、スキップ率。文言に件数。既定はリーチ率。データの状況で自動では変えない）
+ * - クエリ `y`、`sort`、`dir`、`q` は `lib/reels.ts` で検査し、不正な値は既定に戻す。並べ替えのたびにページ全体を計算し直す
  * - 計算はサーバーで行い（`buildReelsView`）、数値だけを描画に渡す
+ * - 文字で探す（`q`）は一覧のカードの上。ほかのカードは `q` で絞らない（比べ方を検索で変えない）。検索は GET
  */
 import Link from "next/link";
 import { Callout } from "@/components/Callout";
@@ -18,7 +19,7 @@ import { lastUpdatedLabel, PAGE_SIZE } from "@/lib/format";
 import { parsePageNumber } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { signWithSession } from "@/lib/queries/media";
-import { getReels } from "@/lib/queries/reels";
+import { getReels, searchTextSegments } from "@/lib/queries/reels";
 import {
   buildReelsView,
   objectiveOptionLabel,
@@ -29,6 +30,7 @@ import {
   type Objective,
   type ReelsParams,
 } from "@/lib/reels";
+import { likePattern } from "@/lib/text-search";
 import {
   CorrelationCard,
   FactorScatterCard,
@@ -39,6 +41,7 @@ import {
   TopBottomCard,
 } from "./_reels/cards";
 import { ReelTable } from "./_reels/ReelTable";
+import { TextSearchCard } from "./_reels/TextSearchCard";
 
 const TITLE = "リール分析";
 
@@ -90,7 +93,11 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
     );
   }
 
-  const result = await getReels(account.data.id);
+  // 検索は一覧と並べて待つ（直列に待たない）。`q` がなければ引かない
+  const [result, search] = await Promise.all([
+    getReels(account.data.id),
+    params.q === null ? Promise.resolve(null) : searchTextSegments(account.data.id, likePattern(params.q)),
+  ]);
   if (!result.ok) {
     return (
       <main className="main">
@@ -116,7 +123,10 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
 
   const view = buildReelsView(rows, params.y);
   const query: Query = reelsQuery(params);
-  const paths = Array.from(new Set(rows.flatMap((r) => (r.thumbnail_path ? [r.thumbnail_path] : []))));
+  const hits = search !== null && search.ok ? search.data.hits : [];
+  const paths = Array.from(
+    new Set([...rows, ...hits].flatMap((r) => (r.thumbnail_path ? [r.thumbnail_path] : []))),
+  );
   const urls = await signWithSession(paths);
   const analyzed = view.analyzedCount > 0;
   // 一覧は投稿一覧と同じく 1 ページ PAGE_SIZE 件。並べ替えと指標の選択のリンクは page を持たない（1 ページ目に戻る）
@@ -141,6 +151,7 @@ export default async function ReelsPage(props: PageProps<"/reels">) {
         )}
         <GroupsCard view={view} analyzed={analyzed} />
         <ResponseScatterCard view={view} />
+        <TextSearchCard params={params} result={search} urls={urls} />
         <Card title="リールの一覧" sub={`${view.total} 件`} className="col-12">
           <ReelTable rows={pageRows} urls={urls} sort={params.sort} dir={params.dir} query={query} />
           <Pager page={currentPage} pageCount={pageCount} path="/reels" query={query} total={rows.length} pageSize={PAGE_SIZE} />

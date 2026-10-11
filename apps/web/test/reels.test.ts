@@ -72,6 +72,13 @@ function reel(i: number, over: Partial<ReelRow> = {}): ReelRow {
     share_rate: 0.01,
     save_rate: 0.02,
     reach_rate: null,
+    // 文字（R4.1）。既定は今の条件で解析済み。i = 0 は文字なし
+    text_status: "success",
+    text_segmenter_current: true,
+    first_text_ms: i === 0 ? null : 1000 + i * 100,
+    has_text_in_first_3s: i !== 0 && i % 2 === 0,
+    text_coverage_ratio: (i % 10) / 10,
+    total_text_chars: i * 12,
     ...over,
   };
 }
@@ -178,6 +185,9 @@ describe("ブートストラップ", () => {
       "cuts_in_first_3s",
       "cuts_in_last_3s",
       "first_cut",
+      "first_text",
+      "text_coverage",
+      "total_text_chars",
       "caption_chars",
       "elapsed_days",
     ]);
@@ -205,12 +215,12 @@ describe("カードごとの母集団", () => {
     expect(v.analyzedCount).toBe(3);
     expect(v.analyzedN).toBe(2);
     expect(v.objectiveN).toBe(4);
-    expect(v.objectiveCounts).toEqual({ reach_rate: 0, reach: 5, views: 4 });
+    expect(v.objectiveCounts).toEqual({ reach_rate: 0, reach: 5, views: 4, skip_rate: 5 });
     // 長さの区分は解析済みの 2 件、曜日は目的変数のある 4 件
     expect(v.groups.length.reduce((a, b) => a + b.n, 0)).toBe(2);
     expect(v.groups.day.reduce((a, b) => a + b.n, 0)).toBe(4);
     expect(v.responseScatter.find((s) => s.key === "retention_rate")?.points).toHaveLength(4);
-    expect(v.factorScatter).toHaveLength(7);
+    expect(v.factorScatter).toHaveLength(10);
     expect(v.topBottom).toBeNull();
     // n = 2 なので相関はすべて「—」
     expect(v.correlations.every((c) => c.r === null && c.lo === null)).toBe(true);
@@ -368,18 +378,25 @@ describe("区分の境界", () => {
 
 describe("検索パラメータ", () => {
   it("既定と不正値", () => {
-    expect(parseReelsParams({})).toEqual({ y: "reach_rate", sort: "posted", dir: "desc" });
+    expect(parseReelsParams({})).toEqual({ y: "reach_rate", sort: "posted", dir: "desc", q: null });
     expect(parseReelsParams({ y: "retention_rate", sort: "drop table", dir: "up" })).toEqual({
       y: "reach_rate",
       sort: "posted",
       dir: "desc",
+      q: null,
     });
     expect(parseReelsParams({ y: ["views", "reach"], sort: ["duration"], dir: ["asc"] })).toEqual({
       y: "reach_rate",
       sort: "posted",
       dir: "desc",
+      q: null,
     });
-    expect(parseReelsParams({ y: "views", sort: "duration", dir: "asc" })).toEqual({ y: "views", sort: "duration", dir: "asc" });
+    expect(parseReelsParams({ y: "views", sort: "duration", dir: "asc" })).toEqual({
+      y: "views",
+      sort: "duration",
+      dir: "asc",
+      q: null,
+    });
   });
 
   it("並べ替えのリンクは y を保つ。y の選択は sort と dir を保つ", () => {

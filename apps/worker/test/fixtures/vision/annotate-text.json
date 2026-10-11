@@ -1,0 +1,53 @@
+{
+  "responses": [
+    {
+      "textAnnotations": [{ "locale": "ja", "description": "溝口から 徒歩4分\n" }],
+      "fullTextAnnotation": {
+        "pages": [
+          {
+            "property": { "detectedLanguages": [{ "languageCode": "ja", "confidence": 0.9 }] },
+            "width": 720,
+            "height": 1280,
+            "blocks": [
+              {
+                "boundingBox": { "vertices": [{ "x": 200, "y": 300 }, { "x": 520, "y": 300 }, { "x": 520, "y": 345 }, { "x": 200, "y": 345 }] },
+                "paragraphs": [
+                  {
+                    "words": [
+                      {
+                        "property": { "detectedLanguages": [{ "languageCode": "ja" }] },
+                        "boundingBox": { "vertices": [{ "x": 200, "y": 300 }, { "x": 360, "y": 300 }, { "x": 360, "y": 345 }, { "x": 200, "y": 345 }] },
+                        "symbols": [
+                          { "text": "溝", "confidence": 0.99 },
+                          { "text": "口", "confidence": 0.99 },
+                          { "text": "か", "confidence": 0.99 },
+                          { "text": "ら", "confidence": 0.99, "property": { "detectedBreak": { "type": "SPACE" } } }
+                        ],
+                        "confidence": 0.9912
+                      },
+                      {
+                        "boundingBox": { "vertices": [{ "y": 300 }, { "x": 450, "y": 300 }, { "x": 450, "y": 345 }, { "y": 345 }] },
+                        "symbols": [{ "text": "徒" }, { "text": "歩" }],
+                        "confidence": 0.98
+                      },
+                      {
+                        "property": { "detectedLanguages": [] },
+                        "boundingBox": { "vertices": [{ "x": 450, "y": 300 }, { "x": 520, "y": 300 }, { "x": 520, "y": 345 }, { "x": 450, "y": 345 }] },
+                        "symbols": [
+                          { "text": "4", "confidence": 1 },
+                          { "text": "分", "confidence": 1, "property": { "detectedBreak": { "type": "LINE_BREAK" } } }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "blockType": "TEXT"
+              }
+            ]
+          }
+        ],
+        "text": "溝口から 徒歩4分\n"
+      }
+    }
+  ]
+}
