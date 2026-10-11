@@ -245,12 +245,13 @@ export function createJobDeps(
   secrets.add(config.supabaseServiceRoleKey);
   secrets.addUrlParts(config.databaseUrl);
   secrets.addUrlParts(config.supabaseUrl);
-  // Vision の鍵（R4.1 設計 3.8 節）: client_email と private_key の各行（`-----` の行を除く）をマスクの対象にする
+  // Vision の鍵（R4.1 設計 3.8 節）: client_email と private_key の各行（`-----` の行を除く）をマスクの対象にする。
+  // 8 文字未満の行は登録しない（無関係な文字列まで伏せ字になる過剰マスクを避ける。collect.yml の add-mask と同じ規則）
   if (config.visionKey.ok) {
     secrets.add(config.visionKey.key.clientEmail);
     for (const line of config.visionKey.key.privateKey.split(/\r?\n/)) {
       const trimmed = line.trim();
-      if (trimmed !== "" && !trimmed.startsWith("-----")) secrets.add(trimmed);
+      if (trimmed.length >= 8 && !trimmed.startsWith("-----")) secrets.add(trimmed);
     }
   }
   for (const value of extra.secretsToAdd ?? []) secrets.add(value);

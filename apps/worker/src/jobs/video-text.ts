@@ -305,9 +305,7 @@ async function downloadExtractAndSend(ctx: JobContext, deps: VideoTextJobDeps, i
           {
             canRetry: () => !input.budgetExceeded(),
             onAttempt: async (a) => {
-              input.counters.requests += 1;
               const units = unitsFor(a.httpStatus, a.imageCount);
-              input.counters.units += units;
               const fetchedAt = ctx.now();
               const frames: FrameUpsert[] = a.ok
                 ? (a.frames ?? []).map((parsed, i) => {
@@ -365,6 +363,9 @@ async function downloadExtractAndSend(ctx: JobContext, deps: VideoTextJobDeps, i
               } catch {
                 throw new UsageWriteError(USAGE_WRITE_ERROR);
               }
+              // ログの requests と units は「この回に記録した」数（設計 3.7 節）。記録できなかった要求は数えない
+              input.counters.requests += 1;
+              input.counters.units += units;
             },
           },
         );

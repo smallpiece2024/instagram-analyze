@@ -334,6 +334,8 @@ export function createVisionClient(key: ServiceAccountKey, deps: VisionClientDep
     } catch {
       throw new VisionError("auth", undefined, SIGN_ERROR);
     }
+    // 署名済みの JWT もトークンと同じく 1 時間有効な資格情報なので、マスクの対象に加える（セキュリティレビュー S6）
+    deps.onToken?.(assertion);
     let res: Response;
     try {
       res = await fetchImpl(GOOGLE_OAUTH_TOKEN_URI, {

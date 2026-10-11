@@ -405,3 +405,91 @@ describe("ゴールデン テスト（fixtures/vision/frames-caption-sign.json�
     expect(summarizeSegments(segments, fixture.frames, fixture.durationMs)).toEqual(fixture.expectedFeatures);
   });
 });
+
+/* ------------------------------------------------------------------
+ * 8 章と突き合わせて足した端の場合（結合濁点、絵文字、代表の文字、候補の優先、位置の境界、画像の大きさ 0）
+ * ------------------------------------------------------------------ */
+
+describe("結合濁点と絵文字（コードポイントで数える）", () => {
+  it("結合濁点 U+3099 は NFKC で合成される。正規化前は 2 コードポイント、後は 1 で、合成済みと同じ値", () => {
+    const decomposed = "\u304b\u3099"; // か + 結合濁点
+    expect(codePoints(decomposed)).toHaveLength(2);
+    expect(normalizeText(decomposed)).toBe("\u304c"); // が
+    expect(codePoints(normalizeText(decomposed))).toHaveLength(1);
+    expect(normalizeText(decomposed)).toBe(normalizeText("\u304c"));
+    expect(editDistance(codePoints(normalizeText(decomposed)), codePoints("\u304b"))).toBe(1);
+  });
+
+  it("絵文字を含むテロップは区間になり、total_text_chars と max_chars_per_frame は絵文字を 1 文字に数える", () => {
+    const frames = [frame(0, word("🍣寿司🍣")), frame(1000, word("🍣寿司🍣")), frame(2000)];
+    const segments = segment(frames, 3000);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({ text_norm: "🍣寿司🍣", start_ms: 0, end_ms: 2000, frame_count: 2 });
+    const f = summarizeSegments(segments, frames, 3000);
+    expect(f.total_text_chars).toBe(4);
+    expect(f.max_chars_per_frame).toBe(4);
+  });
+
+  it("結合濁点のフレームと合成済みのフレームは norm が同じなので 1 区間。text は同数なら長い方（コードポイント）", () => {
+    const composed = "すぎなみ";
+    const decomposed = "す\u304d\u3099なみ";
+    expect(codePoints(decomposed)).toHaveLength(5);
+    const segments = segment([frame(0, word(composed)), frame(1000, word(decomposed))], 2000);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({ text: decomposed, text_norm: composed, frame_count: 2 });
+  });
+});
+
+describe("区間の代表の文字と候補の優先", () => {
+  const cap = (atMs: number, t: string): OcrFrame => frame(atMs, word(t));
+
+  it("text は観測の最頻値。同数なら長いもの、それも同じなら先に観測したもの", () => {
+    const most = segment([cap(0, "溝口から徒歩4介"), cap(1000, "溝口から徒歩4分"), cap(2000, "溝口から徒歩4分")], 3000);
+    expect(most).toHaveLength(1);
+    expect(most[0]?.text).toBe("溝口から徒歩4分");
+    const longer = segment([cap(0, "から徒歩4分"), cap(1000, "溝口から徒歩4分")], 2000);
+    expect(longer).toHaveLength(1);
+    expect(longer[0]?.text).toBe("溝口から徒歩4分");
+    const first = segment([cap(0, "溝口から徒歩4分"), cap(1000, "溝口から徒歩4介")], 2000);
+    expect(first).toHaveLength(1);
+    expect(first[0]?.text).toBe("溝口から徒歩4分");
+  });
+
+  it("同じ行に合う区間が複数なら包含の比が高い区間に結び付け、もう一方は見落としとして続く", () => {
+    const a = word("溝口から徒歩4分", { y0: 300, y1: 345 });
+    const b = word("溝口から徒歩4分です", { y0: 400, y1: 445 });
+    const part = word("から徒歩4分", { y0: 350, y1: 395, x0: 330 });
+    const segments = segment([frame(0, a, b), frame(1000, part), frame(2000, a, b)], 3000);
+    expect(segments.map((s) => [s.text, s.frame_count])).toEqual([
+      ["溝口から徒歩4分", 3],
+      ["溝口から徒歩4分です", 2],
+    ]);
+  });
+});
+
+describe("vertical_position の境界と画像の大きさ 0", () => {
+  const twice = (y0: number, y1: number): OcrFrame[] => [frame(0, word("ランチ営業中", { y0, y1 })), frame(1000, word("ランチ営業中", { y0, y1 }))];
+  const position = (y0: number, y1: number) =>
+    segmentFrames(twice(y0, y1), { durationMs: 2000, imageWidth: 720, imageHeight: 1000 })[0]?.vertical_position;
+
+  it("中心 y の比（小数 4 桁）が 1/3 未満は top、2/3 未満は middle、それ以外は bottom", () => {
+    expect(position(300, 366)).toBe("top"); // 中心 333 → 0.333
+    expect(position(300, 368)).toBe("middle"); // 中心 334 → 0.334
+    expect(position(630, 702)).toBe("middle"); // 中心 666 → 0.666
+    expect(position(630, 704)).toBe("bottom"); // 中心 667 → 0.667
+  });
+
+  it("画像の大きさが 0（保存した幅と高さがない）なら比は 0、テロップらしさは偽、位置の近さは見ない", () => {
+    const far = [frame(0, word("ランチ営業中", { y0: 100, y1: 145 })), frame(1000, word("ランチ営業中", { y0: 1100, y1: 1145 }))];
+    const segments = segmentFrames(far, { durationMs: 2000, imageWidth: 0, imageHeight: 0 });
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      center_x_ratio: 0,
+      center_y_ratio: 0,
+      char_height_ratio: 0,
+      vertical_position: "top",
+      is_caption_like: false,
+      frame_count: 2,
+    });
+  });
+});
