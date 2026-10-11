@@ -173,7 +173,10 @@ describe("createVisionClient", () => {
     expect(calls.map((c) => c.url)).toEqual([GOOGLE_OAUTH_TOKEN_URI, VISION_ANNOTATE_URL]);
     expect(calls.every((c) => c.redirect === "error")).toBe(true);
     expect(calls[1]?.authorization).toBe(`Bearer ${TOKEN}`);
-    expect(seen).toEqual([TOKEN]);
+    // 署名済みの JWT（assertion）とアクセストークンの両方を onToken で登録する（セキュリティレビュー S6）
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(seen[1]).toBe(TOKEN);
     expect(JSON.stringify(result)).not.toContain(TOKEN);
   });
 
@@ -281,5 +284,42 @@ describe("createVisionClient", () => {
       }),
     ).rejects.toThrow("db down");
     expect(calls.filter((c) => c.url === VISION_ANNOTATE_URL)).toHaveLength(1);
+  });
+});
+
+describe("createVisionClient（トークンの取得の失敗と応答の形の不正）", () => {
+  it("トークンの 5xx、access_token のない JSON、JSON でない本文、通信の失敗は transient の VisionError（固定文言だけ）", async () => {
+    const cases: { token: () => Response; status: number }[] = [
+      { token: () => new Response("<html>503</html>", { status: 503 }), status: 503 },
+      { token: () => new Response(JSON.stringify({ token_type: "Bearer", expires_in: 3599 }), { status: 200 }), status: 200 },
+      { token: () => new Response("not json", { status: 200 }), status: 200 },
+    ];
+    for (const c of cases) {
+      const { fetchImpl, calls } = fakeFetch({ token: c.token, annotate: () => new Response(OK_BODY) });
+      const client = createVisionClient(KEY, { fetch: fetchImpl, now: () => NOW });
+      const error = await client.ensureToken().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(VisionError);
+      expect(error).toMatchObject({ kind: "transient", status: c.status, message: requestFailedError(c.status) });
+      expect(calls.map((x) => x.url)).toEqual([GOOGLE_OAUTH_TOKEN_URI]);
+    }
+    const fetchDown: typeof fetch = async () => {
+      throw new Error("ECONNRESET");
+    };
+    const down = createVisionClient(KEY, { fetch: fetchDown, now: () => NOW });
+    await expect(down.ensureToken()).rejects.toMatchObject({ kind: "transient", status: undefined, message: requestFailedError(undefined) });
+  });
+
+  it("200 でも responses の長さが枚数と違えば transient で再送し、2 回の再送で止まる。units は枚数。トークンは結果に出ない", async () => {
+    const { fetchImpl, calls } = fakeFetch({ annotate: () => new Response(JSON.stringify({ responses: [{}] }), { status: 200 }) });
+    const client = createVisionClient(KEY, { fetch: fetchImpl, now: () => NOW, sleep: async () => {} });
+    const attempts: AnnotateAttempt[] = [];
+    const result = await client.annotate(IMAGES, { onAttempt: async (a) => void attempts.push(a) });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatchObject({ kind: "transient", status: 200, message: requestFailedError(200) });
+    expect(attempts).toHaveLength(3);
+    expect(calls.filter((c) => c.url === VISION_ANNOTATE_URL)).toHaveLength(3);
+    expect(attempts.map((a) => unitsFor(a.httpStatus, a.imageCount))).toEqual([2, 2, 2]);
+    expect(JSON.stringify(result)).not.toContain(TOKEN);
+    expect(result.error?.message).not.toContain(TOKEN);
   });
 });

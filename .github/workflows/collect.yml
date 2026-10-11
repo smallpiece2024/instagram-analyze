@@ -75,18 +75,22 @@ jobs:
 
       # Vision の鍵（JSON）の各値を部分文字列としてマスクする（R4.1 設計 3.8 節）。GitHub のマスクは Secret の値そのもの
       # （JSON 全体）にしか効かず、JSON.parse 後の値は別の文字列になるため。private_key は改行で分けた各行
-      # （`-----` の行と空行を除く）を登録する。Secret が未登録なら何もしない
+      # （`-----` の行と空行を除く）を登録する。Secret が未登録なら何もしない。
+      # Secret の JSON が壊れていても収集全体を止めない（jq の失敗は握り、ステップも失敗にしない。鍵の不正は
+      # ワーカーの video_text だけが固定文言で失敗する。R4.1 設計 3.8 節）。8 文字未満の行は登録しない（無関係な文字列まで
+      # `***` になる過剰マスクを避ける。2048 ビットの鍵の最後の行は 40 文字程度）
       - name: mask vision key parts
         if: ${{ env.GCP_VISION_KEY_JSON != '' }}
+        continue-on-error: true
         run: |
           for field in client_email project_id private_key_id; do
-            value=$(printf '%s' "$GCP_VISION_KEY_JSON" | jq -r --arg f "$field" '.[$f] // empty')
-            [ -n "$value" ] && echo "::add-mask::$value"
+            value=$(printf '%s' "$GCP_VISION_KEY_JSON" | jq -r --arg f "$field" '.[$f] // empty' 2>/dev/null || true)
+            [ ${#value} -ge 8 ] && echo "::add-mask::$value"
           done
-          printf '%s' "$GCP_VISION_KEY_JSON" | jq -r '.private_key // empty' | while IFS= read -r line; do
+          { printf '%s' "$GCP_VISION_KEY_JSON" | jq -r '.private_key // empty' 2>/dev/null || true; } | while IFS= read -r line; do
             case "$line" in
               ''|-----*) ;;
-              *) echo "::add-mask::$line" ;;
+              *) [ ${#line} -ge 8 ] && echo "::add-mask::$line" ;;
             esac
           done
           true
