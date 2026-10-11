@@ -26,6 +26,9 @@ const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const GRAPH_VERSION = "v25.0";
 const OUT_ROOT = ".local/ocr-check";
 const BATCH = 16; // images:annotate の 1 要求あたりの上限
+// TEXT_DETECTION（既定）か DOCUMENT_TEXT_DETECTION。後者は語ごとの確信度が返る（前者は 0 のまま）
+const FEATURE = process.env.OCR_FEATURE === "DOCUMENT_TEXT_DETECTION" ? "DOCUMENT_TEXT_DETECTION" : "TEXT_DETECTION";
+const RESULT_FILE = FEATURE === "TEXT_DETECTION" ? "result.md" : "result-document.md";
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -64,7 +67,7 @@ async function annotate(token, contents) {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
       // languageHints は付けない（Google の文書: 空の方がよい結果になることが多い）
-      requests: contents.map((content) => ({ image: { content }, features: [{ type: "TEXT_DETECTION" }] })),
+      requests: contents.map((content) => ({ image: { content }, features: [{ type: FEATURE }] })),
     }),
   });
   if (!res.ok) throw new Error(`Vision API が失敗: ${res.status} ${(await res.text()).slice(0, 300)}`);
@@ -107,25 +110,28 @@ for (const reel of reels) {
   }
   const dir = join(OUT_ROOT, String(reel.id));
   const frames = join(dir, "frames");
-  await rm(dir, { recursive: true, force: true });
-  await mkdir(frames, { recursive: true });
-  const video = join(tmpdir(), `ocr-check-${reel.id}.mp4`);
-  const vres = await fetch(info.media_url);
-  if (!vres.ok) {
-    console.log(`${reel.id}: 動画のダウンロードに失敗（${vres.status}）`);
-    continue;
+  // フレームが前回の実行で残っていればそのまま使う（同じ間隔で取り直す必要がないため。取り直すなら .local/ocr-check を消す）
+  let files = await readdir(frames).then((fs) => fs.filter((f) => f.endsWith(".jpg")).sort()).catch(() => []);
+  if (files.length === 0) {
+    await mkdir(frames, { recursive: true });
+    const video = join(tmpdir(), `ocr-check-${reel.id}.mp4`);
+    const vres = await fetch(info.media_url);
+    if (!vres.ok) {
+      console.log(`${reel.id}: 動画のダウンロードに失敗（${vres.status}）`);
+      continue;
+    }
+    await writeFile(video, Buffer.from(await vres.arrayBuffer()));
+    try {
+      await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", video, "-vf", `fps=1/${INTERVAL_S}`, "-q:v", "3", join(frames, "f%04d.jpg")]);
+    } finally {
+      await rm(video, { force: true });
+    }
+    files = (await readdir(frames)).filter((f) => f.endsWith(".jpg")).sort();
   }
-  await writeFile(video, Buffer.from(await vres.arrayBuffer()));
-  try {
-    await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-y", "-i", video, "-vf", `fps=1/${INTERVAL_S}`, "-q:v", "3", join(frames, "f%04d.jpg")]);
-  } finally {
-    await rm(video, { force: true });
-  }
-  const files = (await readdir(frames)).filter((f) => f.endsWith(".jpg")).sort();
   const lines = [
     `# ${reel.id}（投稿 ${reel.posted_at.toISOString().slice(0, 10)}）`,
     "",
-    `フレーム ${files.length} 枚（${INTERVAL_S} 秒ごと）。TEXT_DETECTION、言語ヒントなし`,
+    `フレーム ${files.length} 枚（${INTERVAL_S} 秒ごと）。${FEATURE}、言語ヒントなし`,
     "",
     "| 時刻(秒) | 読み取った文字（改行は ／） | 語の確信度の平均 | 語数 |",
     "|---|---|---|---|",
@@ -158,7 +164,7 @@ for (const reel of reels) {
       });
     }
   }
-  await writeFile(join(dir, "result.md"), `${lines.join("\n")}\n`);
-  console.log(`${reel.id}: フレーム ${files.length} 枚 → ${dir}/result.md`);
+  await writeFile(join(dir, RESULT_FILE), `${lines.join("\n")}\n`);
+  console.log(`${reel.id}: フレーム ${files.length} 枚 → ${dir}/${RESULT_FILE}`);
 }
 console.log(`Vision に送った枚数（ユニット）: ${units}`);
