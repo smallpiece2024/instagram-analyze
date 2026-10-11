@@ -4,8 +4,8 @@
 
 | 項目 | 内容 |
 |---|---|
-| 最終更新 | 2026-10-09 |
-| 現在地 | **R2（クラウド稼働）は 2026-10-03 23:29 JST に切り替えを終え、収集は GitHub Actions（クラウドの Supabase の pg_cron が毎時起動）で本番の DB に入っている。7 日間の確認中（T0 は 2026-10-04 00:17 JST、終わりは 10-11 00:17 JST。5 章）。R3（基本分析）は 2026-10-06 に完了。R4（動画分析：長さとカット）は 2026-10-08 に完了（本番に反映し、リール 18 本すべてを解析、ユーザーが本番の画面を確認。8 章）。R5（投稿分類、ストーリーズ、オーディエンス、投稿時刻）は 2026-10-09 に完了（9 章）。残りは R2 の 7 日間の確認の終わり（10-11）の記録。次のリリースは R4.1 か R6 をユーザーが選ぶ。次回やることは 9 章の末尾** |
+| 最終更新 | 2026-10-11 |
+| 現在地 | **R2（クラウド稼働）は 2026-10-03 23:29 JST に切り替えを終え、収集は GitHub Actions（クラウドの Supabase の pg_cron が毎時起動）で本番の DB に入っている。7 日間の確認（T0 は 2026-10-04 00:17 JST、終わりは 10-11 00:17 JST）は終わり、GitHub 側の記録を 5 章にまとめた。本番の DB とダッシュボードの数件がユーザーの確認待ち。R3（基本分析）は 2026-10-06 に完了。R4（動画分析：長さとカット）は 2026-10-08 に完了（本番に反映し、リール 18 本すべてを解析、ユーザーが本番の画面を確認。8 章）。R5（投稿分類、ストーリーズ、オーディエンス、投稿時刻）は 2026-10-09 に完了（9 章）。R4.1（動画分析：画面の文字）に 2026-10-11 に着手し、検討メモ `doc/ai-decisions/r4-1-video-text-ocr.md` 版 0.1 を起草した（10 章）。方式の比較の実施はユーザーの了承待ち。次回やることは 10 章の末尾** |
 | 要件定義 | [requirements/requirements-definition.md](requirements/requirements-definition.md)（版 0.4） |
 
 ---
@@ -16,11 +16,11 @@
 |---|---|---|
 | R0 | ローカル開発環境と API 検証 | **完了**（2026-09-30） |
 | R1 | 収集基盤（ローカル） | 仕上げ中。DB、ワーカー（7 ジョブとスケジューラ）、最小限の画面、Facebook Login の接続まで実装し実機確認済み（2026-10-02）。残りは 3 日間の収集確認（2026-10-01 深夜開始）の結果の記録 |
-| R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 仕上げ中。段階 A〜D と README の手順 1〜5 まで完了（2026-10-02）。GitHub の schedule が動かないため、毎時の起動をクラウドの Supabase の pg_cron に移した（2026-10-03。README 5.1 まで本番に適用済み）。2026-10-03 23:29 JST に切り替えを終え、本番で収集中。残りは 7 日間の確認（T0 は 2026-10-04 00:17 JST） |
+| R2 | クラウド稼働（Supabase Cloud、Vercel、GitHub Actions） | 仕上げ中。段階 A〜D と README の手順 1〜5 まで完了（2026-10-02）。GitHub の schedule が動かないため、毎時の起動をクラウドの Supabase の pg_cron に移した（2026-10-03。README 5.1 まで本番に適用済み）。2026-10-03 23:29 JST に切り替えを終え、本番で収集中。7 日間の確認（T0 は 2026-10-04 00:17 JST）は 10-11 に終わり、GitHub 側の記録を 5 章に書いた（毎時の枠 169 回のうち実行のない枠 1 回、`media_snapshot` 成功 172 回、daily 7 回）。残りは本番の DB とダッシュボードの確認（ユーザー。5 章末尾） |
 | R2.5 | 画面設計（架空のデータのプロトタイプ、デザインシステムの比較） | **完了**（2026-10-05）。design-lab v1〜v3 を経て v3 の案 01 に決定（`doc/design-system.md`）。7 画面を見直し、決定を要件定義に反映 |
 | R3 | 基本分析（概要、投稿一覧、初速、期間比較） | **完了**（2026-10-06）。`doc/design/r3-analysis-screens.md` 版 0.2（2026-10-05。`nextjs-developer` が起草、`postgres-sql-reviewer`・`security-engineer`・`quality-engineer` のレビューを反映）。確認事項 Q1〜Q20 はすべて推奨どおり（版 0.3）。SQL の再レビューで、収集開始前の投稿 24 件には 7 日時点の値がなく比較が空になると分かり、比較は常に各投稿の最新の値どうしで行い、投稿詳細と投稿一覧に投稿からの経過日数を出すことにした（Q21、版 0.5。データの状況で比べ方を自動で切り替えない、説明の文言を増やさない、とユーザー）。段階 0・1（5 画面と CSV）と段階 2 の 1〜3（テスト、セキュリティレビュー、性能計測）を終えた（2026-10-06、6 章）。本番での数値の照合は省き、ユーザーが PC とスマートフォンで画面を確認して完了（2026-10-06） |
 | R4 | 動画分析（長さとカット） | **完了**（2026-10-08、8 章）。2026-10-07 に db push と main へのマージ。本番でリール 18 本すべてを解析し、ユーザーが本番の `/reels` と投稿詳細のタイムラインを確認した。ffmpeg による解析は R0 で、ストーリーズの動画の解析（`video_analyses`、`video_cuts`、`lib/video-analysis.ts`）は R1 で実装済み |
-| R4.1 | 動画分析（画面の文字） | 未着手。方式は比較して決める（要件 8.7 章） |
+| R4.1 | 動画分析（画面の文字） | 着手（2026-10-11、10 章）。要件 8.7.2 の検討メモ `doc/ai-decisions/r4-1-video-text-ocr.md` 版 0.1 を起草。方式の比較（リール 10 本、4 方式）の実施はユーザーの了承待ち |
 | R5 | 投稿分類、ストーリーズ、オーディエンス、投稿時刻の分析 | **完了**（2026-10-09、9 章）。2026-10-08 に本番に反映し、10-09 にユーザーが本番の全画面を確認。オーディエンスは性別と年齢を円グラフにし、推移のカードを外した（完了条件を「属性の内訳」に改めた） |
 | R6 | 月次レポート（画面表示）、伸びた投稿の検出 | 未着手 |
 
@@ -202,6 +202,40 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
   - GitHub のメール（pg_cron の起動）: 08:53 JST ごろに `gh variable set WORKER_SIMULATE_ALERT --body true`。09:17 の pg_cron の起動の実行（`workflow_dispatch`）が `SIMULATE: true` で収集を飛ばし、`alert=simulated` で失敗。失敗メール（「collect / collect Failed in 38 seconds」）がトークンの持ち主に届いた（ユーザー確認。13 章 G3 は確認済み）。Variable はジョブ開始の 1 秒後（00:17:16 UTC）に削除し、飛ばした回の代わりに 09:17:33 JST に通常の hourly を手動で起動して `success`（`SIMULATE: false`、4 ジョブ、`alerts=0`）。このため 10-05 00 時台（UTC）の `media_snapshot` は手動の 1 回で数える
   - Healthchecks: 本番のチェックに毎時 17〜18 分の ping と 08:24 の試験の ping が届いている（ユーザー確認）。使い捨てのチェック（Period 1 分、Grace 1 分）を 1 回 ping し、約 2 分で down のメールが届いた（ユーザー確認）
   - Supabase の一時停止の警告: 7 日間で来ないことを記録する
+- **7 日間の確認の結果（2026-10-11、親。T0 = 10-04 00:17 JST、終わり = 10-11 00:17 JST。`gh run list` の 176 回と、各実行のログの `job=` の行から集計）**:
+  - 毎時の枠 169 回（T0 と終わりを含む）のうち、GitHub の実行がない枠は **1 回**（10-07 09:17 JST）。前後の実行の間隔はちょうど 2 時間で、設計 10.2 章の「2 時間未満」を満たさない。pg_cron が起動を送ったか（送って GitHub が拒んだか、送っていないか）は `cron.job_run_details` で確かめる（下のユーザーの確認待ち）。ほかの 168 枠はすべて 17 分の 1〜2 秒後に起動し、収集は `success`
+  - 実行は 176 回（`success` 169、`failure` 6、`cancelled` 1）。`failure` 6 回の内訳: 通知の試験 2 回（10-05 08:24、09:17）、ランナーが割り当てられず 15 分で取り消された 1 回（10-06 05:17。6 章に記録済み。`run_daily=true` の手動起動で補った）、ffmpeg の apt-get の 5 分超過 3 回（10-08 03:17・05:17・22:17 JST。`video_analysis` だけ `failed` で、ほかのジョブは成功。9 章の「収集の ffmpeg の入れ方を変えた」の日付「10-07 03:17・05:17」は正しくは 10-08 03:17・05:17。10-08 22:45 に静的ビルドとキャッシュに変えて以降は再発なし）。`cancelled` 1 回は R4 の反映時の手動起動（10-07 23:42、8 章）
+  - ジョブの結果（ログの行）: `media_snapshot` は `success` **172 回**（`partial`・`failed`・`skipped` は 0。収集を飛ばした試験 2 回と取り消し 2 回を除く全実行）。`stories` 172、`media_sync` 179（daily の `--full` を含む）、`video_analysis` 74 成功・3 失敗（上の apt）、`audience_demographics` 2（10-09、10-10）。daily の `token_check`・`profile_daily`・`account_daily` は **7 回ずつ**（10-04、10-05、10-07〜10-10 の 05:17 と、10-06 の 10:59 の補い）。トークンのデータアクセスの残りは 89 日 → 83 日
+  - `check-alerts` の行は、取り消された 2 回を除く全実行に 1 回ずつ。`alerts=1` は通知の試験の 2 回だけ
+  - 所要は 32〜92 秒が常態（中央値 57 秒）。例外は apt の超過の回（約 6 分）とランナー待ちの回（15 分）。起動の遅れは常態で 1〜2 秒なので、分をずらす必要はない
+  - **ユーザーの確認待ち**（本番の DB とダッシュボード。手元からは本番の DB に接続しない）: (1) クラウドの Supabase の SQL エディタで下の SQL を実行して結果を貼る、(2) Supabase の一時停止の警告メールが 10-04〜10-11 に来ていないこと、(3) Supabase の Usage（DB、Storage、egress）と Vercel の Usage の値。(1)〜(3) がそろえば R2 を完了にする
+
+    ```sql
+    -- (1) 起動の成否（T0 = 2026-10-03 15:17 UTC、終わり = 2026-10-10 15:17 UTC）
+    select status, count(*) from cron.job_run_details
+    where jobid = (select jobid from cron.job where jobname = 'collect-dispatch')
+      and start_time between '2026-10-03 15:00+00' and '2026-10-10 15:30+00'
+    group by status;
+    -- (2) 失敗した回と、GitHub に実行の記録がない 10-07 00:17 UTC の回
+    select start_time, status, return_message from cron.job_run_details
+    where jobid = (select jobid from cron.job where jobname = 'collect-dispatch')
+      and (status <> 'succeeded' or start_time between '2026-10-07 00:00+00' and '2026-10-07 01:00+00')
+    order by start_time;
+    -- (3) job_runs の残骸（0 行なら問題なし）と、media_snapshot の隣り合う実行の最大の間隔
+    select job_name, status, count(*) from public.job_runs
+    where started_at between '2026-10-03 15:17+00' and '2026-10-10 15:17+00'
+      and status in ('running', 'skipped', 'failed', 'partial')
+    group by job_name, status;
+    select max(gap) from (
+      select started_at - lag(started_at) over (order by started_at) as gap
+      from public.job_runs where job_name = 'media_snapshot' and started_at >= '2026-10-03 15:17+00'
+    ) g;
+    -- (4) 表の大きさ
+    select n.nspname, c.relname, pg_size_pretty(pg_total_relation_size(c.oid)) as size
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname in ('public', 'private') and c.relkind = 'r'
+    order by pg_total_relation_size(c.oid) desc limit 15;
+    ```
 - **未ログインの確認（2026-10-05、10.2 章）**: 本番の Vercel に curl で、`GET /`、`/jobs`、`/media`、`/connect` がすべて 303 で `/login` へ、`/login` は 200、`POST /api/meta/login`（Origin は本番）が 303 で `/login` へ、`GET /api/meta/callback?code=x&state=y` が 303 で `/login` へ（登録されない）。本人でログインすると 3 画面が本番のデータで出て、サムネイルも出る（ユーザー確認）
 - **R2.5 第 1 ラウンドの design-lab v1 を作成（2026-10-02。`dashboard-designer`、25 分、約 50 回の呼び出し、21 万トークン）**: `doc/design-lab/`（README、`v1/index.html` の切り替え・並列表示・10 案一覧、見本画面 7 つ、`lab.css`／`parts.css`、架空データ `data.js`、`render.js`、`variants.js`、`tokens/tokens-01〜10.css`）。配色は 10 案すべて検証 PASS（黄系のコントラスト WARN と、高密度・藍と朱の CVD 6.3 は準備メモどおりで、ラベルと表を添える条件つき）。**ブラウザでの目視はユーザーが行う**（`doc/design-lab/v1/index.html` をダブルクリック）。使い捨ての比較用なので、コードの厳密さは求めない（ユーザーの方針）
   - 画面を作って見えた、要件への反映候補（第 2 ラウンドまでにユーザーと決める）: (1) F-UI-20 の日次推移はフォロワー数とリーチの桁が違うので縦に並べた 2 つのグラフにする、(2) 投稿日（JST）と日次指標（PT）の日付のずれの扱い、(3) モバイルの投稿一覧で出す指標の既定（4 つ）と切替、(4) 中央値・区分比較の最小件数（n<2 か 3 は薄く表示）、(5) ストーリーズ最後の 1 枚の離脱率の扱い、(6) 投稿時刻ヒートマップの時間帯の区切りと空欄、(7) 接続と収集ログに API 使用率・連続失敗回数・次回予定・トークン期限の注意 14 日／重大 7 日を足すか、(8) 画面 15 個のナビを 3 群に分ける、(9) 黄系の系列色と注意色の衝突（案 06・07・10）、(10) サムネイルの URL 期限切れへの R3 の方針
@@ -286,6 +320,15 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 - **本番の画面の確認（2026-10-09、ユーザー）**: ナビ、`/tags/edit`、`/tags`、`/stories`、`/timing`、`/audience` を確認し、OK
 - **離脱ファネル（T1、2026-10-09）**: 本番の `/stories` は「期間中に、続けて 2 件以上出したストーリーズはありません。」の表示で、本番にまとまりはない。設計書 7.4 節の決まりどおり、手元の DB のテスト（`test/db/stories.test.ts`。4 件のまとまりでファネルが 1 件目の 100% から描かれる。2026-10-08 に通過）をもって完了とした
 - **R5 の完了（2026-10-09）**: 完了条件（タグを付けた投稿の比較、ストーリーズの離脱ファネル、属性の内訳が表示される）を満たした
+- **次回やること**: 2026-10-11 に 1 は 5 章に記録し、2 は R4.1 を選んだ。以降は 10 章の末尾
+
+## 10. R4.1（動画分析：画面の文字）
+
+要件定義 4.5.1 章（F-VID-20〜32）、5.3 章「画面の文字（R4.1）」、8.7 章（AI と OCR の利用方針）。完了条件（要件定義 10 章）は「文字取得の方式の比較結果と検討メモが `doc/` にあり、ユーザーが了承した。既存のリールすべてに文字の区間が入っている。数本について、読み取った文字と表示時刻を目視と比べた。月の費用が上限内に収まっている」。
+
+- **着手（2026-10-11）**: R4.1 と R6 のうち R4.1 を選んだ（ユーザー。ブランチ `r4.1/ocr-compare`）。要件 8.7.2 の決まりで、実装の前に検討メモを書いてユーザーの了承を得る
+- **検討メモ 0.1（2026-10-11、親が起草）**: `doc/ai-decisions/r4-1-video-text-ocr.md`。候補は Tesseract 5.5、PaddleOCR 3.7.0（PP-OCRv5）、Google Cloud Vision、Claude（Haiku 5.5・Sonnet 5.5）。事実票（確認日 2026-10-11）の要点: PaddleOCR の公式指標は日本語の認識 0.76（mobile）、装飾文字 0.54〜0.64、CPU で 1 枚 1.75〜4.3 秒。Google Cloud Vision は月 1,000 ユニット無料、以後 1,000 ユニットごとに $1.50、画像を学習に使わない。Claude は 1080×1920 で 1 枚 2,691 トークン（Haiku 5.5 で約 $0.0003）、画像を学習に使わない。枚数の見込みは 1 本 20〜40 枚で、既存 18 本の一括 720 枚でも Google は無料枠内、Claude Haiku で約 $0.25。上限の案は月 30 本・$5。手元の PC には Tesseract 5.5.0（`jpn`、`jpn_vert`）と Python 3.13 がある。比較はリール 10 本を手元で行い、CER と区間の検出率で判断する（7 章の目安: オープンソースで CER 10% 以下なら採用）
 - **次回やること**:
-  1. 10-11 00:17 JST に R2 の 7 日間の確認が終わるので、結果を 5 章に記録する
-  2. 次のリリースを選ぶ（ユーザー）。R4.1（動画内の文字の取得。方式の比較と `doc/ai-decisions/` の検討メモから始める）か R6（月次レポート、伸びた投稿の検出）
+  1. R2 の残り（5 章末尾のユーザーの確認待ち (1)〜(3)）の結果を記録して R2 を完了にする
+  2. 検討メモの確認事項 Q1〜Q5 をユーザーに決めてもらう。了承後に、手元でリール 10 本のフレーム抽出（ffmpeg、カット直後 ＋ 500 ms、間引き）、正解の書き起こし、4 方式の読み取りと評価を行い、6.2 節に結果を書いて方式を決める（7 章）
+  3. 方式が決まったら R4.1 の設計書 `doc/design/r4-1-video-text.md` を起草 → `node-worker-developer`・`postgres-sql-reviewer`・`security-engineer`・`nextjs-developer` のレビュー → 実装
