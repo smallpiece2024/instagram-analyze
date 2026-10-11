@@ -10,7 +10,7 @@ import type { Query } from "@/components/href";
 import { formatCount, formatElapsedDays, formatJst, formatPercent, formatSeconds, mediaTitle } from "@/lib/format";
 import { METRIC_DEFINITIONS } from "@/lib/metric-definitions";
 import type { SortOrder } from "@/lib/params";
-import { FACTORS, factorValue, formatFactor, type FactorKey, type ReelRow, type ReelSortKey } from "@/lib/reels";
+import { FACTORS, factorValue, FIRST_3S_TEXT, formatFactor, formatHasText, type FactorKey, type ReelRow, type ReelSortKey } from "@/lib/reels";
 
 interface Column {
   key: Exclude<ReelSortKey, "posted">;
@@ -37,6 +37,22 @@ export const REEL_COLUMNS: readonly Column[] = [
   { key: "avg_scene", label: "平均シーン長", hint: factorDef("avg_scene").hint, hideM: true, cell: factorCell("avg_scene") },
   { key: "cuts_in_first_3s", label: "冒頭 3 秒", hint: factorDef("cuts_in_first_3s").hint, cell: factorCell("cuts_in_first_3s") },
   { key: "cuts_in_last_3s", label: "最後 3 秒", hint: factorDef("cuts_in_last_3s").hint, cell: factorCell("cuts_in_last_3s") },
+  // 文字（R4.1 設計 6.2 節）。スマートフォンは「文字の表示割合」「総文字数」を隠す
+  { key: "has_text_in_first_3s", label: FIRST_3S_TEXT.label, hint: FIRST_3S_TEXT.hint, cell: (r) => formatHasText(r.has_text_in_first_3s) },
+  {
+    key: "text_coverage",
+    label: factorDef("text_coverage").label,
+    hint: factorDef("text_coverage").hint,
+    hideM: true,
+    cell: factorCell("text_coverage"),
+  },
+  {
+    key: "total_text_chars",
+    label: factorDef("total_text_chars").label,
+    hint: factorDef("total_text_chars").hint,
+    hideM: true,
+    cell: factorCell("total_text_chars"),
+  },
   { key: "views", label: METRIC_DEFINITIONS.views.label, hint: METRIC_DEFINITIONS.views.hint, cell: (r) => formatCount(r.views) },
   { key: "reach", label: METRIC_DEFINITIONS.reach.label, hint: METRIC_DEFINITIONS.reach.hint, cell: (r) => formatCount(r.reach) },
   {

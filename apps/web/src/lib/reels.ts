@@ -4,9 +4,11 @@
  * - 計算（順位相関、ブートストラップ、中央値、分位）はサーバーでここを呼び、数値だけを描画に渡す
  * - 入力の行は DB の読み出し（`queries/reels.ts`）の形。ここでは DB を使わない
  */
-import { PAGE_SIZE } from "./format";
+import { formatPercent, PAGE_SIZE } from "./format";
+import { METRIC_DEFINITIONS } from "./metric-definitions";
 import { percentileCont } from "./metrics";
 import type { ParamValue, SortOrder } from "./params";
+import { parseSearchText } from "./text-search";
 
 /* ------------------------------------------------------------------
  * 行の形
@@ -41,13 +43,22 @@ export interface ReelRow {
   share_rate: number | null;
   save_rate: number | null;
   reach_rate: number | null;
+  /** 今の OCR の条件の文字の解析の状態（R4.1）。null はまだ読んでいない */
+  text_status: string | null;
+  /** 区間化の版が今の版か。偽なら特徴量は null（計算し直し待ち）。行がなければ null */
+  text_segmenter_current: boolean | null;
+  first_text_ms: number | null;
+  has_text_in_first_3s: boolean | null;
+  /** 0〜1 */
+  text_coverage_ratio: number | null;
+  total_text_chars: number | null;
 }
 
 /* ------------------------------------------------------------------
- * 目的変数（Q1）と検索パラメータ
+ * 目的変数（Q1、R4.1 Q8）と検索パラメータ
  * ------------------------------------------------------------------ */
 
-export const OBJECTIVES = ["reach_rate", "reach", "views"] as const;
+export const OBJECTIVES = ["reach_rate", "reach", "views", "skip_rate"] as const;
 export type Objective = (typeof OBJECTIVES)[number];
 export const DEFAULT_OBJECTIVE: Objective = "reach_rate";
 
@@ -55,6 +66,7 @@ export const OBJECTIVE_LABEL: Record<Objective, string> = {
   reach_rate: "リーチ率",
   reach: "リーチ数",
   views: "閲覧数",
+  skip_rate: METRIC_DEFINITIONS.skip_rate.label,
 };
 
 export function objectiveValue(row: ReelRow, y: Objective): number | null {
@@ -76,6 +88,9 @@ export const REEL_SORT_KEYS = [
   "avg_scene",
   "cuts_in_first_3s",
   "cuts_in_last_3s",
+  "has_text_in_first_3s",
+  "text_coverage",
+  "total_text_chars",
   "views",
   "reach",
   "avg_watch_time",
@@ -101,23 +116,27 @@ export interface ReelsParams {
   y: Objective;
   sort: ReelSortKey;
   dir: SortOrder;
+  /** 文字で探す（R4.1 設計 6.3 節）。正規化後の検索語。なければ null */
+  q: string | null;
 }
 
-/** `y`、`sort`、`dir` の検査。不正な値（配列を含む）は既定に戻す（R3 4.7 節） */
+/** `y`、`sort`、`dir`、`q` の検査。不正な値（配列を含む）は既定に戻す（R3 4.7 節）。`q` は正規化後に 1〜100 コードポイント */
 export function parseReelsParams(sp: Readonly<Record<string, ParamValue>>): ReelsParams {
   return {
     y: pick(sp.y, OBJECTIVES) ?? DEFAULT_OBJECTIVE,
     sort: pick(sp.sort, REEL_SORT_KEYS) ?? DEFAULT_REEL_SORT,
     dir: pick(sp.dir, ["asc", "desc"] as const) ?? "desc",
+    q: parseSearchText(sp.q),
   };
 }
 
-/** URL に出すクエリ。既定の値は出さない */
+/** URL に出すクエリ。既定の値は出さない（`q` は null なら出さない） */
 export function reelsQuery(p: ReelsParams): Record<string, string | undefined> {
   return {
     y: p.y === DEFAULT_OBJECTIVE ? undefined : p.y,
     sort: p.sort === DEFAULT_REEL_SORT ? undefined : p.sort,
     dir: p.dir === "desc" ? undefined : p.dir,
+    q: p.q === null ? undefined : p.q,
   };
 }
 
@@ -139,6 +158,12 @@ function sortValue(row: ReelRow, key: ReelSortKey): number | null {
       return n(row.cuts_in_first_3s);
     case "cuts_in_last_3s":
       return n(row.cuts_in_last_3s);
+    case "has_text_in_first_3s":
+      return row.has_text_in_first_3s === null ? null : row.has_text_in_first_3s ? 1 : 0;
+    case "text_coverage":
+      return n(row.text_coverage_ratio);
+    case "total_text_chars":
+      return n(row.total_text_chars);
     case "avg_watch_time":
       return n(row.avg_watch_time_ms);
     default:
@@ -193,6 +218,9 @@ export const FACTOR_KEYS = [
   "cuts_in_first_3s",
   "cuts_in_last_3s",
   "first_cut",
+  "first_text",
+  "text_coverage",
+  "total_text_chars",
   "caption_chars",
   "elapsed_days",
 ] as const;
@@ -202,8 +230,8 @@ export interface FactorDef {
   key: FactorKey;
   label: string;
   hint: string;
-  /** 値の書式（秒、回、文字、日） */
-  unit: "seconds" | "times" | "chars" | "days";
+  /** 値の書式（秒、回、文字、日、割合） */
+  unit: "seconds" | "times" | "chars" | "days" | "percent";
   /** 散布図に出す（経過日数は出さない） */
   scatter: boolean;
 }
@@ -240,13 +268,69 @@ export const FACTORS: readonly FactorDef[] = [
     unit: "seconds",
     scatter: true,
   },
+  {
+    key: "first_text",
+    label: "最初の文字まで",
+    hint: "最初の文字まで = 動画の開始から最初に文字が出るまでの秒数。文字がなければ値なし",
+    unit: "seconds",
+    scatter: true,
+  },
+  {
+    key: "text_coverage",
+    label: "文字の表示割合",
+    hint: "文字の表示割合 = 文字が画面に出ている時間 ÷ 動画の長さ",
+    unit: "percent",
+    scatter: true,
+  },
+  {
+    key: "total_text_chars",
+    label: "総文字数",
+    hint: "総文字数 = 表示された文字の数（同じ文字は 1 回）。文字 = 画面に表示された文字（テロップと背景の看板などを含む）。開始と終了の精度は約 1 秒",
+    unit: "chars",
+    scatter: true,
+  },
   { key: "caption_chars", label: "キャプションの長さ", hint: "キャプションの長さ = キャプションの文字数", unit: "chars", scatter: true },
   { key: "elapsed_days", label: "投稿からの経過日数", hint: "投稿からの経過日数 = 投稿から今までの日数", unit: "days", scatter: false },
 ];
 
+/**
+ * 「冒頭 3 秒の文字」（R4.1 設計 6.1 節、6.2 節）。2 値なので `FACTORS` に入れず、投稿詳細の上段、上位と下位の表、区分、一覧で別に扱う。
+ * 値はビューの `has_text_in_first_3s` をそのまま使う
+ */
+export const FIRST_3S_TEXT = {
+  key: "has_text_in_first_3s",
+  label: "冒頭 3 秒の文字",
+  hint: "冒頭 3 秒の文字 = 開始から 3 秒未満に文字が出たか",
+} as const;
+
+/** 「冒頭 3 秒の文字」の値の表示。`あり`／`なし`、null は `—` */
+export function formatHasText(v: boolean | null | undefined): string {
+  if (typeof v !== "boolean") return "—";
+  return v ? "あり" : "なし";
+}
+
 /** 要因の値の元。動画の特徴量だけの行（投稿詳細）も受け取れるように、投稿の列は省略可 */
-export type FactorSource = Pick<ReelRow, "duration_ms" | "cut_count" | "avg_scene_ms" | "first_cut_ms" | "cuts_in_first_3s" | "cuts_in_last_3s"> &
+export type FactorSource = Pick<
+  ReelRow,
+  | "duration_ms"
+  | "cut_count"
+  | "avg_scene_ms"
+  | "first_cut_ms"
+  | "cuts_in_first_3s"
+  | "cuts_in_last_3s"
+  | "text_status"
+  | "text_segmenter_current"
+  | "first_text_ms"
+  | "has_text_in_first_3s"
+  | "text_coverage_ratio"
+  | "total_text_chars"
+> &
   Partial<Pick<ReelRow, "caption_chars" | "elapsed_hours">>;
+
+/** 今の条件で文字の解析が済んでいる（ビューが特徴量を null にするので、値の有無で判定しても同じ） */
+export function textAnalyzed(row: Pick<ReelRow, "text_status" | "text_segmenter_current">): boolean {
+  return row.text_status === "success" && row.text_segmenter_current === true;
+}
 
 /** 要因の値（ミリ秒は秒に直す。計算し直さない） */
 export function factorValue(row: FactorSource, key: FactorKey): number | null {
@@ -265,6 +349,12 @@ export function factorValue(row: FactorSource, key: FactorKey): number | null {
       return n(row.cuts_in_last_3s);
     case "first_cut":
       return sec(row.first_cut_ms);
+    case "first_text":
+      return sec(row.first_text_ms);
+    case "text_coverage":
+      return n(row.text_coverage_ratio);
+    case "total_text_chars":
+      return n(row.total_text_chars);
     case "caption_chars":
       return n(row.caption_chars ?? null);
     case "elapsed_days":
@@ -274,7 +364,7 @@ export function factorValue(row: FactorSource, key: FactorKey): number | null {
   }
 }
 
-/** 要因の値の表示。`12.3 秒`、`4 回`、`120 文字`、`30 日` */
+/** 要因の値の表示。`12.3 秒`、`4 回`、`120 文字`、`30 日`、`12%` */
 export function formatFactor(v: number | null, unit: FactorDef["unit"]): string {
   if (v === null || !Number.isFinite(v)) return "—";
   switch (unit) {
@@ -286,6 +376,8 @@ export function formatFactor(v: number | null, unit: FactorDef["unit"]): string 
       return `${Math.round(v)} 文字`;
     case "days":
       return `${Math.floor(v)} 日`;
+    case "percent":
+      return formatPercent(v, 0);
   }
 }
 
@@ -497,6 +589,12 @@ export function groupObjectiveMedian(group: readonly ReelRow[], y: Objective): n
   return median(group.map((r) => objectiveValue(r, y)));
 }
 
+/** 群の「冒頭 3 秒の文字がある割合」（0〜1）。文字の解析が済んでいる行だけで数え、0 件なら null */
+export function groupFirst3sTextShare(group: readonly ReelRow[]): number | null {
+  const v = group.map((r) => r.has_text_in_first_3s).filter((x): x is boolean => typeof x === "boolean");
+  return v.length === 0 ? null : v.filter((x) => x).length / v.length;
+}
+
 /* ------------------------------------------------------------------
  * 区分
  * ------------------------------------------------------------------ */
@@ -595,16 +693,32 @@ function bars<T extends string>(
   });
 }
 
+/** 冒頭 3 秒の文字の区分（なし／あり） */
+export type TextBucket = "none" | "has";
+export const TEXT_BUCKETS: readonly { key: TextBucket; label: string }[] = [
+  { key: "none", label: "なし" },
+  { key: "has", label: "あり" },
+];
+export function textBucket(v: boolean | null): TextBucket | null {
+  if (typeof v !== "boolean") return null;
+  return v ? "has" : "none";
+}
+
 export interface GroupCards {
   length: GroupBar[];
   first3s: GroupBar[];
   last3s: GroupBar[];
+  /** 冒頭 3 秒の文字（なし／あり）。文字の解析が済んでいないリールは入らない */
+  text3s: GroupBar[];
   day: GroupBar[];
   weekday: GroupBar[];
   band: GroupBar[];
 }
 
-/** 区分ごとの目的変数の中央値。長さと冒頭・最後 3 秒は解析済みの母集団、曜日と時間帯は目的変数の値がある母集団 */
+/**
+ * 区分ごとの目的変数の中央値。長さと冒頭・最後 3 秒は解析済みの母集団、冒頭 3 秒の文字はそのうち文字の解析が済んでいるもの、
+ * 曜日と時間帯は目的変数の値がある母集団
+ */
 export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
   const analyzed = analyzedWithObjective(rows, y);
   const all = withObjective(rows, y);
@@ -612,6 +726,7 @@ export function groupCards(rows: readonly ReelRow[], y: Objective): GroupCards {
     length: bars(analyzed, y, LENGTH_BUCKETS, (r) => lengthBucket(r.duration_ms)),
     first3s: bars(analyzed, y, EDGE_CUT_BUCKETS, (r) => edgeCutBucket(r.cuts_in_first_3s)),
     last3s: bars(analyzed, y, EDGE_CUT_BUCKETS, (r) => edgeCutBucket(r.cuts_in_last_3s)),
+    text3s: bars(analyzed, y, TEXT_BUCKETS, (r) => textBucket(r.has_text_in_first_3s)),
     day: bars(
       all,
       y,
@@ -666,6 +781,11 @@ export function scatterPoints(
 export const RESPONSE_METRICS = ["retention_rate", "skip_rate", "share_rate", "save_rate"] as const;
 export type ResponseMetric = (typeof RESPONSE_METRICS)[number];
 
+/** 「視聴と反応」に出す指標。`y` と同じ指標の 1 枚は出さない（選択に応じた固定の規則。R4.1 Q8） */
+export function responseMetricsFor(y: Objective): ResponseMetric[] {
+  return RESPONSE_METRICS.filter((k) => (k as string) !== y);
+}
+
 /* ------------------------------------------------------------------
  * 画面全体の計算（ページ全体を 1 回で計算する）
  * ------------------------------------------------------------------ */
@@ -715,7 +835,7 @@ export function buildReelsView(rows: readonly ReelRow[], y: Objective): ReelsVie
       key: f.key,
       points: scatterPoints(analyzed, y, (r) => factorValue(r, f.key)),
     })),
-    responseScatter: RESPONSE_METRICS.map((k) => ({ key: k, points: scatterPoints(all, y, (r) => r[k]) })),
+    responseScatter: responseMetricsFor(y).map((k) => ({ key: k, points: scatterPoints(all, y, (r) => r[k]) })),
     groups: groupCards(rows, y),
   };
 }
