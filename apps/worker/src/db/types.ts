@@ -42,7 +42,8 @@ export type JobName =
   | "media_sync"
   | "media_snapshot"
   | "stories"
-  | "video_analysis";
+  | "video_analysis"
+  | "video_text";
 
 /** `job_runs.status` */
 export type JobStatus = "running" | "success" | "partial" | "failed" | "skipped";

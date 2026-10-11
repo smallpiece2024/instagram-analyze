@@ -125,6 +125,10 @@ export interface CheckAlertsConfig {
   logLevel: LogLevel;
   /** `WORKER_SIMULATE_ALERT=true` のとき true。`alert=simulated` を出して終了コード 1 にする */
   simulateAlert: boolean;
+  /** `ocr_monthly_cap` の判定に使う月のユニットの上限（`WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT`。R4.1 設計 3.3 節） */
+  videoTextMonthlyUnitLimit: number;
+  /** `ocr_monthly_cap` の判定に使う月の本数の上限（`WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS`） */
+  videoTextMonthlyMaxVideos: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -379,6 +383,14 @@ export function loadCheckAlertsConfig(env: Env = process.env): CheckAlertsConfig
     databaseSslCa: databaseSslCa(env, databaseUrl),
     logLevel: logLevel(env, "WORKER_LOG_LEVEL"),
     simulateAlert: booleanFlag(env, "WORKER_SIMULATE_ALERT"),
+    videoTextMonthlyUnitLimit: integerInRange(
+      env,
+      "WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT",
+      DEFAULT_VIDEO_TEXT_MONTHLY_UNIT_LIMIT,
+      0,
+      VIDEO_TEXT_MONTHLY_UNIT_LIMIT_MAX,
+    ),
+    videoTextMonthlyMaxVideos: integerInRange(env, "WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS", DEFAULT_VIDEO_TEXT_MONTHLY_MAX_VIDEOS, 0, 1000),
   };
 }
 

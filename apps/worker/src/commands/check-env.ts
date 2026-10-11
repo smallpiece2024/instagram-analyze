@@ -8,9 +8,16 @@ import {
   toolVersion,
 } from "../lib/ffmpeg.js";
 import { TMP_DIR_PREFIX } from "../jobs/framework.js";
+import { loadVisionKey, type VisionKey } from "../config.js";
 
 /** カットのタイミングの許容誤差（ミリ秒）。30fps の 1 フレーム強 */
 const TOLERANCE_MS = 40;
+
+/** `check-env` に出す Vision の鍵の状態（純粋関数。値は含めない） */
+export function describeVisionKey(key: VisionKey): string {
+  if (key.ok) return "あり";
+  return key.reason === "missing" ? "なし" : "形が不正";
+}
 
 /**
  * ワーカーの実行環境を確認する（F-SYS-04）。
@@ -21,6 +28,8 @@ export async function checkEnv(): Promise<boolean> {
   console.log(`Node.js: ${process.version}`);
   console.log(`ffmpeg : ${await toolVersion("ffmpeg")}`);
   console.log(`ffprobe: ${await toolVersion("ffprobe")}`);
+  // Vision の鍵（R4.1 設計 3.8 節）。あり／なし／形が不正だけを出し、値は出さない
+  console.log(`Vision の鍵: ${describeVisionKey(loadVisionKey())}`);
 
   const segments = [
     { color: "red", durationMs: 1500 },

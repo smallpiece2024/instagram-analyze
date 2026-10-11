@@ -1,0 +1,101 @@
+{
+  "_comment": "設計 4.1 節の切り詰めた形のフレーム列（ゴールデン テスト用。R4.1 設計 8 章）。動作確認のリールを元に、テロップ「溝口から徒歩4分」と看板で割れた 1 枚（「MU溝」「から徒歩4分」）は実際の文言、背景の語は合成した文字に置き換えた。画像は 720×1280、長さ 6000 ms。計画: 0, 1000, 2000, 2600(cut), 3000, 4000, 5000",
+  "durationMs": 6000,
+  "imageWidth": 720,
+  "imageHeight": 1280,
+  "frames": [
+    { "atMs": 0, "words": [] },
+    {
+      "atMs": 1000,
+      "words": [
+        { "b": 0, "p": 0, "t": "溝口から", "c": 0.99, "l": "ja", "x0": 200, "y0": 300, "x1": 360, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "徒歩", "c": 0.99, "l": "ja", "x0": 360, "y0": 300, "x1": 450, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "4分", "c": 0.99, "l": "ja", "x0": 450, "y0": 300, "x1": 520, "y1": 345, "br": "LINE_BREAK" },
+        { "b": 1, "p": 0, "t": "カフェ", "c": 0.4, "l": "ja", "x0": 50, "y0": 900, "x1": 120, "y1": 915, "br": "SPACE" },
+        { "b": 1, "p": 0, "t": "テスト", "c": 0.4, "l": "ja", "x0": 125, "y0": 900, "x1": 190, "y1": 915, "br": "LINE_BREAK" }
+      ]
+    },
+    {
+      "atMs": 2000,
+      "words": [
+        { "b": 0, "p": 0, "t": "溝口から", "c": 0.99, "l": "ja", "x0": 200, "y0": 300, "x1": 360, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "徒歩", "c": 0.99, "l": "ja", "x0": 360, "y0": 300, "x1": 450, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "4分", "c": 0.99, "l": "ja", "x0": 450, "y0": 300, "x1": 520, "y1": 345, "br": "LINE_BREAK" }
+      ]
+    },
+    {
+      "atMs": 2600,
+      "words": [
+        { "b": 0, "p": 0, "t": "MU溝", "c": 0.6, "l": "en", "x0": 200, "y0": 300, "x1": 330, "y1": 345, "br": "LINE_BREAK" },
+        { "b": 1, "p": 0, "t": "から", "c": 0.98, "l": "ja", "x0": 330, "y0": 300, "x1": 400, "y1": 345, "br": null },
+        { "b": 1, "p": 0, "t": "徒歩", "c": 0.98, "l": "ja", "x0": 400, "y0": 300, "x1": 460, "y1": 345, "br": null },
+        { "b": 1, "p": 0, "t": "4分", "c": 0.98, "l": "ja", "x0": 460, "y0": 300, "x1": 520, "y1": 345, "br": "LINE_BREAK" }
+      ]
+    },
+    {
+      "atMs": 3000,
+      "words": [
+        { "b": 0, "p": 0, "t": "溝口から", "c": 0.99, "l": "ja", "x0": 200, "y0": 300, "x1": 360, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "徒歩", "c": 0.99, "l": "ja", "x0": 360, "y0": 300, "x1": 450, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "4分", "c": 0.99, "l": "ja", "x0": 450, "y0": 300, "x1": 520, "y1": 345, "br": "LINE_BREAK" },
+        { "b": 2, "p": 0, "t": "営業中", "c": 0.7, "l": "ja", "x0": 100, "y0": 1100, "x1": 190, "y1": 1130, "br": "LINE_BREAK" },
+        { "b": 3, "p": 0, "t": "の", "c": 0.9, "l": "ja", "x0": 600, "y0": 700, "x1": 620, "y1": 720, "br": "LINE_BREAK" }
+      ]
+    },
+    {
+      "atMs": 4000,
+      "words": [
+        { "b": 0, "p": 0, "t": "溝口から", "c": 0.99, "l": "ja", "x0": 200, "y0": 300, "x1": 360, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "徒歩", "c": 0.99, "l": "ja", "x0": 360, "y0": 300, "x1": 450, "y1": 345, "br": null },
+        { "b": 0, "p": 0, "t": "4分", "c": 0.99, "l": "ja", "x0": 450, "y0": 300, "x1": 520, "y1": 345, "br": "LINE_BREAK" },
+        { "b": 1, "p": 0, "t": "営業中", "c": 0.7, "l": "ja", "x0": 100, "y0": 1100, "x1": 190, "y1": 1130, "br": "LINE_BREAK" }
+      ]
+    },
+    { "atMs": 5000, "words": [] }
+  ],
+  "expectedSegments": [
+    {
+      "seq": 1,
+      "text": "溝口から徒歩4分",
+      "text_norm": "溝口から徒歩4分",
+      "start_ms": 1000,
+      "end_ms": 5000,
+      "vertical_position": "top",
+      "center_x_ratio": 0.5181,
+      "center_y_ratio": 0.252,
+      "char_height_ratio": 0.0352,
+      "confidence": 0.988,
+      "frame_count": 5,
+      "lang": "ja",
+      "is_caption_like": true
+    },
+    {
+      "seq": 2,
+      "text": "営業中",
+      "text_norm": "営業中",
+      "start_ms": 3000,
+      "end_ms": 5000,
+      "vertical_position": "bottom",
+      "center_x_ratio": 0.2014,
+      "center_y_ratio": 0.8711,
+      "char_height_ratio": 0.0234,
+      "confidence": 0.7,
+      "frame_count": 2,
+      "lang": "ja",
+      "is_caption_like": false
+    }
+  ],
+  "expectedFeatures": {
+    "first_text_ms": 1000,
+    "has_text_in_first_3s": true,
+    "text_coverage_ratio": 0.6667,
+    "total_text_chars": 11,
+    "segment_count": 2,
+    "max_chars_per_frame": 12,
+    "avg_chars_per_frame": 6.86,
+    "caption_first_text_ms": 1000,
+    "caption_has_text_in_first_3s": true,
+    "caption_coverage_ratio": 0.6667,
+    "caption_total_chars": 8
+  }
+}

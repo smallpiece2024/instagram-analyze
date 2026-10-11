@@ -168,6 +168,7 @@ function harness(
       failures.push(failure);
       (ctx.progress as { failures: number }).failures += 1;
     },
+    addSecret: () => {},
   };
   return { ctx, calls, failures, lines, writes, listed, store };
 }

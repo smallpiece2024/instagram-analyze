@@ -316,6 +316,7 @@ function harness(replies: Reply[]): Harness {
     jobRunId: "1",
     startedAt: FETCHED_AT,
     recordFailure: (failure) => failures.push(failure),
+    addSecret: () => {},
   };
   return { ctx, calls, failures, lines };
 }

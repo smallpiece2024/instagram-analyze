@@ -3,8 +3,9 @@
  *
  * 実行順（設計 6.1 章）:
  * - hourly（毎時 `WORKER_HOURLY_MINUTE` 分）: `stories` → `media_sync` → `media_snapshot` → `video_analysis` →
- *   `account_backfill`（ストーリーズは消えるので最優先。投稿一覧を先に同期してから新しい投稿のスナップショットを取る。
- *   動画の解析は指標の収集の後（R4 設計 3.2 節。新しい投稿も同じ回に解析できる）。バックフィルは余ったレート制限で進める）
+ *   `video_text` → `account_backfill`（ストーリーズは消えるので最優先。投稿一覧を先に同期してから新しい投稿のスナップショットを取る。
+ *   動画の解析は指標の収集の後（R4 設計 3.2 節。新しい投稿も同じ回に解析できる）。画面の文字はカットの解析の後
+ *   （R4.1 設計 3.2 節）。バックフィルは余ったレート制限で進める）
  * - daily（JST `WORKER_DAILY_TIME_JST`）: `token_check` → `profile_daily` → `account_daily` → `audience_demographics` →
  *   `media_sync --full`（トークンの状態を先に更新する。残りは独立。属性は週にまだなければ取る。R5 設計 3.2 節）
  *
@@ -20,6 +21,7 @@ import { job as profileDailyJob } from "./profile-daily.js";
 import { job as storiesJob } from "./stories.js";
 import { job as tokenCheckJob } from "./token-check.js";
 import { job as videoAnalysisJob } from "./video-analysis.js";
+import { job as videoTextJob } from "./video-text.js";
 
 export type GroupName = "hourly" | "daily";
 
@@ -35,6 +37,7 @@ export const HOURLY_JOBS: GroupEntry[] = [
   { def: mediaSyncJob },
   { def: mediaSnapshotJob },
   { def: videoAnalysisJob },
+  { def: videoTextJob },
   { def: accountBackfillJob },
 ];
 

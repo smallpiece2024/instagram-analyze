@@ -3,14 +3,23 @@
  * `TEST_DATABASE_URL`（postgres）があるときだけ動く。権限の節は `TEST_WEB_DATABASE_URL`（web_app）も要る。
  * 架空のアカウントと投稿を作り、終了時に消す（CASCADE で解析の行も消える。ocr_usage はアカウントごと消える）。
  *
- * 段階 2 の `db/video-text.ts` はまだないので、候補の SQL（設計 3.1 節）と行の書き込みはこのテストに直書きしている。
- * 段階 2 で `listVideoTextCandidates` ができたら、候補の節はその関数を呼ぶ形に替える。
+ * 候補の選び方は段階 2 の `listVideoTextCandidates`（`db/video-text.ts`）を呼ぶ。条件の定数は `lib/video-text.ts` のもの
+ * （DB の `current_video_text_condition()` と突き合わせる）。ジョブの流れは `test/db/video-text-job.test.ts`
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { upsertAccount } from "../../src/db/accounts.js";
 import { closeDb, connectDb, type Db } from "../../src/db/client.js";
+import { listVideoTextCandidates, monthlyOcrUsage, utcMonthRange } from "../../src/db/video-text.js";
 import { DEFAULT_SCENE_THRESHOLD } from "../../src/lib/ffmpeg.js";
 import { ANALYZER_VERSION } from "../../src/lib/video-analysis.js";
+import {
+  FRAME_INTERVAL_MS,
+  OCR_METHOD,
+  OCR_VERSION,
+  SEGMENTER_VERSION,
+  TEXT_ANALYZER_VERSION,
+  VIDEO_TEXT_MAX_DURATION_MS,
+} from "../../src/lib/video-text.js";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const TEST_WEB_DATABASE_URL = process.env.TEST_WEB_DATABASE_URL;
@@ -18,16 +27,7 @@ const TEST_WEB_DATABASE_URL = process.env.TEST_WEB_DATABASE_URL;
 const INSUFFICIENT_PRIVILEGE = "42501";
 const CHECK_VIOLATION = "23514";
 
-// 今の OCR の条件（設計 3.1 節の表）。段階 2 で `lib/video-text.ts` に置く定数と同じ値を直書きしている。
-// 段階 2 でその定数を import する形に替える（DB の current_video_text_condition() と突き合わせるのが目的）
-const OCR_METHOD = "google_vision";
-const OCR_VERSION = "v1/DOCUMENT_TEXT_DETECTION";
-const FRAME_INTERVAL_MS = 1000;
-const TEXT_ANALYZER_VERSION = "1";
-const SEGMENTER_VERSION = "1";
-/** 対象にする動画の長さの上限（3 分。設計 3.2 節の定数。段階 2 で参照に替える） */
-const VIDEO_TEXT_MAX_DURATION_MS = 3 * 60 * 1000;
-/** 打ち切りの回数と再試行までの時間（設計 3.1 節の (a)。段階 2 の定数。SQL の検証では値は任意） */
+/** 打ち切りの回数と再試行までの時間（設計 3.1 節の (a)。SQL の検証では値は任意） */
 const VIDEO_TEXT_MAX_ATTEMPTS = 3;
 const RETRY_WAIT_HOURS = 3;
 
@@ -202,7 +202,7 @@ describe.skipIf(!TEST_DATABASE_URL)("r4_1_video_text（結合）", () => {
     await closeDb(db);
   });
 
-  it("current_video_text_condition() はワーカーの定数（段階 2 で lib/video-text.ts に置く）と一致する（設計 5.3 節）", async () => {
+  it("current_video_text_condition() はワーカーの定数（lib/video-text.ts）と一致する（設計 5.3 節）", async () => {
     const [row] = await db<
       { ocr_method: string; ocr_version: string; frame_interval_ms: number; analyzer_version: string; segmenter_version: string }[]
     >`select * from public.current_video_text_condition()`;
@@ -221,32 +221,22 @@ describe.skipIf(!TEST_DATABASE_URL)("r4_1_video_text（結合）", () => {
     /** 投稿の順を固定する。index が小さいほど新しい */
     const posted = (index: number): Date => new Date(Date.UTC(2026, 9, 1, 10, 0, 0) - index * 60 * 1000);
 
-    /** 設計 3.1 節の SQL そのもの。段階 2 の listVideoTextCandidates に替える */
+    /** 段階 2 の `listVideoTextCandidates`（設計 3.1 節の SQL） */
     async function listCandidates(): Promise<{ id: string; text_status: string | null; segmenter_version: string | null }[]> {
-      return db<{ id: string; text_status: string | null; segmenter_version: string | null }[]>`
-        select m.id, m.posted_at,
-               va.id as video_analysis_id, va.duration_ms,
-               vt.id as text_analysis_id, vt.status as text_status, vt.segmenter_version,
-               vt.video_analysis_id as stored_video_analysis_id, vt.duration_ms as stored_duration_ms
-        from public.media m
-        join public.video_analyses va
-          on va.media_id = m.id and va.analyzer_version = ${ANALYZER_VERSION} and va.scene_threshold = ${DEFAULT_SCENE_THRESHOLD}
-         and va.status = 'success'
-        left join public.video_text_analyses vt
-          on vt.media_id = m.id and vt.ocr_method = ${OCR_METHOD} and vt.ocr_version = ${OCR_VERSION}
-         and vt.frame_interval_ms = ${FRAME_INTERVAL_MS} and vt.analyzer_version = ${TEXT_ANALYZER_VERSION}
-        where m.account_id = ${candidateAccountId}
-          and m.gone_at is null
-          and m.media_type = 'VIDEO'
-          and m.media_product_type in ('REELS', 'FEED')
-          and va.duration_ms > 0 and va.duration_ms <= ${VIDEO_TEXT_MAX_DURATION_MS}
-          and (vt.id is null
-               or (vt.status <> 'success'
-                   and vt.attempt_count < ${VIDEO_TEXT_MAX_ATTEMPTS}
-                   and vt.analyzed_at <= ${NOW}::timestamptz - make_interval(hours => ${RETRY_WAIT_HOURS}::int))
-               or (vt.status = 'success' and vt.segmenter_version <> ${SEGMENTER_VERSION}))
-        order by m.posted_at desc, m.id
-      `;
+      return listVideoTextCandidates(db, {
+        accountId: candidateAccountId,
+        analyzerVersion: ANALYZER_VERSION,
+        sceneThreshold: DEFAULT_SCENE_THRESHOLD,
+        ocrMethod: OCR_METHOD,
+        ocrVersion: OCR_VERSION,
+        frameIntervalMs: FRAME_INTERVAL_MS,
+        textAnalyzerVersion: TEXT_ANALYZER_VERSION,
+        segmenterVersion: SEGMENTER_VERSION,
+        maxDurationMs: VIDEO_TEXT_MAX_DURATION_MS,
+        maxAttempts: VIDEO_TEXT_MAX_ATTEMPTS,
+        now: NOW,
+        retryAfterHours: RETRY_WAIT_HOURS,
+      });
     }
 
     it("選ぶ条件と選ばない条件を網羅し、新しい順に返す", async () => {
@@ -500,6 +490,15 @@ describe.skipIf(!TEST_DATABASE_URL)("r4_1_video_text（結合）", () => {
         { month_utc: "2026-09-01", requests: 2, failed_requests: 0, images: 6, units: 6, videos: 1 },
         { month_utc: "2026-10-01", requests: 4, failed_requests: 2, images: 27, units: 19, videos: 2 },
       ]);
+    });
+
+    it("monthlyOcrUsage: UTC の月の範囲（月初 00:00 ちょうどは当月、直前は前の月）、失敗の分も足し、media_id が null は本数に入らない", async () => {
+      expect(utcMonthRange(new Date("2026-10-15T03:00:00Z"))).toEqual({ start: new Date("2026-10-01T00:00:00Z"), end: new Date("2026-11-01T00:00:00Z") });
+      expect(utcMonthRange(new Date("2026-12-31T23:59:59Z"))).toEqual({ start: new Date("2026-12-01T00:00:00Z"), end: new Date("2027-01-01T00:00:00Z") });
+      // 上のテストで入れた行: 10 月は 8 + 0 + 8 + 3 = 19 ユニット、本数は m1 と m2 の 2（null は数えない）
+      expect(await monthlyOcrUsage(db, accountId, new Date("2026-10-20T12:00:00Z"))).toEqual({ units: 19, videos: 2 });
+      expect(await monthlyOcrUsage(db, accountId, new Date("2026-09-05T00:00:00Z"))).toEqual({ units: 6, videos: 1 });
+      expect(await monthlyOcrUsage(db, accountId, new Date("2026-08-05T00:00:00Z"))).toEqual({ units: 0, videos: 0 });
     });
 
     it("ok が真なら http_status が要る（check）。units と image_count の範囲", async () => {

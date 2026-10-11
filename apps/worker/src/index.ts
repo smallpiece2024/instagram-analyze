@@ -28,6 +28,7 @@ import { job as profileDailyJob } from "./jobs/profile-daily.js";
 import { job as storiesJob } from "./jobs/stories.js";
 import { job as tokenCheckJob } from "./jobs/token-check.js";
 import { job as videoAnalysisJob } from "./jobs/video-analysis.js";
+import { job as videoTextJob } from "./jobs/video-text.js";
 
 type Command = CommandSpec;
 
@@ -49,10 +50,11 @@ const COMMANDS: Record<string, Command> = {
   "media-snapshot": jobCommand(mediaSnapshotJob, "投稿指標のスナップショット"),
   stories: jobCommand(storiesJob, "ストーリーズの一覧、指標、動画解析"),
   "video-analysis": jobCommand(videoAnalysisJob, "リールとフィード動画の解析（1 回の本数と時間に上限あり）"),
+  "video-text": jobCommand(videoTextJob, "リールとフィード動画の画面の文字（Vision API。1 回の本数、時間、ユニットに上限あり）"),
   "run-hourly": groupCommand(
     "hourly",
     HOURLY_JOBS,
-    "stories → media-sync → media-snapshot → video-analysis → account-backfill を順に実行",
+    "stories → media-sync → media-snapshot → video-analysis → video-text → account-backfill を順に実行",
   ),
   "run-daily": groupCommand("daily", DAILY_JOBS, "token-check → profile-daily → account-daily → audience-demographics → media-sync --full を順に実行"),
   "daily-due": {
@@ -68,7 +70,7 @@ const COMMANDS: Record<string, Command> = {
     run: (args) => schedule(args),
   },
   "check-env": {
-    description: "ffmpeg / ffprobe の動作と、動画の長さ・カットの取得を検証用動画で確かめる",
+    description: "ffmpeg / ffprobe の動作と、動画の長さ・カットの取得を検証用動画で確かめる。Vision の鍵の有無も出す",
     run: () => checkEnv(),
   },
   "video-tune": {

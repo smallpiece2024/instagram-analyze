@@ -68,6 +68,19 @@ export function sceneDetectTimeoutMs(durationMs: number): number {
 export const SAFE_INPUT_ARGS: readonly string[] = ["-protocol_whitelist", "file", "-f", "mp4"];
 
 /**
+ * 子プロセスに渡す環境変数（`PATH` だけ。Windows では `SystemRoot` も）。`process.env` を読むのは `config.ts` だけという
+ * 決まりの例外で、値を使わず子プロセスに渡すだけ（R4.1 設計 3.8 節）
+ */
+export function minimalChildEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { PATH: env["PATH"] ?? env["Path"] ?? "" };
+  if (process.platform === "win32") {
+    const systemRoot = env["SystemRoot"] ?? env["SYSTEMROOT"];
+    if (systemRoot !== undefined) out["SystemRoot"] = systemRoot;
+  }
+  return out;
+}
+
+/**
  * 子プロセスを起動して終了を待つ。終了コードが 0 でなくても resolve する（判断は呼び出し側）。
  * 起動の失敗（コマンドがない、など）は `spawn` の `error` で reject する。
  * `options.timeoutMs` を超えたら `SIGKILL` で止め、`CommandError`（`code` null、固定文言）で reject する。
@@ -75,7 +88,9 @@ export const SAFE_INPUT_ARGS: readonly string[] = ["-protocol_whitelist", "file"
  */
 export function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    // 最小の環境変数（`PATH` だけ）で起動する。`process.env` の鍵（`GCP_VISION_KEY_JSON`、`META_APP_SECRET`）を
+    // 子プロセスに引き継がない（R4.1 設計 3.8 節）。Windows では DLL の解決に `SystemRoot` も要る
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env: minimalChildEnv() });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -332,4 +347,42 @@ export function resizeImageArgs(input: string, output: string, width = THUMBNAIL
  */
 export async function resizeImage(input: string, output: string, width = THUMBNAIL_WIDTH): Promise<void> {
   await runOrThrow("ffmpeg", resizeImageArgs(input, output, width), TOOL_TIMEOUT_MS);
+}
+
+/** フレームの取り出しの幅の上限（R4.1 設計 3.4 節。元が小さければ拡大しない） */
+export const FRAME_MAX_WIDTH = 1080;
+
+/**
+ * 動画の `atMs` のフレーム 1 枚を JPEG に書く ffmpeg の引数（純粋関数。R4.1 設計 3.4 節）。
+ * `-ss` を `-i` の前に置き（キーフレームまで飛んでから目的の時刻まで復号する）、入力は `SAFE_INPUT_ARGS` で制限し、
+ * `scale='min(<maxWidth>,iw)':-2` で拡大せずに縮小だけ行い、`-q:v 4` の品質で 1 枚だけ出す
+ */
+export function extractFrameArgs(input: string, atMs: number, output: string, maxWidth = FRAME_MAX_WIDTH): string[] {
+  const seconds = (Math.max(0, atMs) / 1000).toFixed(3);
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    ...SAFE_INPUT_ARGS,
+    "-ss",
+    seconds,
+    "-i",
+    input,
+    "-frames:v",
+    "1",
+    "-vf",
+    `scale='min(${maxWidth},iw)':-2`,
+    "-q:v",
+    "4",
+    "-y",
+    output,
+  ];
+}
+
+/**
+ * `input` の `atMs` のフレーム 1 枚を `output`（`.jpg`）に書く。失敗は `CommandError`（stderr の末尾を含むので、
+ * 呼び出し側で固定文言に置き換える）。出力ファイルの有無は呼び出し側が確かめる（終了コード 0 でも空になりうる）
+ */
+export async function extractFrame(input: string, atMs: number, output: string, timeoutMs: number): Promise<void> {
+  await runOrThrow("ffmpeg", extractFrameArgs(input, atMs, output), timeoutMs);
 }

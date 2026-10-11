@@ -85,7 +85,7 @@ interface MutableProgress {
 }
 
 /** 項目の失敗の分類（`recordFailure`）。`Tracked.errorClass` の `fatal`／`transient` をそのまま渡せる */
-export type ItemFailureClass = "fatal" | "transient" | "download" | "db" | "unknown";
+export type ItemFailureClass = "fatal" | "transient" | "download" | "db" | "unknown" | "auth" | "rate";
 
 /** ジョブが `ctx.recordFailure` に渡す、項目 1 件の失敗 */
 export interface ItemFailure {
@@ -135,6 +135,11 @@ export interface JobContext extends JobPrecheckContext {
   startedAt: Date;
   /** 項目 1 件の失敗を記録する（`progress.failures += 1`。最後の失敗が `partial` の理由として残る） */
   recordFailure: (failure: ItemFailure) => void;
+  /**
+   * 実行中に得た秘密（Vision のアクセストークンなど）を `mask` の置換対象に加える（R4.1 設計 3.8 節）。
+   * 空文字と undefined は無視する。登録した値はこのプロセスの間ずっとマスクされる
+   */
+  addSecret: (value: string | undefined) => void;
 }
 
 export interface JobDefinition {
@@ -240,6 +245,14 @@ export function createJobDeps(
   secrets.add(config.supabaseServiceRoleKey);
   secrets.addUrlParts(config.databaseUrl);
   secrets.addUrlParts(config.supabaseUrl);
+  // Vision の鍵（R4.1 設計 3.8 節）: client_email と private_key の各行（`-----` の行を除く）をマスクの対象にする
+  if (config.visionKey.ok) {
+    secrets.add(config.visionKey.key.clientEmail);
+    for (const line of config.visionKey.key.privateKey.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed !== "" && !trimmed.startsWith("-----")) secrets.add(trimmed);
+    }
+  }
   for (const value of extra.secretsToAdd ?? []) secrets.add(value);
 
   const log = createLogger(config.logLevel, secrets);
@@ -407,7 +420,8 @@ export async function runJob(
         now,
         maskText: mask,
       });
-      const ctx: JobContext = { ...pre, graph, rate, progress, jobRunId, startedAt, recordFailure };
+      const addSecret = (value: string | undefined): void => secrets.add(value);
+      const ctx: JobContext = { ...pre, graph, rate, progress, jobRunId, startedAt, recordFailure, addSecret };
       try {
         await def.run(ctx);
       } catch (error) {

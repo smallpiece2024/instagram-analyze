@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CommandError,
+  extractFrameArgs,
+  minimalChildEnv,
   parseFrameRate,
   parseProbeOutput,
   parseSceneMetadata,
@@ -168,5 +170,38 @@ describe("parseProbeOutput", () => {
 
   it("長さがなければエラー", () => {
     expect(() => parseProbeOutput(JSON.stringify({ streams: [], format: {} }))).toThrow();
+  });
+});
+
+describe("extractFrameArgs / minimalChildEnv（R4.1 設計 3.4 節、3.8 節）", () => {
+  it("-ss を -i の前に置き、入力を制限し、幅 1080 までの縮小と品質 4 で 1 枚だけ出す", () => {
+    expect(extractFrameArgs("/tmp/v/video.mp4", 2600, "/tmp/v/frame-2600.jpg")).toEqual([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      ...SAFE_INPUT_ARGS,
+      "-ss",
+      "2.600",
+      "-i",
+      "/tmp/v/video.mp4",
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale='min(1080,iw)':-2",
+      "-q:v",
+      "4",
+      "-y",
+      "/tmp/v/frame-2600.jpg",
+    ]);
+    expect(extractFrameArgs("v.mp4", 0, "f.jpg", 720)).toContain("scale='min(720,iw)':-2");
+    expect(extractFrameArgs("v.mp4", -5, "f.jpg")).toContain("0.000");
+  });
+
+  it("子プロセスの環境変数は PATH だけ（Windows では SystemRoot も）。鍵やシークレットを渡さない", () => {
+    const env = minimalChildEnv({ PATH: "/usr/bin", GCP_VISION_KEY_JSON: "{secret}", META_APP_SECRET: "s", SystemRoot: "C:\Windows" });
+    expect(env["PATH"]).toBe("/usr/bin");
+    expect(env["GCP_VISION_KEY_JSON"]).toBeUndefined();
+    expect(env["META_APP_SECRET"]).toBeUndefined();
+    expect(Object.keys(env).filter((k) => k !== "PATH" && k !== "SystemRoot")).toEqual([]);
   });
 });

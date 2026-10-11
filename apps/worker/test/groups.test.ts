@@ -170,8 +170,8 @@ describe("runGroup", () => {
   });
 
   it("HOURLY_JOBS と DAILY_JOBS は設計 6.1 章の順で、daily の media_sync だけ --full", () => {
-    expect(HOURLY_JOBS.map((e) => e.def.name)).toEqual(["stories", "media_sync", "media_snapshot", "video_analysis", "account_backfill"]);
-    expect(HOURLY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    expect(HOURLY_JOBS.map((e) => e.def.name)).toEqual(["stories", "media_sync", "media_snapshot", "video_analysis", "video_text", "account_backfill"]);
+    expect(HOURLY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
     // R5 設計 3.2 節: audience_demographics は account_daily の後、media_sync --full の前
     expect(DAILY_JOBS.map((e) => e.def.name)).toEqual(["token_check", "profile_daily", "account_daily", "audience_demographics", "media_sync"]);
     expect(DAILY_JOBS.map((e) => e.options)).toEqual([undefined, undefined, undefined, undefined, { full: true }]);
