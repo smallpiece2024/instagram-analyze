@@ -350,4 +350,15 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
   3. **済み（2026-10-11）** 設計書 0.1 → レビュー 4 本 → 0.2 → 確認事項の回答（0.3）→ 段階 0 → 段階 1〜3（並列）→ 段階 4（本番の反映。19 本）→ 段階 5 のレビュー 2 本の反映。すべて main に反映済み
   4. **済み（2026-10-12）** 段階 5 の残り（目視は合格条件 6 項目とも問題なし、手元の鍵を削除、完了条件を照合して R4.1 を完了にした）
   5. 11 月 1 日（UTC）以降に GitHub の変数 `WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT` を 1000 に戻す。10 月中に新しいリールが 3 本を超えると `ocr_monthly_cap` の通知（daily に 1 通）が出るが仕様どおり
-  6. 次のリリースは R6（月次レポートの画面表示、伸びた投稿の検出。要件定義 10 章）。未着手
+  6. **済み（2026-10-12）** R6 に着手した（11 章）
+
+## 11. R6（月次レポート、伸びた投稿の検出、低下の通知）
+
+要件定義 4.7 章（F-RPT-01、02、10、11）、9.1 章（月次レポートの 9 節の型）、8.7 章 AI-01（伸びた投稿の検出は統計で行う）。完了条件（要件定義 10 章）は「前月分の月次レポートを画面に表示できる。伸びた投稿の検出が動く」。
+
+- **着手（2026-10-12）**: R4.1 の完了に続けて着手（ユーザー「次をお願いします」）。ブランチは `r6/report`
+- **進め方**: 設計書 `doc/design/r6-report.md`（`nextjs-developer` が起草）→ `postgres-sql-reviewer`、`security-engineer`、`quality-engineer` が並列にレビュー → 差し戻しを反映 → 確認事項（Q）をユーザーに決めてもらう → DB・ワーカー・画面を並列に実装 → 本番に反映
+- **事実票（2026-10-12、親がリポジトリで確認）**: (1) 投稿単位の指標にフォロワー／非フォロワーの内訳はない（R0 検証 2.4 節、要件 7.1 章「非フォロワーリーチ比率はアカウント単位」）ので、F-RPT-10 の投稿単位の判定はシェア率などの投稿単位の率で行い、非フォロワーリーチ比率は日次指標（`account_daily_wide` の reach_follower／reach_non_follower。日付は太平洋時間）で見る。(2) フォロワー数は `profile_daily`（日本時間の日付）。(3) 投稿一覧は `media_list_metrics`（kind、最新の値、率、reach_7d、followers_at_post、reach_rate）、経過時間の区分は `media_horizon_metrics`。(4) 目標値の表と設定画面はない（要件 9 章の「設定」は未着手）。(5) 通知は `check-alerts`（daily の失敗 = GitHub の失敗メール 1 日 1 通）だけで、ほかの経路はない。(6) design-lab v3 に月次レポートの見本はない。(7) 期間の部品 `lib/period.ts` に `monthOf`、`previousMonth`、`sameMonthLastYear` があり、概要の集計は `lib/queries/period-summary.ts`
+- **設計書 0.1（2026-10-12。`nextjs-developer`、約 8 分、24 回の呼び出し、13 万トークン。上限 30 分の中。読むファイルを 10 本・約 14 万文字に限定し、上の事実票と親の方向づけを渡した）**: `doc/design/r6-report.md`（504 行）。判定はビュー `media_outlier_flags`（同じ種類の直前 20 投稿のシェア率の四分位。fence 1.5 × IQR、8 件未満は判定しない、特殊な投稿は比較対象から外す）、通知は `non_follower_reach_drop`（直近 7 日 vs 前 28 日で 10 pt 以上の低下）と `follower_drop`（前日比 10 人以上かつ 1% 以上）、レポートは `/report`（既定は前月、9 節を既存の部品で、2 節は `OverviewKpis` を流用、目標比は出さない）、記入欄は表 `report_notes` と Server Action、ナビは「期間比較」の次、確認事項 Q1〜Q16。起草者が踏み込んだ点（指標をシェア率 1 つに固定、`follower_drop` を「かつ」、通知にフォロワーの人数を持たせない、ワーカーの読み出しは新規 `db/alert-signals.ts`）はレビューで見る。
+- **起草者の「未確認」を親が確かめた（2026-10-12）**: ワーカーは `postgres.<ref>`（表の所有者）で接続するので grant は不要。`collect.yml` は `run-daily` → `run-hourly` → `check-alerts` の順（Q12 は解消）。`lib/queries/tags.ts` の `getTagAnalysis` は過去 365 日固定で暦月を受けない。`TypeTag` に色の引数はなく `SpecialTags` がある。概要の日次推移は内訳を描かない。`metric-definitions.test.ts` はない。R5 の文字の check は `[[:cntrl:]]`（設計の `[[:print:]]` と違う）
+- **レビュー 4 本（2026-10-12、並列。各 10 分程度、設計書と関係ファイルだけ、Web なし）**: `postgres-sql-reviewer`（ビューの正しさと性能、表、権限）、`security-engineer`（Server Action、権限、公開ログ）、`quality-engineer`（統計、通知の判定、月の扱い、テスト、段階、Q の不足）、`nextjs-developer`（6 章の画面。Next.js 16 の同梱資料 2 本まで）。結果は下に
