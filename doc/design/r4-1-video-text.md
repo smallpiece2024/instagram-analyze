@@ -1,6 +1,6 @@
 # R4.1 動画分析（画面の文字）の設計
 
-- 版: 0.3（2026-10-11）。確認事項 Q1〜Q14 はすべて推奨どおりと回答を得た（Q8 はスキップ率を足す）。段階 0 から実装に入る
+- 版: 0.4（2026-10-12）。段階 0〜5 がすべて終わり、R4.1 は完了。本番の 19 本に文字の区間が入り、目視の合格条件を満たした
 
 ## 版と変更履歴
 
@@ -9,6 +9,7 @@
 | 0.1 | 2026-10-11 | 起草（`node-worker-developer`） |
 | 0.2 | 2026-10-11 | 4 本のレビューの指摘をすべて反映。DB: D1〜D17（ビューは一意キーの 4 列で結合し特徴量だけ版で null、(b) は `update`、`ocr_usage.analysis_id` は最初から埋まる、revoke、`create or replace view` の全文と `security_invoker`、フレームの check、列名 `vertical_position`／`elapsed_ms`、月の範囲を JS で渡す、`lock_timeout`、`search_path`、(b) を本数の上限に数えない、原子性の前提）。セキュリティ: S1〜S18（鍵の固定文言と検査、`add-mask` と `ctx.mask` の二重化、鍵のライフサイクル、途中落ちの備え (a)(b)(c)、月の上限の範囲を 1,000 まで、検索の正規化は TS、`scope` は `cloud-vision`、`visionKey` は 2 項目、`redirect: "error"`、Secret は hourly だけ、テストの鍵は生成、`video_text_frames` の権限を作らない、表示と大きさの上限、`spawn` の `env`、鍵が不正でもほかのジョブを止めない、再送のユニット、`.local/ocr-check` の削除）。品質: T1〜T26（最後のフレームを含めない、計画の安定、最悪の時間と再送の条件、長さ 0、文字数の単位、短い文字の揺れ、決定性、既知の挙動、見落としの定義、1 本で上限を超える本、失敗した要求のユニット、2026-10 の変数、段階の手順と合格条件、種データ、固定データの作り方、テストの追加、検索の並びと上限、画像の大きさの出所、`max_chars_per_frame` の定義、`MAX_PER_RUN = 0`、期日）。画面: U1〜U26（`y` と同じ指標の図を出さない、`FACTORS` は 3 つ、重なる区間の描き方、時刻のクリップ、新しい文言を足さない、`q` の保持、並びと上限、`Suspense`、定数の置き場所、`hide-m`、散布図 10 枚、色と線、code point、JSON の列、見出し、`labels`、折り返し、区分の配置、列名と並べ替えのキー、検索の位置、強調しない、`no-store`、今月の行、「画面変化」、`Promise.all`） |
 | 0.3 | 2026-10-11 | 確認事項 Q1〜Q14 の回答を記録（すべて推奨どおり。Q1 は 1,000 ms、Q4 は UTC と 2026-10 の変数 700、Q8 はスキップ率を足す、Q9 は一覧のカードの上、Q10 は Secret に JSON 1 つ、Q13 は足りない分だけ送り直す） |
+| 0.4 | 2026-10-12 | 段階 5 の完了を記録（目視の合格条件 6 項目を満たした、手元の鍵を削除、`.local/ocr-check` は削除済み）。9 章の段階 5 を済みにし、3.8 節の鍵の表に手元の鍵の現状を追記 |
 
 - 検討メモ: `doc/ai-decisions/r4-1-video-text-ocr.md`（方式は Google Cloud Vision の `DOCUMENT_TEXT_DETECTION` に決定。2026-10-11、ユーザー。動作確認の結果と上限は同メモ 5〜6 章。AI-07 の記録は同メモ 4 章と 7 章）
 - 要件: `doc/requirements/requirements-definition.md` 4.5.1 章（F-VID-20〜32）、5.1 章「AI・OCR の利用記録」、5.3 章「画面の文字（R4.1）」、8.7 章（AI-01〜07）、9 章「AI・OCR の利用状況」、10 章（R4.1 の完了条件）
@@ -250,7 +251,7 @@ ffmpeg -hide_banner -loglevel error -protocol_whitelist file -f mp4 -ss <秒> -i
 | 場所 | 持ち方 |
 |---|---|
 | GitHub Actions | Secret `GCP_VISION_KEY_JSON`（鍵の JSON ファイルの中身そのまま）。`collect.yml` の **hourly のステップ**の `env` にだけ渡す（`daily` と `check-alerts` のステップには渡さない） |
-| 手元の Docker | `.env` に `GCP_VISION_KEY_FILE=.local/gcp-vision-key.json`（ユーザーが置いた場所）。compose でこのファイルをコンテナに読み取り専用でマウントする（未確認: compose の書き方。実装時に合わせる） |
+| 手元の Docker | `.env` に `GCP_VISION_KEY_FILE=.local/gcp-vision-key.json`（ユーザーが置いた場所）。compose でこのファイルをコンテナに読み取り専用でマウントする（未確認: compose の書き方。実装時に合わせる）。**2026-10-12 時点では未実装**（手元の `.env` に `GCP_VISION_KEY_FILE` はなく、compose のマウントもない。手元の常駐ワーカーは止めているので不要。手元で `video_text` を動かすときに足す） |
 | `config.ts` | `visionKey: { ok: true; key: { clientEmail: string; privateKey: string } } \| { ok: false; reason: "missing" \| "invalid" }`。`GCP_VISION_KEY_JSON` があれば JSON として読み、なければ `GCP_VISION_KEY_FILE` のファイルを読む（`process.env` とこのファイルを読むのは `config.ts` だけ）。`JSON.parse` とファイルの読み込みは try/catch で握り、例外の文面（入力の断片やパスを含む）を捨てて `reason: "invalid"` にする。検査: `client_email` が `/@[a-z0-9-]+\.iam\.gserviceaccount\.com$/` に合う、`private_key` が `-----BEGIN PRIVATE KEY-----` で始まる、`token_uri` が定数 `https://oauth2.googleapis.com/token` と一致（値は持たない）。合わなければ `reason: "invalid"`。**起動は失敗させない**（Vision は任意の機能。`video_text` 以外のジョブを止めない。3.6 節の表） |
 | `check-env` | 「Vision の鍵: あり／なし／形が不正」だけを出す |
 | マスク（二重化） | (a) `collect.yml` に、既存の「mask db host」のステップにならって、`jq -r` で `.client_email`、`.project_id`、`.private_key_id`、`.private_key` の各行（`-----` で始まる行と空行を除く）を `::add-mask::` に登録するステップを足す（GitHub のマスクは Secret の値そのもの（各行）にしか効かず、`JSON.parse` 後の値は別の文字列になるため）。(b) ワーカー側は、`config.ts` が読んだ `clientEmail` と `privateKey` の各行（`-----` の行を除く）を枠組みの secrets（`sanitizeForLog` の置換対象）に加え、アクセストークンはクライアントが取得時に `ctx.addSecret(value)` で加える（`framework.ts` に `addSecret` を足す。小さな変更。段階 2） |
@@ -266,7 +267,7 @@ ffmpeg -hide_banner -loglevel error -protocol_whitelist file -f mp4 -ss <秒> -i
 |---|---|
 | 差し替え（周期の目安 90 日） | Google Cloud で新しい鍵を作る → Secret `GCP_VISION_KEY_JSON` と `.local/gcp-vision-key.json` を替える → 旧鍵を Google Cloud で削除 → 次の hourly の `video_text` が成功することを `/jobs` で確かめる |
 | 漏えいの疑い | 鍵を削除 → サービスアカウントを無効化 → Google Cloud の利用量（Vision の要求数）で不正な利用がないか確かめる → 新しい鍵で差し替え |
-| 手元の鍵 | 手元と CI で同じ鍵を使う。段階 0 と段階 2 が終わったら手元の鍵を消すか、手元用に別の鍵を作る（Q10） |
+| 手元の鍵 | 手元と CI で同じ鍵を使う。段階 0 と段階 2 が終わったら手元の鍵を消すか、手元用に別の鍵を作る（Q10）。**2026-10-12 にユーザーが手元の鍵を削除した。** Google Cloud 側の鍵は Secret が使うので残す。再び手元で要るときは Google Cloud で新しい鍵を作って `.local/gcp-vision-key.json` に置く |
 | 別案（Q10） | Secret を `GCP_VISION_CLIENT_EMAIL`、`GCP_VISION_PRIVATE_KEY`、`GCP_VISION_PROJECT_ID` の 3 つに分ける（GitHub のマスクが各値にそのまま効く。`add-mask` のステップが要らない） |
 
 ### 3.9 ファイルの担当
@@ -734,7 +735,7 @@ R4 設計 7 章にならう。Vision は偽の `fetch` で差し替え、本物�
 | 2 | ワーカー（3 章、4 章）: `lib/video-text.ts`、`lib/vision-client.ts`、`db/video-text.ts`、`jobs/video-text.ts`、`extractFrameArgs`、`runOrThrow` の `env`、`ctx.addSecret`、`check-alerts`、`check-env`、hourly への登録、固定データの作成（8 章）、テスト。手元で 2〜3 本を処理して区間を目視（使ったユニットを検討メモに記録）。終わったら手元の鍵を消すか別の鍵にする | `node-worker-developer`。`security-engineer` が 7 章の観点でレビュー |
 | 3 | 画面（6 章）: 投稿詳細、リール分析、文字で探す、利用状況。段階 1 の種データで作る（段階 2 の完了を待たない） | `nextjs-developer` |
 | 4 | **済み（2026-10-11）。** 手順どおりに反映し、19 本すべて `success`（4 回の手動起動、601 ユニット、1 本 14〜22 秒）。本番の画面はユーザーが確認。元の手順: **本番に反映（2026-10 中）**。手順: (1) GitHub に Secret `GCP_VISION_KEY_JSON`、変数 `WORKER_VIDEO_TEXT_MAX_PER_RUN=0`、`WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT=700` を登録 → (2) `db push` → main にマージ → 次の hourly で `video_text` が候補を数えて終わることを `/jobs` で確かめる（`items 0`、ログに `candidates=18`） → (3) 変数を 5 にして次の hourly を 1 回待つ → 0 に戻す → 投稿詳細で 5 本の区間と上段の数字を見る → (4) 問題がなければ 5 に戻し、残り 13 本が 3 回（約 3 時間）で処理されるのを待つ。**完了の確認**: `select text_status, text_segmenter_current, count(*) from public.media_video_features where account_id = … group by 1, 2` で `success`／真 が 18、null が 0。`/reels` の一覧の文字の 3 列に「—」がない。`/jobs` の 10 月のユニットが 700 以内。11 月にずれたら `WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT` を 1,000 に戻す | 親とユーザー |
-| 5 | 目視の確認（下の合格条件）、しきい値の調整（`segmenter_version` を上げる。ユニットを使わない）、双方向制御文字の見え方、テストの不足、セキュリティレビュー、検討メモ 6.2 節への記録、**`.local/ocr-check` を消す** | `quality-engineer`、`security-engineer`、ユーザー |
+| 5 | **済み（2026-10-12）。** セキュリティと品質のレビューは 2026-10-11 に反映（`doc/progress.md` 10 章）。目視は 2026-10-12 にユーザーが直近のリール 3 本を Instagram のアプリと比べ、下の合格条件 6 項目とも問題なし。しきい値の調整は不要。検討メモ 6.2 節に記録。`.local/ocr-check` と手元の鍵は削除済み。元の内容: 目視の確認（下の合格条件）、しきい値の調整（`segmenter_version` を上げる。ユニットを使わない）、双方向制御文字の見え方、テストの不足、セキュリティレビュー、検討メモ 6.2 節への記録、`.local/ocr-check` を消す | `quality-engineer`、`security-engineer`、ユーザー |
 
 **段階 5 の目視の合格条件**（直近のリール 3 本。Instagram のアプリで再生して比べる）:
 
