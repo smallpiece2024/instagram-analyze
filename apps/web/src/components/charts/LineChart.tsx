@@ -1,5 +1,5 @@
 import { formatAxis, formatValue, type ValueFormat } from "@/lib/format";
-import { coord, dimRuns, MARKER_HIT, finiteValues, labelStep, segments, ticks, yDomain } from "./scale";
+import { coord, dimRuns, MARKER_HIT, finiteValues, labelStep, niceDomain, segments, ticks, yDomain } from "./scale";
 
 /** 件数が少ない区分を薄く描くときの不透明度（`BandRow` と同じ） */
 const DIM_OPACITY = ".45";
@@ -55,6 +55,11 @@ export interface LineChartProps {
   height?: number;
   min?: number;
   max?: number;
+  /**
+   * 縦軸を 0 から始めず、値の範囲のすぐ下の切りのよい値から始める（水準の折れ線。フォロワー数）。
+   * `min`／`max` より優先。目盛は刻みの倍数に置く（`niceDomain`）。量（リーチ数など）のグラフでは使わない
+   */
+  autoMin?: boolean;
   /** 棒グラフと X を揃える（各点を区間の中央に置く） */
   align?: boolean;
 }
@@ -76,20 +81,22 @@ export function LineChart({
   height = 200,
   min,
   max,
+  autoMin,
   align,
 }: LineChartProps) {
   const m = { t: 16, r: align ? 8 : 14, b: labels2 ? 42 : 26, l: 44 };
   const iw = Math.max(1, width - m.l - m.r);
   const ih = Math.max(1, height - m.t - m.b);
   const all = finiteValues([...series.flatMap((s) => s.values), ...(band ? band.upper : [])]);
-  const dom = yDomain(all, { min, max });
+  const dom = autoMin ? niceDomain(all) : { ...yDomain(all, { min, max }), step: null };
+  const tickCount = dom.step === null ? 4 : Math.max(1, Math.round((dom.max - dom.min) / dom.step));
   const n = labels.length;
   const x = align
     ? (i: number) => m.l + (iw / Math.max(1, n)) * i + iw / Math.max(1, n) / 2
     : (i: number) => m.l + (n > 1 ? (iw * i) / (n - 1) : iw / 2);
   const y = (v: number) => m.t + ih - (ih * (v - dom.min)) / (dom.max - dom.min);
   const step = labelStep(n, iw, align ? 44 : 56);
-  const tickValues = ticks(dom.min, dom.max, 4);
+  const tickValues = ticks(dom.min, dom.max, tickCount);
   // X 軸のラベルの段。2 段のときは 1 段目を上に、2 段目を下に置く。
   // 色は style で付ける（`.chart-axis text` の CSS の fill は、SVG の fill 属性より強い）
   const axisRows: { labels: readonly string[]; y: number; name?: string; color?: string }[] = labels2
