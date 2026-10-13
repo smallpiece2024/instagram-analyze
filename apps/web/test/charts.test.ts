@@ -13,8 +13,11 @@ import { Pie, type PieProps } from "@/components/charts/Pie";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
 import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
+import { SpecialTags, type SpecialFlags } from "@/components/TypeTag";
 import { BaselineBand, bandDomain } from "@/app/compare/_compare/BaselineBand";
 import { jpRange, monthDay } from "@/app/compare/_compare/labels";
+import { followerKpi } from "@/app/_overview/OverviewKpis";
+import type { FollowerChange } from "@/lib/queries/period-summary";
 
 /** SVG に NaN、Infinity、undefined が出ていないこと */
 function expectClean(html: string) {
@@ -656,5 +659,70 @@ describe("Pie（割合の円グラフ）", () => {
   it("扇が 1 つだけなら文字は中心に書く", () => {
     const html = pie({ slices: [{ label: "女性", value: 10, share: 1, color: "red" }], size: 200 });
     expect(html).toMatch(/data-part="slice-label" x="116" y="116"/);
+  });
+});
+
+/** 特殊な投稿の印（R6 設計 6.3 節 U10）。伸びた／課題は既存の `tag--special` と同じ見た目で、色は付けない */
+describe("SpecialTags（shareFlag）", () => {
+  const tags = (p: SpecialFlags) => renderToStaticMarkup(createElement(SpecialTags, p));
+
+  it("high は「伸びた」、low は「課題」を tag tag--special で出す", () => {
+    const high = tags({ shareFlag: "high" });
+    expect(high).toContain("伸びた");
+    expect(high).toContain('class="tag tag--special"');
+    expect(high).not.toContain("課題");
+    const low = tags({ shareFlag: "low" });
+    expect(low).toContain("課題");
+    expect(low).toContain('class="tag tag--special"');
+    expect(low).not.toContain("伸びた");
+  });
+
+  it("none、null、未指定は何も出さない", () => {
+    expect(tags({ shareFlag: "none" })).toBe("");
+    expect(tags({ shareFlag: null })).toBe("");
+    expect(tags({})).toBe("");
+  });
+
+  it("既存の印と並ぶ（コラボ → 広告 → 伸びた の順）。色の属性（data-type、style）は付けない", () => {
+    const html = tags({ isCollab: true, isBoosted: true, shareFlag: "high" });
+    expect(html.indexOf("コラボ")).toBeLessThan(html.indexOf("広告"));
+    expect(html.indexOf("広告")).toBeLessThan(html.indexOf("伸びた"));
+    expect(html).not.toMatch(/data-type|style=/);
+  });
+});
+
+/** フォロワー数のタイル（R6 設計 6.1 節 2 行目、T9 (2)）。`OverviewKpis` は async Server Component なので描画せず、純粋な部分だけ */
+describe("OverviewKpis の followerKpi（followerTile）", () => {
+  const fc: FollowerChange = {
+    end: { captured_on: "2026-09-30", followers_count: 1200 },
+    start: { captured_on: "2026-08-31", followers_count: 1100 },
+    net: 100,
+    firstCapturedOn: "2026-05-01",
+    latest: { captured_on: "2026-10-11", followers_count: 1234 },
+  };
+
+  it("latest は従来どおり最新の記録（概要の見た目を変えない）", () => {
+    const k = followerKpi(fc, "latest");
+    expect(k.label).toBe("フォロワー数");
+    expect(k.value).toBe("1,234");
+    expect(k.denom).toBe("2026-10-11 時点");
+    expect(k.hint).toContain("最新の記録");
+  });
+
+  it("end は期間の終わりの記録（月末の値）", () => {
+    const k = followerKpi(fc, "end");
+    expect(k.label).toBe("フォロワー数");
+    expect(k.value).toBe("1,200");
+    expect(k.denom).toBe("2026-09-30 時点");
+    expect(k.hint).toContain("終わりの日");
+  });
+
+  it("end が null なら「—」で時点は出さない。latest が null でも同じ", () => {
+    const k = followerKpi({ ...fc, end: null }, "end");
+    expect(k.value).toBe("—");
+    expect(k.denom).toBeUndefined();
+    const l = followerKpi({ ...fc, latest: null }, "latest");
+    expect(l.value).toBe("—");
+    expect(l.denom).toBeUndefined();
   });
 });

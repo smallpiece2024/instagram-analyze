@@ -3,15 +3,32 @@ import { Kpi } from "@/components/Kpi";
 import { EMPTY, formatCount, formatPercent, formatSignedCount } from "@/lib/format";
 import { deltaCount, deltaPoint, deltaRate, type RatioOfSums } from "@/lib/metrics";
 import type { Period } from "@/lib/period";
-import { getDailyTotals, getFollowerChange, type DailySum } from "@/lib/queries/period-summary";
+import { getDailyTotals, getFollowerChange, type DailySum, type FollowerChange } from "@/lib/queries/period-summary";
 import { LoadError } from "./states";
 import { ACCOUNT_METRIC_DEFINITIONS as DEF } from "@/lib/metric-definitions";
+
+/** フォロワー数のタイルに出す値。`latest` は最新の記録（概要）、`end` は期間の終わりの記録（レポート。R6 設計 T9 (2)） */
+export type FollowerTile = "latest" | "end";
 
 export interface OverviewKpisProps {
   accountId: string;
   /** 今の期間と前期間（太平洋時間の日付。投稿単位の値は同じ日付の範囲を日本時間の投稿日で数える） */
   cur: Period;
   prev: Period;
+  /** フォロワー数のタイルの値。既定は `latest`（概要の見た目は変えない）。レポートは `end`（月末の値。null なら —） */
+  followerTile?: FollowerTile;
+}
+
+/** フォロワー数のタイルの表示（純粋。単体テストで直接呼ぶ）。記録がなければ値は「—」で、時点は出さない */
+export function followerKpi(fc: FollowerChange, followerTile: FollowerTile): { label: string; hint: string; value: string; denom: string | undefined } {
+  const def = followerTile === "end" ? DEF.followers_end : DEF.followers;
+  const record = followerTile === "end" ? fc.end : fc.latest;
+  return {
+    label: def.label,
+    hint: def.hint,
+    value: formatCount(record?.followers_count),
+    denom: record ? `${record.captured_on} 時点` : undefined,
+  };
 }
 
 /** 「30 日中 28 日分」。欠けがなければ出さない */
@@ -29,7 +46,7 @@ function join(...parts: (string | null | undefined)[]): string {
 }
 
 /** 数字タイル 6 枚（3.2 節「数字タイル」）。読み出しに失敗したら、タイルの代わりにカードの中で理由を出す */
-export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) {
+export async function OverviewKpis({ accountId, cur, prev, followerTile = "latest" }: OverviewKpisProps) {
   const [dailyCur, dailyPrev, follCur, follPrev] = await Promise.all([
     getDailyTotals(accountId, cur.from, cur.to),
     getDailyTotals(accountId, prev.from, prev.to),
@@ -50,6 +67,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
   const dp = dailyPrev.data;
   const fc = follCur.data;
   const fp = follPrev.data;
+  const followers = followerKpi(fc, followerTile);
 
   return (
     <div className="kpis">
@@ -96,12 +114,7 @@ export async function OverviewKpis({ accountId, cur, prev }: OverviewKpisProps) 
         delta={dp.saveRate.used === 0 ? null : deltaPoint(dc.saveRate.value, dp.saveRate.value)}
         denom={join("日別の合計で計算", rateCoverage(dc.saveRate), rateCoverage(dp.saveRate, "前期 "))}
       />
-      <Kpi
-        label={DEF.followers.label}
-        hint={DEF.followers.hint}
-        value={formatCount(fc.latest?.followers_count)}
-        denom={fc.latest ? `${fc.latest.captured_on} 時点` : undefined}
-      />
+      <Kpi label={followers.label} hint={followers.hint} value={followers.value} denom={followers.denom} />
     </div>
   );
 }

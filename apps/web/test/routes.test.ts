@@ -279,6 +279,9 @@ describe("routes", () => {
       "/audience",
       "/timing",
       "/timing?m=views_latest&kind=feed",
+      // R6 のレポート（R6 設計 6 章 U6、S12。ページは checkAccess を呼ばず proxy が守る。claims なしで pass にならない）
+      "/report",
+      "/report?month=2026-09",
     ];
     // matcher は列挙しない 1 本の正規表現（src/proxy.ts）。Next.js と同じく pathname 全体に当てる
     const matchers = proxyConfig.matcher.map((m) => new RegExp(`^${m}$`));
@@ -332,9 +335,19 @@ describe("routes", () => {
     });
   });
 
-  /** ナビの並び（R5 設計 4 章、確認事項 Q11） */
-  describe("R5 のナビ", () => {
-    it("9 項目を決めた順に並べる", () => {
+  /** R6 のレポートの応答は `Cache-Control: private, no-store`（R6 設計 6 章の U12） */
+  describe("R6 の画面のキャッシュ", () => {
+    it("/report は Cache-Control: private, no-store", async () => {
+      const rules = nextConfig.headers ? await nextConfig.headers() : [];
+      const rule = rules.find((r) => r.source === "/report");
+      expect(rule).toBeDefined();
+      expect(rule?.headers.find((h) => h.key === "Cache-Control")?.value).toBe("private, no-store");
+    });
+  });
+
+  /** ナビの並び（R5 設計 4 章、確認事項 Q11。R6 設計 6.4 節、確認事項 Q1 で「レポート」を足した） */
+  describe("R5・R6 のナビ", () => {
+    it("10 項目を決めた順に並べる（レポートは期間比較の次、接続と収集ログの前）", () => {
       expect(NAV_ITEMS.map((i) => [i.href, i.label])).toEqual([
         ["/", "概要"],
         ["/media", "投稿一覧"],
@@ -344,8 +357,16 @@ describe("routes", () => {
         ["/timing", "投稿時刻"],
         ["/audience", "オーディエンス"],
         ["/compare", "期間比較"],
+        ["/report", "レポート"],
         ["/jobs", "接続と収集ログ"],
       ]);
+    });
+
+    it("レポートは追記だけで現在位置になる（前方一致。U22）", () => {
+      expect(activeNavHref("/report")).toBe("/report");
+      // `?month=` はクエリなので pathname は /report のまま
+      expect(activeNavHref(new URL("/report?month=2026-09", APP_URL).pathname)).toBe("/report");
+      expect(activeNavHref("/reports")).toBeUndefined();
     });
 
     it("タグの編集はナビに出さず、現在位置はタグ分析", () => {

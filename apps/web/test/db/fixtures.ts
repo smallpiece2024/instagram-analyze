@@ -74,14 +74,23 @@ export type FakeMedia = {
   mediaType?: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
   caption?: string | null;
   goneAt?: Date | null;
+  /**
+   * 特殊な投稿のフラグ（R6 3.6 節）。省略なら null（判定できない。本番の全投稿と同じ）。
+   * true の投稿は media_outlier_flags の比較対象から外れる。null と false は入る
+   */
+  isCollab?: boolean | null;
+  isTrialReel?: boolean | null;
+  isBoosted?: boolean | null;
 };
 
 /** 投稿（ストーリーズを含む）を 1 件入れる */
 export async function insertMedia<T extends Record<string, unknown>>(sql: AnySql<T>, m: FakeMedia): Promise<void> {
   await sql`
-    insert into public.media (id, account_id, media_type, media_product_type, posted_at, caption, gone_at)
+    insert into public.media (id, account_id, media_type, media_product_type, posted_at, caption, gone_at,
+                              is_collab, is_trial_reel, is_boosted)
     values (${m.id}, ${m.accountId}, ${m.mediaType ?? "IMAGE"}, ${m.productType ?? "FEED"}, ${m.postedAt},
-            ${m.caption ?? null}, ${m.goneAt ?? null})
+            ${m.caption ?? null}, ${m.goneAt ?? null},
+            ${m.isCollab ?? null}, ${m.isTrialReel ?? null}, ${m.isBoosted ?? null})
   `;
 }
 
@@ -234,4 +243,176 @@ export async function insertAudienceCapture<T extends Record<string, unknown>>(s
     await sql`insert into public.audience_values (capture_id, value_key, value) values (${row.id}::bigint, ${key}, ${value})`;
   }
   return row.id;
+}
+
+// ---------------------------------------------------------------
+// R6（20261013000000_r6_report.sql）の表とビューの作り方（設計 doc/design/r6-report.md 7.4 節の T12）。
+// 行は postgres（TEST_DATABASE_URL）で入れる。アカウントを消せば、どの行もカスケードで消える
+// ---------------------------------------------------------------
+
+/**
+ * 投稿の指標（media_list_metrics と media_outlier_flags が読む形）。シェア率 = shares ÷ reach なので、
+ * reach を 2 の冪（64 など）にすると 1/8、1/4 のような 2 進で正確な値になる（D5 の「ちょうど」の比較に使う）。
+ * reach を null にするとキーを入れない（metric_value は strict で null → シェア率 null）
+ */
+export function postMetrics(v: {
+  reach?: number | null;
+  shares?: number;
+  likes?: number;
+  comments?: number;
+  saved?: number;
+  views?: number;
+}): Record<string, unknown> {
+  const metrics: Record<string, unknown> = {
+    shares: v.shares ?? 0,
+    likes: v.likes ?? 0,
+    comments: v.comments ?? 0,
+    saved: v.saved ?? 0,
+    views: v.views ?? 0,
+  };
+  if (v.reach !== null) metrics.reach = v.reach ?? 0;
+  return metrics;
+}
+
+export type FakeReportNote = {
+  accountId: string;
+  /** 月の 1 日（YYYY-MM-01）。check が 1 日以外を拒む */
+  reportMonth: string;
+  summary?: string;
+  nextPlan?: string;
+};
+
+/** 月次レポートの記入欄を 1 件入れ、updated_at を返す */
+export async function insertReportNote<T extends Record<string, unknown>>(sql: AnySql<T>, n: FakeReportNote): Promise<Date> {
+  const [row] = await sql<{ updated_at: Date }[]>`
+    insert into public.report_notes (account_id, report_month, summary, next_plan)
+    values (${n.accountId}, ${n.reportMonth}, ${n.summary ?? ""}, ${n.nextPlan ?? ""})
+    returning updated_at
+  `;
+  if (!row) throw new Error("report_notes insert returned no row");
+  return row.updated_at;
+}
+
+export type FakeAccountDaily = {
+  accountId: string;
+  /** API の日付（米国太平洋時間の日付。YYYY-MM-DD）。account_daily_wide.metric_date になる */
+  metricDate: string;
+  /** 内訳なしの指標。undefined なら行を入れない（未取得）。null なら行があって値が null（欠損） */
+  reach?: number | null;
+  views?: number | null;
+  accountsEngaged?: number | null;
+  totalInteractions?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  shares?: number | null;
+  saved?: number | null;
+  /** account_daily_metrics の metric は follower_count。account_daily_wide では new_followers */
+  newFollowers?: number | null;
+  /** follow_type の内訳（reach、views）。undefined なら行を入れない */
+  reachFollower?: number | null;
+  reachNonFollower?: number | null;
+  viewsFollower?: number | null;
+  viewsNonFollower?: number | null;
+  /** 既定は now() */
+  fetchedAt?: Date;
+};
+
+/**
+ * アカウントの日次指標（account_daily_metrics。縦持ち）を 1 日分入れる。account_daily_wide が 1 行にまとめて読む形。
+ * 列名の対応: saved → metric 'saves'、newFollowers → metric 'follower_count'、内訳は breakdown 'follow_type'
+ */
+export async function insertAccountDailyMetrics<T extends Record<string, unknown>>(sql: AnySql<T>, d: FakeAccountDaily): Promise<void> {
+  const rows: { metric: string; breakdown: string; breakdown_value: string; value: number | null }[] = [];
+  const plain = (metric: string, value: number | null | undefined): void => {
+    if (value !== undefined) rows.push({ metric, breakdown: "", breakdown_value: "", value });
+  };
+  const followType = (metric: string, breakdownValue: "FOLLOWER" | "NON_FOLLOWER", value: number | null | undefined): void => {
+    if (value !== undefined) rows.push({ metric, breakdown: "follow_type", breakdown_value: breakdownValue, value });
+  };
+  plain("reach", d.reach);
+  plain("views", d.views);
+  plain("accounts_engaged", d.accountsEngaged);
+  plain("total_interactions", d.totalInteractions);
+  plain("likes", d.likes);
+  plain("comments", d.comments);
+  plain("shares", d.shares);
+  plain("saves", d.saved);
+  plain("follower_count", d.newFollowers);
+  followType("reach", "FOLLOWER", d.reachFollower);
+  followType("reach", "NON_FOLLOWER", d.reachNonFollower);
+  followType("views", "FOLLOWER", d.viewsFollower);
+  followType("views", "NON_FOLLOWER", d.viewsNonFollower);
+  const fetchedAt = d.fetchedAt ?? new Date();
+  for (const r of rows) {
+    await sql`
+      insert into public.account_daily_metrics (account_id, metric_date, metric, breakdown, breakdown_value, value, fetched_at)
+      values (${d.accountId}, ${d.metricDate}, ${r.metric}, ${r.breakdown}, ${r.breakdown_value}, ${r.value}, ${fetchedAt})
+    `;
+  }
+}
+
+/** media_outlier_flags の kind と、それを作る media の列の組 */
+export const KIND_COLUMNS: Record<"feed" | "carousel" | "reel", { productType: "FEED" | "REELS"; mediaType: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM" }> = {
+  feed: { productType: "FEED", mediaType: "IMAGE" },
+  carousel: { productType: "FEED", mediaType: "CAROUSEL_ALBUM" },
+  reel: { productType: "REELS", mediaType: "VIDEO" },
+};
+
+export type FakeOutlierPeerSet = {
+  accountId: string;
+  /** 投稿の種類。既定は feed */
+  kind?: "feed" | "carousel" | "reel";
+  /** 比較対象の件数（同じ種類の、外れ値より前の投稿） */
+  peerCount: number;
+  /** 架空の id を返す（`fakeMediaId(seq++)` など）。呼ぶ順に古い → 新しい投稿に使うので、id の順と時刻の順がそろう */
+  nextId: () => string;
+  /** 一番新しい投稿（外れ値）の投稿時刻。既定は 1 日前。比較対象は 1 件ずつ `stepMs`（既定 1 日）前にずらす */
+  latestPostedAt?: Date;
+  stepMs?: number;
+  /** 比較対象のリーチ（2 の冪にする）とシェア。シェアは件数か、古い順の添字 i を受ける関数。既定は 64 と 0（全部シェア 0 → Q3 = 0） */
+  peerReach?: number;
+  peerShares?: number | ((i: number) => number);
+  /** 外れ値のリーチとシェア。既定は 64 と 16（シェア率 1/4） */
+  outlierReach?: number;
+  outlierShares?: number;
+  /** スナップショットの取得時刻を投稿から何ミリ秒後にするか。既定は 7 日 */
+  fetchedAfterMs?: number;
+};
+
+/**
+ * 「同じ種類の投稿 N 件 + シェア率が `peer_upper` を超える 1 件」を作る（各 1 スナップショット）。
+ * 既定（比較対象のシェア 0、外れ値のシェア 16/64）では、比較対象が 8 件以上なら外れ値は `high` になる（D4: Q3 = 0 ならシェア 1 件で high）。
+ * 戻り値の `peerIds` は古い順
+ */
+export async function insertOutlierPeerSet<T extends Record<string, unknown>>(
+  sql: AnySql<T>,
+  s: FakeOutlierPeerSet,
+): Promise<{ peerIds: string[]; outlierId: string }> {
+  const cols = KIND_COLUMNS[s.kind ?? "feed"];
+  const latest = s.latestPostedAt ?? new Date(Date.now() - DAY_MS);
+  const step = s.stepMs ?? DAY_MS;
+  const fetchedAfter = s.fetchedAfterMs ?? 7 * DAY_MS;
+  const peerIds: string[] = [];
+  for (let i = 0; i < s.peerCount; i++) {
+    const id = s.nextId();
+    const postedAt = new Date(latest.getTime() - (s.peerCount - i) * step);
+    const shares = typeof s.peerShares === "function" ? s.peerShares(i) : (s.peerShares ?? 0);
+    await insertMedia(sql, { id, accountId: s.accountId, postedAt, ...cols });
+    await insertSnapshot(sql, {
+      mediaId: id,
+      postedAt,
+      fetchedAt: new Date(postedAt.getTime() + fetchedAfter),
+      metrics: postMetrics({ reach: s.peerReach ?? 64, shares }),
+    });
+    peerIds.push(id);
+  }
+  const outlierId = s.nextId();
+  await insertMedia(sql, { id: outlierId, accountId: s.accountId, postedAt: latest, ...cols });
+  await insertSnapshot(sql, {
+    mediaId: outlierId,
+    postedAt: latest,
+    fetchedAt: new Date(latest.getTime() + fetchedAfter),
+    metrics: postMetrics({ reach: s.outlierReach ?? 64, shares: s.outlierShares ?? 16 }),
+  });
+  return { peerIds, outlierId };
 }

@@ -32,6 +32,8 @@ const CREDENTIAL: CredentialInfo = {
   status: "valid",
 };
 
+// R6 で INFO の行に見送った判定の種類 `no_history=<kinds>` が付く（該当の有無によらず。R6 設計 4.4 節 T19）。
+// 下の期待値の `no_history=stories` はそのため
 describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";
   let db: Db;
@@ -98,7 +100,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
   it("履歴がなければ hourly は alerts=0 reason=no_history で true", async () => {
     lines.length = 0;
     await expect(runCheckAlerts("hourly", deps)).resolves.toBe(true);
-    expect(lines).toEqual(["2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=0 reason=no_history"]);
+    expect(lines).toEqual(["2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=0 reason=no_history no_history=stories"]);
   });
 
   it("daily はトークンを判定する: A は days_left=10、B は credential なし（status=none）", async () => {
@@ -107,7 +109,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=token account=1/2 days_left=10 status=valid",
       "2026-10-01T05:30:00.000Z WARN  alert=token account=2/2 days_left=unknown status=none",
-      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=daily accounts=2 alerts=2",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=daily accounts=2 alerts=2 no_history=stories",
     ]);
   });
 
@@ -125,7 +127,7 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     await expect(runCheckAlerts("hourly", deps)).resolves.toBe(false);
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=stories_failed account=1/2 runs=2",
-      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=1",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=2 alerts=1 no_history=stories",
     ]);
     await finishJobRun(db, runningId, { status: "success", items_fetched: 1, api_calls: 1 });
   });
