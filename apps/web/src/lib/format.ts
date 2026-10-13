@@ -274,7 +274,7 @@ export function jobRowView(
  * ------------------------------------------------------------------ */
 
 /** 値の書式の種類。グラフや表の部品に関数ではなく種類を渡す（Server Component の props を単純に保つ） */
-export type ValueFormat = "count" | "percent" | "seconds" | "decimal";
+export type ValueFormat = "count" | "percent" | "seconds" | "decimal" | "days";
 
 /** 率（0〜1）を % で。null や有限でない値は `—`。桁は既定 1 */
 export function formatPercent(v: number | null | undefined, digits = 1): string {
@@ -286,6 +286,12 @@ export function formatPercent(v: number | null | undefined, digits = 1): string 
 export function formatSeconds(v: number | null | undefined): string {
   if (typeof v !== "number" || !Number.isFinite(v)) return EMPTY;
   return `${Math.round(v * 10) / 10} 秒`;
+}
+
+/** 日数（切り捨て）。`3 日`。null は `—` */
+export function formatDays(v: number | null | undefined): string {
+  if (typeof v !== "number" || !Number.isFinite(v)) return EMPTY;
+  return `${Math.floor(v)} 日`;
 }
 
 /** 小数（倍率など）。既定 2 桁。null は `—` */
@@ -305,6 +311,8 @@ export function formatValue(v: number | null | undefined, format: ValueFormat): 
       return formatSeconds(v);
     case "decimal":
       return formatDecimal(v);
+    case "days":
+      return formatDays(v);
   }
 }
 
@@ -314,6 +322,7 @@ export function formatAxis(v: number, format: ValueFormat): string {
   if (format === "percent") return formatPercent(v, Math.abs(v) < 0.1 && v !== 0 ? 1 : 0);
   if (format === "seconds") return `${Math.round(v * 10) / 10}`;
   if (format === "decimal") return formatDecimal(v, 1);
+  if (format === "days") return `${Math.round(v * 10) / 10}`;
   if (Math.abs(v) >= 10000) return `${Math.round((v / 10000) * 10) / 10}万`;
   return formatCount(Math.round(v));
 }

@@ -32,10 +32,6 @@ export function MediaInfo({ media, title, thumbnailUrl }: { media: MediaDetail; 
               gone={media.gone_at !== null}
             />
             <span>{formatJst(media.posted_at)} 投稿</span>
-            {/* 前回投稿からの日数（時間を日に切り捨て）。直前の投稿（ストーリーズを除く）がなければ出さない。種類で分岐しない */}
-            {media.hours_since_previous_post !== null && (
-              <span>前回の投稿から {Math.floor(media.hours_since_previous_post / 24)} 日</span>
-            )}
             {media.elapsed_latest !== null && <span>{elapsedDaysLabel(media.elapsed_latest / 3600)}</span>}
             <span>最新の取得 {formatJst(media.latest_fetched_at)}</span>
           </div>

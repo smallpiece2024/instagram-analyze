@@ -59,6 +59,10 @@ describe("書式", () => {
     expect(formatValue(1234.4, "count")).toBe("1,234");
     expect(formatValue(null, "count")).toBe(EMPTY);
     expect(formatValue(0.05, "percent")).toBe("5.0%");
+    // 日数は切り捨て（前回の投稿から）。目盛は小数 1 桁
+    expect(formatValue(2.9, "days")).toBe("2 日");
+    expect(formatValue(null, "days")).toBe(EMPTY);
+    expect(formatAxis(2.25, "days")).toBe("2.3");
     expect(formatAxis(25000, "count")).toBe("2.5万");
     expect(formatAxis(500, "count")).toBe("500");
     expect(formatAxis(0.2, "percent")).toBe("20%");

@@ -250,6 +250,7 @@ export const PEER_METRICS = [
   "profile_visits",
   "follows",
   "avg_watch_time_s",
+  "days_since_previous_post",
   "reach_rate",
   "save_rate",
   "share_rate",
@@ -316,6 +317,18 @@ export const getPeerStats = cache(
             union all
             select 'reach_rate', l.reach_rate::float8
             from public.media_list_metrics l
+            where l.account_id = ${accountId} and l.kind = ${kind} and l.media_id <> ${excludeId}
+            union all
+            -- 前回投稿からの日数（日。小数）。直前の投稿はストーリーズを除き種類を問わない（getMedia と同じ定義）。直前がなければ null
+            select 'days_since_previous_post', (extract(epoch from (l.posted_at - prev.posted_at)) / 86400)::float8
+            from public.media_list_metrics l
+            left join lateral (
+              select p.posted_at from public.media p
+              where p.account_id = l.account_id and p.media_product_type <> 'STORY'
+                and (p.posted_at, p.id) < (l.posted_at, l.media_id)
+              order by p.posted_at desc, p.id desc
+              limit 1
+            ) prev on true
             where l.account_id = ${accountId} and l.kind = ${kind} and l.media_id <> ${excludeId}
             union all
             -- 視聴維持率（R4）。動画の投稿だけがビューにあり、同じ種類で値のある投稿と比べる
