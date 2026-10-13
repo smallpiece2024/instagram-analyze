@@ -20,6 +20,9 @@ import {
   dayType,
   edgeCutBucket,
   factorCorrelations,
+  FACTORS,
+  factorValue,
+  formatFactor,
   groupCards,
   groupFactorSummary,
   lengthBucket,
@@ -57,6 +60,7 @@ function reel(i: number, over: Partial<ReelRow> = {}): ReelRow {
     gone_at: null,
     elapsed_hours: 24 * (40 - i),
     caption_chars: 10 + i,
+    hours_since_previous_post: 24 * (i + 1),
     analysis_status: "success",
     duration_ms: 5000 + i * 3000,
     cut_count: i,
@@ -189,8 +193,43 @@ describe("ブートストラップ", () => {
       "text_coverage",
       "total_text_chars",
       "caption_chars",
+      "days_since_previous_post",
       "elapsed_days",
     ]);
+  });
+});
+
+describe("前回投稿からの日数", () => {
+  it("FACTORS にあり、単位は日、散布図に出す。キャプションの長さの次、経過日数の前", () => {
+    const keys = FACTORS.map((f) => f.key);
+    const i = keys.indexOf("days_since_previous_post");
+    expect(i).toBeGreaterThan(0);
+    expect(keys[i - 1]).toBe("caption_chars");
+    expect(keys[i + 1]).toBe("elapsed_days");
+    const f = FACTORS[i];
+    expect(f?.label).toBe("前回投稿からの日数");
+    expect(f?.unit).toBe("days");
+    expect(f?.scatter).toBe(true);
+  });
+
+  it("factorValue: 時間 ÷ 24（切り捨てない）。null と非数は null。表示は日に切り捨て", () => {
+    expect(factorValue(reel(1, { hours_since_previous_post: 36 }), "days_since_previous_post")).toBe(1.5);
+    expect(factorValue(reel(1, { hours_since_previous_post: 0 }), "days_since_previous_post")).toBe(0);
+    expect(factorValue(reel(1, { hours_since_previous_post: null }), "days_since_previous_post")).toBeNull();
+    expect(factorValue(reel(1, { hours_since_previous_post: Number.NaN }), "days_since_previous_post")).toBeNull();
+    expect(formatFactor(1.5, "days")).toBe("1 日");
+    expect(formatFactor(null, "days")).toBe("—");
+  });
+
+  it("factorCorrelations と buildReelsView の散布図に含まれる。null の行は n から除く", () => {
+    // 閲覧数（200 + 20i）も前回からの時間（12i）も i に単調なので、順位相関は 1。i = 0 は直前なし
+    const rows = Array.from({ length: 6 }, (_, i) => reel(i, { hours_since_previous_post: i === 0 ? null : 12 * i }));
+    const c = factorCorrelations(rows, "views").find((x) => x.key === "days_since_previous_post");
+    expect(c?.n).toBe(5);
+    expect(c?.r).toBeCloseTo(1, 10);
+    const v = buildReelsView(rows, "views");
+    const s = v.factorScatter.find((x) => x.key === "days_since_previous_post");
+    expect(s?.points).toHaveLength(5);
   });
 });
 
@@ -220,7 +259,7 @@ describe("カードごとの母集団", () => {
     expect(v.groups.length.reduce((a, b) => a + b.n, 0)).toBe(2);
     expect(v.groups.day.reduce((a, b) => a + b.n, 0)).toBe(4);
     expect(v.responseScatter.find((s) => s.key === "retention_rate")?.points).toHaveLength(4);
-    expect(v.factorScatter).toHaveLength(10);
+    expect(v.factorScatter).toHaveLength(11);
     expect(v.topBottom).toBeNull();
     // n = 2 なので相関はすべて「—」
     expect(v.correlations.every((c) => c.r === null && c.lo === null)).toBe(true);

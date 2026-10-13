@@ -30,6 +30,7 @@ export const getReels = cache(async (accountId: string): Promise<QueryResult<Ree
         l.media_id, l.posted_at, l.caption, l.thumbnail_path, l.gone_at, l.latest_fetched_at,
         (extract(epoch from (now() - l.posted_at)) / 3600)::float8 as elapsed_hours,
         char_length(coalesce(l.caption, ''))::int as caption_chars,
+        (extract(epoch from (l.posted_at - prev.posted_at)) / 3600)::float8 as hours_since_previous_post,
         f.analysis_status,
         f.duration_ms, f.cut_count, f.avg_scene_ms, f.first_cut_ms, f.cuts_in_first_3s, f.cuts_in_last_3s,
         l.reach::float8 as reach, l.views::float8 as views, l.avg_watch_time_ms::float8 as avg_watch_time_ms,
@@ -39,6 +40,17 @@ export const getReels = cache(async (accountId: string): Promise<QueryResult<Ree
         f.text_coverage_ratio::float8 as text_coverage_ratio, f.total_text_chars
       from public.media_list_metrics l
       left join public.media_video_features f on f.media_id = l.media_id
+      -- 前回投稿からの日数の材料: 同じアカウントの直前の投稿（ストーリーズを除く。種類を問わず、消えた投稿も含む）。
+      -- 順序は (posted_at, id) の組（同時刻は id で固定）。media の (account_id, posted_at) の索引を使う
+      left join lateral (
+        select p.posted_at
+        from public.media p
+        where p.account_id = l.account_id
+          and p.media_product_type <> 'STORY'
+          and (p.posted_at, p.id) < (l.posted_at, l.media_id)
+        order by p.posted_at desc, p.id desc
+        limit 1
+      ) prev on true
       where l.account_id = ${accountId}
         and l.kind = 'reel'
         and l.posted_at >= now() - make_interval(days => ${REELS_PERIOD_DAYS})

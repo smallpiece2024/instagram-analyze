@@ -32,6 +32,14 @@ function factorCell(key: FactorKey) {
 /** 数値の列（6.2 節「一覧」の順） */
 export const REEL_COLUMNS: readonly Column[] = [
   { key: "elapsed", label: "経過日数", hideM: true, cell: (r) => formatElapsedDays(r.elapsed_hours) },
+  // 前回投稿からの日数（直前の投稿はストーリーズを除き種類を問わない）。スマートフォンでは隠す
+  {
+    key: "days_since_previous_post",
+    label: "前回から",
+    hint: factorDef("days_since_previous_post").hint,
+    hideM: true,
+    cell: factorCell("days_since_previous_post"),
+  },
   { key: "duration", label: "長さ", hint: factorDef("duration").hint, cell: factorCell("duration") },
   { key: "cut_count", label: "画面変化", hint: factorDef("cut_count").hint, cell: factorCell("cut_count") },
   { key: "avg_scene", label: "平均シーン長", hint: factorDef("avg_scene").hint, hideM: true, cell: factorCell("avg_scene") },
