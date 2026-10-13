@@ -175,7 +175,7 @@
     min-height: 52px;
   }
   .brand { display: flex; align-items: center; gap: var(--space); font-weight: 700; white-space: nowrap; padding: calc(var(--space) * 1.25) 0; color: inherit; }
-  .brand__mark { width: 22px; height: 22px; border-radius: var(--radius); background: var(--color-primary); flex: none; }
+  .brand__mark { width: 22px; height: 22px; flex: none; } /* 画像（角丸と透明は画像が持つ） */
   .brand small { font-weight: 400; color: inherit; opacity: .7; font-size: var(--font-size-xs); margin-left: 4px; }
   .nav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
   .nav::-webkit-scrollbar { display: none; }
