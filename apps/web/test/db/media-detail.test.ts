@@ -262,6 +262,23 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
     expect(r.data.reachGreater).toBe(1);
   });
 
+  it("getPeerStats: 前回投稿からの日数は同じ種類の比較相手の値（日、小数）。直前の投稿がない相手は n に入らない", async () => {
+    // アカウント A の投稿はすべて同時刻なので、直前は id の順。f1 を除く feed（f2、f3、f4）はどれも直前が 0 日
+    const a = await getPeerStats(accountA, "feed", ids.f1);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    expect(a.data.stats.days_since_previous_post).toMatchObject({ n: 3, min: 0, max: 0, median: 0 });
+    // アカウント C の reel は p2 だけ。p2 の直前は p1（36 時間前 = 1.5 日。ストーリーズは飛ばす）
+    const c = await getPeerStats(accountC, "reel", prevIds.p1);
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    expect(c.data.stats.days_since_previous_post.n).toBe(1);
+    expect(c.data.stats.days_since_previous_post.median).toBeCloseTo(1.5, 10);
+    // p1 は最初の投稿なので直前がなく、feed の比較相手としては n に入らない
+    const f = await getPeerStats(accountC, "feed", prevIds.p2);
+    expect(f.ok && f.data.stats.days_since_previous_post.n).toBe(0);
+  });
+
   it("getPeerStats: 比較相手がいない種類は n = 0、この投稿のリーチ数がなければ順位の材料は null", async () => {
     const reel = await getPeerStats(accountA, "reel", ids.f1);
     expect(reel.ok && reel.data.stats.reach.n).toBe(0);

@@ -66,6 +66,13 @@ export function quantityRows(m: MediaDetail): BandRowDef[] {
       missing: valueMissing("avg_watch_time_ms", k, m.avg_watch_time_ms),
       format: "seconds",
     },
+    {
+      key: "days_since_previous_post",
+      // 直前の投稿（ストーリーズを除く）からの時間を日に。直前がなければ値なし（ユーザーの依頼 2026-10-13）
+      value: m.hours_since_previous_post === null ? null : m.hours_since_previous_post / 24,
+      missing: m.hours_since_previous_post === null ? { reason: "no_baseline_data", text: "直前の投稿がない" } : null,
+      format: "days",
+    },
   ];
 }
 
