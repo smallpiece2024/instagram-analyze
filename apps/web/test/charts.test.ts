@@ -11,7 +11,7 @@ import { HBars, type HBarsProps } from "@/components/charts/HBars";
 import { HStack, type HStackProps } from "@/components/charts/HStack";
 import { Pie, type PieProps } from "@/components/charts/Pie";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
-import { dimRuns, heatColor, niceMax, segments, yDomain } from "@/components/charts/scale";
+import { dimRuns, heatColor, niceDomain, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
 import { SpecialTags, type SpecialFlags } from "@/components/TypeTag";
 import { BaselineBand, bandDomain } from "@/app/compare/_compare/BaselineBand";
@@ -47,6 +47,20 @@ describe("目盛", () => {
     expect(niceMax(Number.NaN)).toBe(1);
     expect(niceMax(130)).toBe(200);
     expect(niceMax(2.4)).toBe(2.5);
+  });
+
+  it("niceDomain は 0 を起点にせず、刻みの倍数で最小値の下と最大値の上に余裕を取る（フォロワー数の折れ線）", () => {
+    // 範囲 100 → 刻み 50（100 ÷ 3 を切り上げ）。最小値と最大値が刻みの倍数なら 1 刻み外へ
+    expect(niceDomain([1200, 1250, 1300])).toEqual({ min: 1150, max: 1350, step: 50 });
+    // 刻みの倍数でなければ、その刻みに丸めた値まで
+    expect(niceDomain([1210, 1290])).toEqual({ min: 1200, max: 1300, step: 50 });
+    // 全部同じ値: 刻みは値の 1% を丸めたもの（最低 1）。刻みの倍数に丸め、倍数ちょうどなら上下に 1 刻み
+    expect(niceDomain([1234, 1234])).toEqual({ min: 1220, max: 1240, step: 20 });
+    expect(niceDomain([3, 3])).toEqual({ min: 2, max: 4, step: 1 });
+    // 値が全部 0 以上なら下限は 0 を下回らない
+    expect(niceDomain([0, 10])).toEqual({ min: 0, max: 15, step: 5 });
+    // 値なし
+    expect(niceDomain([])).toEqual({ min: 0, max: 1, step: 0.25 });
   });
 
   it("yDomain は値なしと全部同じ値でも幅を持つ", () => {

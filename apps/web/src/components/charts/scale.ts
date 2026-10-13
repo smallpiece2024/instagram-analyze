@@ -36,6 +36,27 @@ export function yDomain(values: readonly number[], opts: { min?: number; max?: n
   return { min, max };
 }
 
+/**
+ * 0 を起点にしない Y 軸の範囲（水準の折れ線。フォロワー数など。2026-10-13 のユーザーの指示）。
+ * 刻みは範囲の 1/3 を切りのよい値に丸め（`niceMax`）、最小値の下と最大値の上に刻み 1 つ分の余裕を取って刻みの倍数にそろえる。
+ * 値が全部 0 以上なら下限は 0 を下回らない。値がない、全部同じ値でも上端 > 下端。目盛は `step` の倍数に置く
+ */
+export function niceDomain(values: readonly number[]): { min: number; max: number; step: number } {
+  if (values.length === 0) return { min: 0, max: 1, step: 0.25 };
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const range = hi - lo;
+  const step = range > 0 ? niceMax(range / 3) : niceMax(Math.max(1, Math.abs(lo) * 0.01));
+  const eps = step * 1e-9;
+  let min = Math.floor(lo / step) * step;
+  if (min >= lo - eps) min -= step;
+  let max = Math.ceil(hi / step) * step;
+  if (max <= hi + eps) max += step;
+  if (lo >= 0 && min < 0) min = 0;
+  if (!(max > min)) max = min + step;
+  return { min, max, step };
+}
+
 /** 座標を小数 1 桁の文字列に。有限でなければ 0 */
 export function coord(v: number): string {
   return Number.isFinite(v) ? (Math.round(v * 10) / 10).toString() : "0";

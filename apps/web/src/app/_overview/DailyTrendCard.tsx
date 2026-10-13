@@ -116,6 +116,7 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
       {WIDTHS.map(({ width, className: cls }) => (
         <div key={width} className={`chart ${cls}`}>
           <LineChart
+            autoMin
             title="フォロワー数の折れ線グラフ"
             labels={labels}
             width={width}

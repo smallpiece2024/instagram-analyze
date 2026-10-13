@@ -51,6 +51,7 @@ export async function FollowerTrendCard({ accountId, period }: { accountId: stri
         WIDTHS.map(({ width, className }) => (
           <div key={width} className={`chart ${className}`}>
             <LineChart
+              autoMin
               title="フォロワー数の折れ線グラフ"
               labels={labels}
               width={width}
