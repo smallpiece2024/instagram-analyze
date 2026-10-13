@@ -63,6 +63,11 @@ export interface MediaDetail {
   /** 投稿前 3 日以内の記録のフォロワー数 */
   followers_at_post: number | null;
   reach_rate: number | null;
+  /**
+   * 前回投稿からの時間（時間）。同じアカウントの直前の投稿（ストーリーズを除く。種類を問わず、消えた投稿も含む）の
+   * `posted_at` との差。順序は `(posted_at, id)`。直前の投稿がなければ null。すべての種類で返す
+   */
+  hours_since_previous_post: number | null;
 }
 
 /**
@@ -73,17 +78,29 @@ export const getMedia = cache(async (accountId: string, id: string): Promise<Que
   runQuery(async (db) => {
     const rows = await db<MediaDetail[]>`
       select
-        media_id, account_id, kind, media_type, media_product_type, posted_at, caption, permalink, thumbnail_path,
-        is_collab, is_trial_reel, is_boosted, gone_at,
-        latest_fetched_at, elapsed_latest::float8 as elapsed_latest,
-        reach::float8 as reach, views::float8 as views, likes::float8 as likes, comments::float8 as comments,
-        saved::float8 as saved, shares::float8 as shares, profile_visits::float8 as profile_visits,
-        follows::float8 as follows, avg_watch_time_ms::float8 as avg_watch_time_ms, skip_rate::float8 as skip_rate,
-        er::float8 as er, save_rate::float8 as save_rate, share_rate::float8 as share_rate, like_rate::float8 as like_rate,
-        profile_visit_rate::float8 as profile_visit_rate, follow_conversion_rate::float8 as follow_conversion_rate,
-        reach_7d::float8 as reach_7d, followers_at_post::float8 as followers_at_post, reach_rate::float8 as reach_rate
-      from public.media_list_metrics
-      where account_id = ${accountId} and media_id = ${id}
+        l.media_id, l.account_id, l.kind, l.media_type, l.media_product_type, l.posted_at, l.caption, l.permalink,
+        l.thumbnail_path, l.is_collab, l.is_trial_reel, l.is_boosted, l.gone_at,
+        l.latest_fetched_at, l.elapsed_latest::float8 as elapsed_latest,
+        l.reach::float8 as reach, l.views::float8 as views, l.likes::float8 as likes, l.comments::float8 as comments,
+        l.saved::float8 as saved, l.shares::float8 as shares, l.profile_visits::float8 as profile_visits,
+        l.follows::float8 as follows, l.avg_watch_time_ms::float8 as avg_watch_time_ms, l.skip_rate::float8 as skip_rate,
+        l.er::float8 as er, l.save_rate::float8 as save_rate, l.share_rate::float8 as share_rate, l.like_rate::float8 as like_rate,
+        l.profile_visit_rate::float8 as profile_visit_rate, l.follow_conversion_rate::float8 as follow_conversion_rate,
+        l.reach_7d::float8 as reach_7d, l.followers_at_post::float8 as followers_at_post, l.reach_rate::float8 as reach_rate,
+        (extract(epoch from (l.posted_at - prev.posted_at)) / 3600)::float8 as hours_since_previous_post
+      from public.media_list_metrics l
+      -- 前回投稿からの日数の材料: 同じアカウントの直前の投稿（ストーリーズを除く。種類を問わず、消えた投稿も含む）。
+      -- 順序は (posted_at, id) の組（同時刻は id で固定）。media の (account_id, posted_at) の索引を使う
+      left join lateral (
+        select p.posted_at
+        from public.media p
+        where p.account_id = l.account_id
+          and p.media_product_type <> 'STORY'
+          and (p.posted_at, p.id) < (l.posted_at, l.media_id)
+        order by p.posted_at desc, p.id desc
+        limit 1
+      ) prev on true
+      where l.account_id = ${accountId} and l.media_id = ${id}
     `;
     const row = rows[0];
     return row === undefined ? null : { ...row };

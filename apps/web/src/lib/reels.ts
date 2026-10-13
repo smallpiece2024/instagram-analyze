@@ -25,6 +25,11 @@ export interface ReelRow {
   elapsed_hours: number;
   /** キャプションの文字数（`char_length(coalesce(caption, ''))`） */
   caption_chars: number;
+  /**
+   * 前回投稿からの時間（時間）。同じアカウントの直前の投稿（ストーリーズを除く。種類を問わず、消えた投稿も含む）の
+   * `posted_at` との差。順序は `(posted_at, id)`。直前の投稿がなければ null
+   */
+  hours_since_previous_post: number | null;
   /** 今の条件の解析の状態。null はまだ解析していない */
   analysis_status: string | null;
   duration_ms: number | null;
@@ -83,6 +88,7 @@ export function objectiveOptionLabel(y: Objective, count: number): string {
 export const REEL_SORT_KEYS = [
   "posted",
   "elapsed",
+  "days_since_previous_post",
   "duration",
   "cut_count",
   "avg_scene",
@@ -148,6 +154,8 @@ function sortValue(row: ReelRow, key: ReelSortKey): number | null {
       return row.posted_at.getTime();
     case "elapsed":
       return n(row.elapsed_hours);
+    case "days_since_previous_post":
+      return n(row.hours_since_previous_post);
     case "duration":
       return n(row.duration_ms);
     case "cut_count":
@@ -222,6 +230,7 @@ export const FACTOR_KEYS = [
   "text_coverage",
   "total_text_chars",
   "caption_chars",
+  "days_since_previous_post",
   "elapsed_days",
 ] as const;
 export type FactorKey = (typeof FACTOR_KEYS)[number];
@@ -290,6 +299,13 @@ export const FACTORS: readonly FactorDef[] = [
     scatter: true,
   },
   { key: "caption_chars", label: "キャプションの長さ", hint: "キャプションの長さ = キャプションの文字数", unit: "chars", scatter: true },
+  {
+    key: "days_since_previous_post",
+    label: "前回投稿からの日数",
+    hint: "前回投稿からの日数 = 直前の投稿（ストーリーズを除く。種類を問わない）からこの投稿までの日数",
+    unit: "days",
+    scatter: true,
+  },
   { key: "elapsed_days", label: "投稿からの経過日数", hint: "投稿からの経過日数 = 投稿から今までの日数", unit: "days", scatter: false },
 ];
 
@@ -325,7 +341,7 @@ export type FactorSource = Pick<
   | "text_coverage_ratio"
   | "total_text_chars"
 > &
-  Partial<Pick<ReelRow, "caption_chars" | "elapsed_hours">>;
+  Partial<Pick<ReelRow, "caption_chars" | "elapsed_hours" | "hours_since_previous_post">>;
 
 /** 今の条件で文字の解析が済んでいる（ビューが特徴量を null にするので、値の有無で判定しても同じ） */
 export function textAnalyzed(row: Pick<ReelRow, "text_status" | "text_segmenter_current">): boolean {
@@ -357,6 +373,11 @@ export function factorValue(row: FactorSource, key: FactorKey): number | null {
       return n(row.total_text_chars);
     case "caption_chars":
       return n(row.caption_chars ?? null);
+    case "days_since_previous_post": {
+      // 時間 ÷ 24（切り捨てない。表示で日に切り捨てる）。直前の投稿がなければ null
+      const h = n(row.hours_since_previous_post ?? null);
+      return h === null ? null : h / 24;
+    }
     case "elapsed_days":
       return typeof row.elapsed_hours === "number" && Number.isFinite(row.elapsed_hours)
         ? Math.max(0, row.elapsed_hours) / 24
@@ -520,7 +541,7 @@ export function correlationWithInterval(
   return { key, n: px.length, r, lo: percentileCont(boots, 0.025), hi: percentileCont(boots, 0.975) };
 }
 
-/** 7 つの要因の順位相関（要因の定義の順）。母集団は `analyzedWithObjective` */
+/** すべての要因（`FACTORS`）の順位相関（要因の定義の順）。母集団は `analyzedWithObjective` */
 export function factorCorrelations(population: readonly ReelRow[], y: Objective): Correlation[] {
   const rows = byMediaId(population);
   const ys = rows.map((r) => objectiveValue(r, y) as number);

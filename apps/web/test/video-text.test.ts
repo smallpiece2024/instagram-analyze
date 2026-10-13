@@ -54,6 +54,7 @@ function reel(i: number, over: Partial<ReelRow> = {}): ReelRow {
     gone_at: null,
     elapsed_hours: 24 * (40 - i),
     caption_chars: 10 + i,
+    hours_since_previous_post: 24 * (i + 1),
     analysis_status: "success",
     duration_ms: 5000 + i * 3000,
     cut_count: i,
@@ -230,12 +231,13 @@ describe("文字の解析の状態から「—」の理由", () => {
  * ------------------------------------------------------------------ */
 
 describe("文字の要因", () => {
-  it("FACTORS に 3 つ（散布図は 10 枚）。「冒頭 3 秒の文字」は要因に入らない", () => {
+  it("FACTORS に 3 つ（全部で 12、散布図は 11 枚）。「冒頭 3 秒の文字」は要因に入らない", () => {
     expect(FACTORS.map((f) => f.key)).toContain("first_text");
     expect(FACTORS.map((f) => f.key)).toContain("text_coverage");
     expect(FACTORS.map((f) => f.key)).toContain("total_text_chars");
-    expect(FACTORS).toHaveLength(11);
-    expect(FACTORS.filter((f) => f.scatter)).toHaveLength(10);
+    // 11 の要因に「前回投稿からの日数」を足して 12。散布図に出さないのは経過日数だけ
+    expect(FACTORS).toHaveLength(12);
+    expect(FACTORS.filter((f) => f.scatter)).toHaveLength(11);
     expect((FACTORS as readonly { key: string }[]).some((f) => f.key === FIRST_3S_TEXT.key)).toBe(false);
     expect(FIRST_3S_TEXT.label).toBe("冒頭 3 秒の文字");
   });

@@ -8,14 +8,28 @@
  *   r3 リール（400 日前）: 期間外
  *   f1 フィード動画: 今の条件の success（リール分析には出ない）
  *   i1 フィードの画像: 動画でないのでビューに行がない
+ *
+ * 前回投稿からの日数の確認用（別の架空のアカウント C と D。T0 は 30 日前）:
+ *   C: r1 リール（T0）→ f1 フィード（T0 + 48h、消えた投稿）→ s1 ストーリーズ（T0 + 60h）→ r2 と r3 リール（T0 + 72h、同時刻）
+ *   D: d1 フィード（T0 + 71h。別のアカウントなので C の直前にならない）
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeAllDb } from "@/lib/db";
 import { getPeerStats, getVideoFeatures } from "@/lib/queries/media-detail";
 import { getReels } from "@/lib/queries/reels";
-import { buildReelsView } from "@/lib/reels";
-import { fakeIgUserId, fakeMediaId, setWebEnv } from "./fixtures";
+import { buildReelsView, factorValue } from "@/lib/reels";
+import {
+  DAY_MS,
+  fakeIgUserId,
+  fakeMediaId,
+  HOUR_MS,
+  insertMedia,
+  insertSnapshot,
+  insertStory,
+  setWebEnv,
+  type FakeMedia,
+} from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -23,8 +37,19 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
   const url = TEST_DATABASE_URL ?? "";
   const igUserId = fakeIgUserId();
   const ids = { r1: fakeMediaId(1), r2: fakeMediaId(2), r3: fakeMediaId(3), f1: fakeMediaId(4), i1: fakeMediaId(5) };
+  // 前回投稿からの日数の確認用（アカウント C と D）。seq は 11〜16 で、同時刻の r2 と r3 は id の順が r2 < r3
+  const prevIds = {
+    r1: fakeMediaId(11),
+    f1: fakeMediaId(12),
+    s1: fakeMediaId(13),
+    r2: fakeMediaId(14),
+    r3: fakeMediaId(15),
+    d1: fakeMediaId(16),
+  };
   let sql: postgres.Sql;
   let accountId = "";
+  let accountC = "";
+  let accountD = "";
   let restoreEnv: () => void = () => {};
 
   beforeAll(async () => {
@@ -75,10 +100,37 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
         (media_id, analyzer_version, scene_threshold, status, duration_ms, cut_count, avg_scene_ms, first_cut_ms, cuts_in_first_3s)
       values (${ids.f1}, '1', 0.300, 'success', 20000, 0, 20000, null, 0)
     `;
+
+    // 前回投稿からの日数（アカウント C と D）。投稿日時は T0（30 日前）からの時間で決める
+    const accounts = await sql<{ id: string; username: string }[]>`
+      insert into public.accounts (ig_user_id, username, name)
+      values (${fakeIgUserId()}, 'fake_reels_prev_c', null), (${fakeIgUserId()}, 'fake_reels_prev_d', null)
+      returning id, username
+    `;
+    accountC = accounts.find((a) => a.username === "fake_reels_prev_c")?.id ?? "";
+    accountD = accounts.find((a) => a.username === "fake_reels_prev_d")?.id ?? "";
+    expect(accountC).not.toBe("");
+    expect(accountD).not.toBe("");
+    const t0 = new Date(Date.now() - 30 * DAY_MS);
+    const at = (hours: number) => new Date(t0.getTime() + hours * HOUR_MS);
+    const posts: FakeMedia[] = [
+      { id: prevIds.r1, accountId: accountC, postedAt: at(0), productType: "REELS", mediaType: "VIDEO" },
+      { id: prevIds.f1, accountId: accountC, postedAt: at(48), productType: "FEED", mediaType: "IMAGE", goneAt: at(100) },
+      { id: prevIds.r2, accountId: accountC, postedAt: at(72), productType: "REELS", mediaType: "VIDEO" },
+      { id: prevIds.r3, accountId: accountC, postedAt: at(72), productType: "REELS", mediaType: "VIDEO" },
+      { id: prevIds.d1, accountId: accountD, postedAt: at(71), productType: "FEED", mediaType: "IMAGE" },
+    ];
+    for (const p of posts) {
+      await insertMedia(sql, p);
+      await insertSnapshot(sql, { mediaId: p.id, postedAt: p.postedAt, fetchedAt: new Date(), metrics: { reach: 10, views: 20 } });
+    }
+    await insertStory(sql, { id: prevIds.s1, accountId: accountC, postedAt: at(60), metrics: { reach: 5 } });
   });
 
   afterAll(async () => {
-    if (accountId !== "") await sql`delete from public.accounts where id = ${accountId}`;
+    for (const id of [accountId, accountC, accountD]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
     await closeAllDb();
     await sql.end({ timeout: 5 });
     restoreEnv();
@@ -97,8 +149,12 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
     expect(r1?.views).toBe(300);
     expect(r1?.caption_chars).toBe("架空のリール 1".length);
     expect(typeof r1?.elapsed_hours).toBe("number");
+    // 前回投稿からの時間: r1（10 日前）の直前は期間外の r3（400 日前）→ 390 日。期間は直前の投稿を限らない
+    expect(r1?.hours_since_previous_post).toBeCloseTo(390 * 24, 2);
     const r2 = r.data.rows.find((x) => x.media_id === ids.r2);
     expect(r2?.analysis_status).toBe("failed");
+    // r2（5 日前）の直前は r1（10 日前）→ 120 時間（f1 と i1 は 3 日前なので後）
+    expect(r2?.hours_since_previous_post).toBeCloseTo(120, 2);
     expect(r2?.duration_ms).toBeNull();
     expect(r2?.retention_rate).toBeNull();
     // error 列は読まない
@@ -109,6 +165,23 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/reels と動画の特徴量（結�
     expect(view.total).toBe(2);
     expect(view.analyzedCount).toBe(1);
     expect(view.objectiveCounts.reach_rate).toBe(0);
+  });
+
+  it("getReels: 前回投稿からの時間は直前の投稿（ストーリーズを除く。種類を問わず、消えた投稿も含む）まで。最初は null、同時刻は id の順", async () => {
+    const r = await getReels(accountC);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.data.rows.map((x) => x.media_id)).toEqual([prevIds.r3, prevIds.r2, prevIds.r1]);
+    const hours = new Map(r.data.rows.map((x) => [x.media_id, x.hours_since_previous_post]));
+    // 最初の投稿: 直前がないので null
+    expect(hours.get(prevIds.r1)).toBeNull();
+    // r2（72h）の直前は消えたフィード f1（48h）→ 24 時間。ストーリーズ s1（60h）とアカウント D の d1（71h）は直前にならない
+    expect(hours.get(prevIds.r2)).toBeCloseTo(24, 6);
+    // r3 は r2 と同時刻で id が大きいので、直前は r2 → 0 時間
+    expect(hours.get(prevIds.r3)).toBeCloseTo(0, 6);
+    // 要因の値は日（切り捨てない）
+    const r2 = r.data.rows.find((x) => x.media_id === prevIds.r2);
+    expect(r2 && factorValue(r2, "days_since_previous_post")).toBeCloseTo(1, 6);
   });
 
   it("getVideoFeatures: 画面変化の時刻（seq の順）、failed は時刻なし、動画でなければ null", async () => {

@@ -13,6 +13,7 @@
  *   s1 ストーリーズ（詳細に出さない）
  * A のフォロワー数: 2026-07-31 12:00 UTC に 1000（投稿前 3 日以内）→ f2 のリーチ率は 150 ÷ 1000
  * B の投稿: b1 フィード reach 5000、b2 カルーセル reach 8888
+ * C の投稿（前回投稿からの日数の確認用。T0 = 2026-05-01 00:00 UTC）: p1 フィード（T0）→ s1 ストーリーズ（T0 + 10h）→ p2 リール（T0 + 36h）
  */
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ import { getMedia, getMediaHorizons, getOutlierFlag, getPeerHorizonStats, getPee
 import { tagEditHref } from "@/app/media/[id]/_detail/MediaTags";
 import { getMediaTagSummary } from "@/lib/queries/tag-edit";
 import {
+  DAY_MS,
   fakeIgUserId,
   fakeMediaId,
   HOUR_MS,
@@ -29,9 +31,12 @@ import {
   insertMedia,
   insertMediaTag,
   insertOutlierPeerSet,
+  insertSnapshot,
+  insertStory,
   insertTagAxis,
   insertTagValue,
   setWebEnv,
+  type FakeMedia,
 } from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -63,9 +68,13 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
   const P = "2026-08-01T00:00:00Z";
   const H = 3600;
   const D = 86400;
+  // 前回投稿からの日数の確認用（アカウント C）
+  const prevIds = { p1: fakeMediaId(11), s1: fakeMediaId(12), p2: fakeMediaId(13) };
+  const T0 = new Date("2026-05-01T00:00:00Z");
   let sql: postgres.Sql;
   let accountA = "";
   let accountB = "";
+  let accountC = "";
   let restoreEnv: () => void = () => {};
 
   beforeAll(async () => {
@@ -133,10 +142,31 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
       insert into public.profile_daily (account_id, captured_on, captured_at, followers_count)
       values (${accountA}, '2026-07-31', '2026-07-31T12:00:00Z', 1000)
     `;
+
+    // アカウント C: p1 フィード（T0）→ s1 ストーリーズ（T0 + 10h）→ p2 リール（T0 + 36h）
+    const [accC] = await sql<{ id: string }[]>`
+      insert into public.accounts (ig_user_id, username, name) values (${fakeIgUserId()}, 'fake_detail_c', null) returning id
+    `;
+    accountC = accC?.id ?? "";
+    expect(accountC).not.toBe("");
+    const posts: FakeMedia[] = [
+      { id: prevIds.p1, accountId: accountC, postedAt: T0, productType: "FEED", mediaType: "IMAGE" },
+      { id: prevIds.p2, accountId: accountC, postedAt: new Date(T0.getTime() + 36 * HOUR_MS), productType: "REELS", mediaType: "VIDEO" },
+    ];
+    for (const p of posts) {
+      await insertMedia(sql, p);
+      await insertSnapshot(sql, {
+        mediaId: p.id,
+        postedAt: p.postedAt,
+        fetchedAt: new Date(T0.getTime() + 10 * DAY_MS),
+        metrics: { reach: 10 },
+      });
+    }
+    await insertStory(sql, { id: prevIds.s1, accountId: accountC, postedAt: new Date(T0.getTime() + 10 * HOUR_MS), metrics: { reach: 5 } });
   });
 
   afterAll(async () => {
-    for (const id of [accountA, accountB]) {
+    for (const id of [accountA, accountB, accountC]) {
       if (id !== "") await sql`delete from public.accounts where id = ${id}`;
     }
     await closeAllDb();
@@ -165,6 +195,20 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail（結合）", () => {
 
     const f2 = await getMedia(accountA, ids.f2);
     expect(f2.ok && f2.data?.reach_rate).toBeCloseTo(0.15, 10);
+  });
+
+  it("getMedia: 前回投稿からの時間。直前はストーリーズを除き種類を問わない。直前がなければ null、同時刻は id の順", async () => {
+    // C: p2（リール、T0 + 36h）の直前は p1（フィード、T0）→ 36 時間。ストーリーズ s1（T0 + 10h）は直前にならない
+    const p2 = await getMedia(accountC, prevIds.p2);
+    expect(p2.ok && p2.data?.hours_since_previous_post).toBeCloseTo(36, 6);
+    // 最初の投稿は null
+    const p1 = await getMedia(accountC, prevIds.p1);
+    expect(p1.ok && p1.data?.hours_since_previous_post).toBeNull();
+    // A: すべて同時刻 P。f1 は id が最小なので直前なし、f2 の直前は f1 → 0 時間（種類を問わず、フィードどうしでも数える）
+    const f1 = await getMedia(accountA, ids.f1);
+    expect(f1.ok && f1.data?.hours_since_previous_post).toBeNull();
+    const f2 = await getMedia(accountA, ids.f2);
+    expect(f2.ok && f2.data?.hours_since_previous_post).toBeCloseTo(0, 6);
   });
 
   it("getMedia: ストーリーズ、ほかのアカウントの投稿、存在しない ID は null", async () => {
