@@ -1,6 +1,6 @@
 # R6 月次レポート、伸びた投稿の検出、低下の通知の設計
 
-- 版: 0.2（2026-10-12）。確認事項 Q1〜Q17 は未決（Q12 は解消）
+- 版: 0.3（2026-10-13）。確認事項 Q1〜Q17 は**すべて推奨どおりに決定**（2026-10-13、ユーザー。Q12 は解消済み）
 
 ## 版と変更履歴
 
@@ -8,6 +8,7 @@
 |---|---|---|
 | 0.1 | 2026-10-12 | 起草（`nextjs-developer`。親が 2026-10-12 に確かめた事実票をもとにする） |
 | 0.2 | 2026-10-12 | レビュー 4 本（DB、セキュリティ、品質、画面）と親の判断を反映した。**3 章（検出）**: D1（特殊フラグの null は `is not true` で比較対象に入れる）、D2（`share_flag` に `none`）、D3（軽い基を `materialized` にして lateral）、D4／T1／T23（シェア率が 0 に張り付く性質を明記。係数 1.0 の案は消した）、D5（fence は 1 回だけ計算）、D6（`params` の 1 か所）、D15（結合は `media_id` と `account_id`）、T2／Q17（指標の固定を Q に）、T3（タプル比較）、T18（`gone_at` の数）、U13（詳細の行は四分位だけ）。**4 章（通知）**: S1（ログは連番と日数だけ。率と pt を持たない）、T4（整数の交差乗算、`previous = 0`）、T5（約 14 日）、T6／Q9（直近 7 日に投稿がなければ判定しない）、T7（境目の列挙、null は前日なし、fixture の置き場）、T19（`no_history=<kinds>`）、D12（SQL の案、`limit 2`、bigint の文字列）、Q12（解消）。**5 章（DB）**: D7／S8（`translate` と `[[:cntrl:]]`。CR は拒む）、D8（`report_month`、`extract(day)`）、D9（制約の名前、`updated_at` の性質）、D10（`service_role`）、D11（退避）、S7（`grant insert` は列指定）。**6 章（画面）**: U1（`DAY_BOUNDARY_NOTE` だけ）、U2（フォームは 9 節のカードの中。1 節は `form` 属性）、U3（戻り値に本文）、U4（`useActionState`、`revalidatePath`）、U5／S4／S5／S13（`lib/form-input.ts`、R5 の `authorize()` の順、理由別の固定文言）、U6／S12（ページは proxy、Action は固定の経路）、U7／U14（`OverviewKpis` を直接 import。「前期」は前月）、U8／U15（`LineChart` に 2 系列、`WIDTHS` を写す）、U9／T15（5 節の列を固定）、U10（`SpecialTags` に `shareFlag`）、U16／T16（`HBars` と棒の下の表、`used/total`）、U17（`ChoiceChips`）、U18／T8／S6（`NotCollected`、記入欄なし、Action は拒む）、U19（カードごとの `Suspense`）、U20／U23（ラベル、`aria-live`、`formatJst`）、U21（定義の置き場）、U22（前方一致）、S2（ZWJ を許す）、S9（`overflow-wrap`、リンク化しない）、S10／Q16（CSV は `lib/csv.ts`）、T9（`followerTile`、月末の値、Q14）、T10（3 件の分け方）、T14（検査の順）、T17／Q15（巻き添え）、T20（既定は `latest` を含む月の前月）。**7 章（テスト）**: D13（a〜i）、T12（fixture）、T13（判定対象と印の件数）、T21、T24、S11（架空の id）。**8 章（段階）**: S3／D14（数値は `.local/`、文書には決定と件数）、T11／U11（`lib/report-month.ts` と `lib/report.ts`）、U12（`next.config.ts`）、T22（CSV のファイル、部品の移動は 2b）。親が確かめた事実で 0.1 の「未確認」を解消した（残りは 2 つ。冒頭） |
+| 0.3 | 2026-10-13 | ユーザーが Q1〜Q17 をすべて推奨どおりに決めた（Q12 は解消済み）。Q5 は (a)（1.5 × IQR のまま）、Q9 は 10 pt かつ直近 7 日に投稿がなければ判定しない。段階 0 の本番の数は Q の判断材料ではなくなったので、受け入れ（7.3）の記録と一緒に段階 5 で数える（8 章） |
 
 - 要件: `doc/requirements/requirements-definition.md` 4.7 章（F-RPT-01、F-RPT-02、F-RPT-10、F-RPT-11）、5.5 章（時刻）、7 章（指標の定義。7.1 のシェア率、非フォロワーリーチ比率、7.3 のフォロワー純増、7.4 の目安値）、8.7 章（AI-01: 伸びた投稿の検出は統計で行う）、9 章（画面一覧）と 9.1 章（月次レポートの 9 節）、10 章（R6 の完了条件「前月分の月次レポートを画面に表示できる。伸びた投稿の検出が動く」）
 - 既存: R1 の表（`profile_daily`、`media_insight_snapshots`）、R2 の `web_app` ロールと `check-alerts`（`apps/worker/src/commands/check-alerts.ts`、`jobs/alerts.ts`）、R3 のビュー（`20261005000000_r3_analysis_views.sql` の `media_horizon_metrics`、`media_list_metrics`、`account_daily_wide`）、R5 の表とビュー（`20261009000000_r5_analysis.sql` の `tag_axes`、`tag_values`、`media_tags`、`story_list_metrics`）、Web の `lib/queries/period-summary.ts`、`lib/period.ts`、`app/_overview/OverviewKpis.tsx`、`lib/auth.ts`（`checkAccess(pathname)`）、`lib/request-guard.ts`（`isSameOriginPost`）、`app/tags/edit/_edit/input.ts`（R5 の入力の検査と状態）、`components/TypeTag.tsx`（`SpecialTags`）、`components/charts/HBars.tsx`、`lib/metric-definitions.ts`（`DAY_BOUNDARY_NOTE`）、R5 設計 6.2 節（Server Action の形）
@@ -575,7 +576,7 @@ grant select on table public.media_outlier_flags to web_app;   -- security_invok
 
 | 段階 | 内容 | 担当の案 | ファイル |
 |---|---|---|---|
-| 0 | 確認事項の回答。本番の数を数える（**数値は `.local/` に置き、文書には決定と件数だけを書く**。S3、D14）: 種類ごとの投稿数（比較対象 8 件に届く種類）、シェア率が null の投稿数、**種類ごとに「直前 20 件の Q3 = 0 か」**（D4、T1。Q5 の判断材料）、`gone_at` のある投稿の数と消すまでの日数（T18）、非フォロワーリーチの内訳がある日数、**7 日ごとの比率と投稿数を並べて見る**（T6。Q9 の判断材料）、`profile_daily` の欠けた日 | 親とユーザー | — |
+| 0 | 確認事項の回答（**済み。2026-10-13 にすべて推奨どおり**）。本番の数は Q の判断材料ではなくなったので段階 5 の受け入れで数える（**数値は `.local/` に置き、文書には決定と件数だけを書く**。S3、D14）: 種類ごとの投稿数（比較対象 8 件に届く種類）、シェア率が null の投稿数、**種類ごとに「直前 20 件の Q3 = 0 か」**（D4、T1。Q5 の判断材料）、`gone_at` のある投稿の数と消すまでの日数（T18）、非フォロワーリーチの内訳がある日数、**7 日ごとの比率と投稿数を並べて見る**（T6。Q9 の判断材料）、`profile_daily` の欠けた日 | 親とユーザー | — |
 | 1 | マイグレーション、`fixtures.ts`（T12 の項目を最初に）、DB のテスト。300 件の fixture で `set role web_app` にして `explain (analyze, buffers)` を取り、3.2 節の 6 点を見る（D3） | `postgres-sql-reviewer` が設計とレビュー | `supabase/migrations/20261013000000_r6_report.sql`、7.4 の 1 |
 | 2a | `check-alerts` の 2 種類、DB の読み出し、テスト、fixture の helper | `node-worker-developer` | `apps/worker/src/jobs/alerts.ts`、`commands/check-alerts.ts`、`db/alert-signals.ts`、7.4 の 2a |
 | 2b | 画面の共通: ナビ、`SpecialTags` の `shareFlag`（U10）、`OverviewKpis` の `followerTile`（T9）、`lib/metric-definitions.ts` の 3 項目（U21）、`lib/report-month.ts`（U11）、`lib/form-input.ts` と `tags/edit/_edit/input.ts` の import の付け替え（U5）、`next.config.ts` の `no-store` の対象（U12） | `nextjs-developer` | `components/NavLinks.tsx`、`components/TypeTag.tsx`、`app/_overview/OverviewKpis.tsx`、`lib/metric-definitions.ts`、`lib/report-month.ts`、`lib/form-input.ts`、`app/tags/edit/_edit/input.ts`、`apps/web/next.config.ts`、7.4 の 2b |
@@ -590,6 +591,8 @@ grant select on table public.media_outlier_flags to web_app;   -- security_invok
 ---
 
 ## 9. 確認事項
+
+**決定（2026-10-13、ユーザー）: Q1〜Q17 はすべて推奨どおり。** Q5 は (a)、Q9 は 10 pt かつ直近 7 日に投稿がなければ判定しない。Q12 は解消済み。
 
 | # | 問い | 推奨 |
 |---|---|---|
