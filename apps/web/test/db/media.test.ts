@@ -16,7 +16,7 @@ import {
   listMediaCsvRows,
   type MediaListParams,
 } from "@/lib/queries/media";
-import { fakeIgUserId, fakeMediaId, HOUR_MS, MINUTE_MS, setWebEnv } from "./fixtures";
+import { fakeIgUserId, fakeMediaId, HOUR_MS, insertOutlierPeerSet, MINUTE_MS, setWebEnv } from "./fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 /** フィードの件数（1 ページ分 + 1） */
@@ -180,7 +180,10 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）", () => {
     expect(r.data).toHaveLength(FEED_COUNT + 1);
     expect(r.data.slice(0, 4).map((m) => m.media_id)).toEqual([reelId, f0, f1, f2]);
     const row = r.data[1];
-    expect(Object.keys(row ?? {}).sort()).toEqual(MEDIA_CSV_COLUMNS.map((c) => c.header).sort());
+    // R6: 既存の列に印の 2 列（share_flag、peer_n）が足される（CSV の列の順は `export/media/route.ts` が決める）
+    expect(Object.keys(row ?? {}).sort()).toEqual(
+      [...MEDIA_CSV_COLUMNS.map((c) => c.header), "share_flag", "peer_n"].sort(),
+    );
     expect(row?.kind).toBe("feed");
     expect(row?.posted_at_jst).toBeInstanceOf(Date);
     expect(row?.latest_fetched_at_jst).toBeInstanceOf(Date);
@@ -375,5 +378,106 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: ページ数の�
     if (!elevenPage2.ok) return;
     expect(elevenPage2.data.pageCount).toBe(2);
     expect(elevenPage2.data.items.map((m) => m.media_id)).toEqual([ids[PAGE_SIZE]]);
+  });
+});
+
+/**
+ * R6: 伸びた／課題の印（R6 設計 3.3 節、6.3 節、7.1 節「画面（結合）」の D15）。
+ * 上の describe の件数を変えないように、架空のアカウント A と B を別に作り、`afterAll` で消す。
+ *   A: フィード 8 件（シェア 0 ／ リーチ 64）+ 外れ値 1 件（シェア率 1/4）→ 外れ値は `high`、peer_n 8
+ *   B: フィード 3 件 + 外れ値 1 件 → 比較対象が 8 件未満なので share_flag は null、peer_n は 3 のまま
+ * `media.id` が主キーなので「別アカウントの同じ media_id」は作れない。結合が `account_id` でも絞ることは、
+ * 一覧の値がそのアカウントのビューの行と一致し、ほかのアカウントの件数が混ざらないことで確かめる
+ */
+describe.skipIf(!TEST_DATABASE_URL)("queries/media（結合）: 伸びた／課題の印", () => {
+  const url = TEST_DATABASE_URL ?? "";
+  const igUserIdA = fakeIgUserId();
+  const igUserIdB = fakeIgUserId();
+  // 上の describe と ID が重ならないよう 700 番台を使う
+  let seq = 700;
+  const nextId = () => fakeMediaId(seq++);
+  let sql: postgres.Sql;
+  let accountA = "";
+  let accountB = "";
+  let a: { peerIds: string[]; outlierId: string } = { peerIds: [], outlierId: "" };
+  let b: { peerIds: string[]; outlierId: string } = { peerIds: [], outlierId: "" };
+  let restoreEnv: () => void = () => {};
+
+  beforeAll(async () => {
+    restoreEnv = setWebEnv(url);
+    sql = postgres(url, { max: 1, onnotice: () => {} });
+    const accounts = await sql<{ id: string; ig_user_id: string }[]>`
+      insert into public.accounts (ig_user_id, username, name)
+      values (${igUserIdA}, 'fake_media_flag_a', null), (${igUserIdB}, 'fake_media_flag_b', null)
+      returning id, ig_user_id
+    `;
+    accountA = accounts.find((r) => r.ig_user_id === igUserIdA)?.id ?? "";
+    accountB = accounts.find((r) => r.ig_user_id === igUserIdB)?.id ?? "";
+    expect(accountA).not.toBe("");
+    expect(accountB).not.toBe("");
+    a = await insertOutlierPeerSet(sql, { accountId: accountA, kind: "feed", peerCount: 8, nextId });
+    b = await insertOutlierPeerSet(sql, { accountId: accountB, kind: "feed", peerCount: 3, nextId });
+  });
+
+  afterAll(async () => {
+    for (const id of [accountA, accountB]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
+    await closeAllDb();
+    await sql.end({ timeout: 5 });
+    restoreEnv();
+  });
+
+  it("listMedia: share_flag と peer_n が出る。比較対象 8 件の外れ値は high、判定しない投稿は null で peer_n はそのまま", async () => {
+    const r = await listMedia(accountA, DEFAULT_PARAMS);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data).toHaveLength(9);
+    const outlier = r.data.find((m) => m.media_id === a.outlierId);
+    expect(outlier?.share_flag).toBe("high");
+    expect(outlier?.peer_n).toBe(8);
+    // 比較対象の 8 件は直前の投稿が 0〜7 件なので判定しない（null）。件数は 8 未満でもそのまま出す
+    const oldest = r.data.find((m) => m.media_id === a.peerIds[0]);
+    expect(oldest?.share_flag).toBeNull();
+    expect(oldest?.peer_n).toBe(0);
+    const newestPeer = r.data.find((m) => m.media_id === a.peerIds[7]);
+    expect(newestPeer?.share_flag).toBeNull();
+    expect(newestPeer?.peer_n).toBe(7);
+  });
+
+  it("listMedia: 結合は account_id でも絞る。各行の印はそのアカウントのビューの行と一致し、ほかのアカウントの件数が混ざらない", async () => {
+    const view = await sql<{ media_id: string; share_flag: string | null; peer_n: number }[]>`
+      select media_id, share_flag, peer_n from public.media_outlier_flags where account_id = ${accountA}
+    `;
+    const expected = new Map(view.map((v) => [v.media_id, { share_flag: v.share_flag, peer_n: v.peer_n }]));
+    const r = await listMedia(accountA, DEFAULT_PARAMS);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.map((m) => [m.media_id, { share_flag: m.share_flag, peer_n: m.peer_n }])).toEqual(
+      r.data.map((m) => [m.media_id, expected.get(m.media_id)]),
+    );
+
+    // B は比較対象が 3 件なので判定しない。A の 8 件が B に混ざらない
+    const rb = await listMedia(accountB, DEFAULT_PARAMS);
+    expect(rb.ok).toBe(true);
+    if (!rb.ok) return;
+    expect(rb.data).toHaveLength(4);
+    const outlierB = rb.data.find((m) => m.media_id === b.outlierId);
+    expect(outlierB?.share_flag).toBeNull();
+    expect(outlierB?.peer_n).toBe(3);
+    expect(rb.data.every((m) => m.share_flag === null && (m.peer_n ?? 0) <= 3)).toBe(true);
+  });
+
+  it("listMediaCsvRows: share_flag と peer_n を返す。判定しない投稿は null", async () => {
+    const r = await listMediaCsvRows(accountA, { sort: "posted", order: "desc" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data).toHaveLength(9);
+    const outlier = r.data.find((m) => m.media_id === a.outlierId);
+    expect(outlier?.share_flag).toBe("high");
+    expect(outlier?.peer_n).toBe(8);
+    const oldest = r.data.find((m) => m.media_id === a.peerIds[0]);
+    expect(oldest?.share_flag).toBeNull();
+    expect(oldest?.peer_n).toBe(0);
   });
 });

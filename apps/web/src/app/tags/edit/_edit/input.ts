@@ -8,7 +8,22 @@
  * - 名前: NFC → trim → 1〜30 コードポイント → 制御文字・書式文字・サロゲート・私用領域（`\p{Cc}\p{Cf}\p{Cs}\p{Co}`）を拒む。
  *   `#` で始まる名前は拒まない。DB の check（D15）が後ろで守る
  * - `setMediaTags` のキーは `^axis_\d{1,18}$` で 10 個まで、値は空（なし）か `^\d{1,18}$`。同じキーが 2 回あれば拒む
+ *
+ * 汎用の検査（`allValuesAreStrings`、`singleString`）と状態（`FormState`、`saved()`、`failed()`）は R6 で `@/lib/form-input` に
+ * 移した（R6 設計 6.2 節 U5）。ここから同じ名前で再 export し、`actions.ts` と R5 のテストの import は変えない
  */
+
+import {
+  allValuesAreStrings,
+  failed,
+  FORM_MESSAGES,
+  INITIAL_FORM_STATE,
+  saved,
+  singleString,
+  type FormState,
+} from "@/lib/form-input";
+
+export { allValuesAreStrings, failed, saved, singleString };
 
 /** 軸の数の上限（画面とサーバーの Action で検査する。DB には置かない。5.1 (5)） */
 export const MAX_AXES = 10;
@@ -21,19 +36,16 @@ export const TAG_MEDIA_PAGE_SIZE = 50;
 
 /** 文言（S9、T6）。DB のエラー文は返さない */
 export const TAG_EDIT_MESSAGES = {
-  saved: "保存しました",
+  saved: FORM_MESSAGES.saved,
   duplicate: "同じ名前があります",
   inUse: "使っている投稿があります",
-  failed: "保存できませんでした",
+  failed: FORM_MESSAGES.failed,
 } as const;
 
-/** Server Action の戻り値（`useActionState` の状態）。文言は上の固定の文言だけ */
-export interface TagEditState {
-  status: "idle" | "ok" | "error";
-  message: string;
-}
+/** Server Action の戻り値（`useActionState` の状態）。文言は上の固定の文言だけ。形は共通の `FormState` と同じ */
+export type TagEditState = FormState;
 
-export const INITIAL_TAG_EDIT_STATE: TagEditState = { status: "idle", message: "" };
+export const INITIAL_TAG_EDIT_STATE: TagEditState = INITIAL_FORM_STATE;
 
 export type MoveDirection = "up" | "down";
 
@@ -42,22 +54,6 @@ const ID_PATTERN = /^[1-9]\d{0,17}$/;
 const MEDIA_ID_PATTERN = /^\d{1,25}$/;
 const AXIS_KEY_PATTERN = /^axis_([1-9]\d{0,17})$/;
 const FORBIDDEN_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}]/u;
-
-/** FormData のすべての値が文字列か（`File` があれば偽） */
-export function allValuesAreStrings(formData: FormData): boolean {
-  for (const [, v] of formData.entries()) {
-    if (typeof v !== "string") return false;
-  }
-  return true;
-}
-
-/** 1 つの名前の値を 1 つだけ文字列で取る。ない、2 つ以上、文字列でないなら undefined */
-export function singleString(formData: FormData, name: string): string | undefined {
-  const all = formData.getAll(name);
-  if (all.length !== 1) return undefined;
-  const v = all[0];
-  return typeof v === "string" ? v : undefined;
-}
 
 /** 軸か値の id（`^\d{1,18}$`） */
 export function parseTagId(value: unknown): string | undefined {
@@ -121,16 +117,6 @@ export function parseMediaTagsForm(formData: FormData): { mediaId: string; entri
     if (entries.length > MAX_AXES) return undefined;
   }
   return { mediaId, entries };
-}
-
-/** 失敗の状態 */
-export function failed(message: string = TAG_EDIT_MESSAGES.failed): TagEditState {
-  return { status: "error", message };
-}
-
-/** 成功の状態 */
-export function saved(): TagEditState {
-  return { status: "ok", message: TAG_EDIT_MESSAGES.saved };
 }
 
 /**

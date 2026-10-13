@@ -5,10 +5,10 @@
  */
 import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MediaCsvRow } from "../src/lib/csv";
+import { MEDIA_CSV_COLUMNS } from "../src/lib/csv";
 import { checkAccess } from "../src/lib/auth";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "../src/lib/queries/account";
-import { listMediaCsvRows } from "../src/lib/queries/media";
+import { listMediaCsvRows, type MediaCsvRowWithFlags, type ShareFlag } from "../src/lib/queries/media";
 import { GET } from "../src/app/export/media/route";
 
 vi.mock("../src/lib/auth", () => ({ checkAccess: vi.fn(async () => "pass") }));
@@ -28,7 +28,7 @@ function request(query = ""): NextRequest {
   return new NextRequest(`${APP_URL}/export/media${query}`, { method: "GET" });
 }
 
-function row(overrides: Partial<MediaCsvRow> = {}): MediaCsvRow {
+function row(overrides: Partial<MediaCsvRowWithFlags> = {}): MediaCsvRowWithFlags {
   return {
     media_id: "0000123",
     kind: "feed",
@@ -63,6 +63,8 @@ function row(overrides: Partial<MediaCsvRow> = {}): MediaCsvRow {
     elapsed_7d_hours: null,
     followers_at_post: null,
     reach_rate: null,
+    share_flag: null,
+    peer_n: null,
     ...overrides,
   };
 }
@@ -151,7 +153,8 @@ describe("GET /export/media", () => {
       "media_id,kind,posted_at_jst,caption,permalink,is_collab,is_trial_reel,is_boosted,gone_at_jst," +
         "latest_fetched_at_jst,elapsed_latest_hours,reach,views,likes,comments,saved,shares,profile_visits,follows," +
         "avg_watch_time_ms,skip_rate,er,save_rate,share_rate,like_rate,comment_rate,profile_visit_rate," +
-        "follow_conversion_rate,views_per_reach,reach_7d,elapsed_7d_hours,followers_at_post,reach_rate",
+        "follow_conversion_rate,views_per_reach,reach_7d,elapsed_7d_hours,followers_at_post,reach_rate," +
+        "share_flag,peer_n",
     );
     expect(lines[1]).toContain(`,"'=HYPERLINK(""x"")",`);
     expect(lines[1]).toContain("2026-10-05 10:00:00");
@@ -171,5 +174,29 @@ describe("GET /export/media", () => {
 
     await GET(request("?sort=reach&sort=likes&order=asc&order=desc"));
     expect(listMediaCsvRows).toHaveBeenLastCalledWith(ACCOUNT_ID, { sort: "posted", order: "desc" });
+  });
+
+  it("R6: 末尾に share_flag と peer_n の 2 列。既存の列の順は変えず、null は空欄、文字の列は数式の無害化を通る", async () => {
+    vi.mocked(listMediaCsvRows).mockResolvedValueOnce({
+      ok: true,
+      data: [
+        row({ share_flag: "high", peer_n: 20 }),
+        row({ share_flag: null, peer_n: null }),
+        // share_flag が text の列として逃がされることの確認（DB の値は high／low／none だけなので、ここだけ型を外す）
+        row({ share_flag: "=x" as unknown as ShareFlag, peer_n: 0 }),
+      ],
+    });
+    const res = await GET(request());
+    expect(res.status).toBe(200);
+    const text = (await res.text()).replace(/^﻿/, "");
+    const lines = text.split("\r\n");
+    const header = lines[0]?.split(",") ?? [];
+    expect(header.slice(0, MEDIA_CSV_COLUMNS.length)).toEqual(MEDIA_CSV_COLUMNS.map((c) => c.header));
+    expect(header.slice(MEDIA_CSV_COLUMNS.length)).toEqual(["share_flag", "peer_n"]);
+    expect(lines[1]?.endsWith(",high,20")).toBe(true);
+    const nulls = lines[2]?.split(",") ?? [];
+    expect(nulls).toHaveLength(MEDIA_CSV_COLUMNS.length + 2);
+    expect(nulls.slice(-2)).toEqual(["", ""]);
+    expect(lines[3]?.endsWith(",'=x,0")).toBe(true);
   });
 });

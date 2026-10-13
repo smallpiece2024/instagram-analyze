@@ -83,6 +83,7 @@ export function MediaTable({ items, sort, order, query }: MediaTableProps) {
                       isTrialReel={m.is_trial_reel}
                       isBoosted={m.is_boosted}
                       gone={m.gone_at !== null}
+                      shareFlag={m.share_flag}
                     />
                   </td>
                   <td className="nowrap small">

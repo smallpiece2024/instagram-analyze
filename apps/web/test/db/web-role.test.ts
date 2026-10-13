@@ -36,6 +36,8 @@ const VIEWS = [
   "story_list_metrics",
   // R4.1（20261012000000_r4_1_video_text.sql）
   "ocr_monthly_usage",
+  // R6（20261013000000_r6_report.sql）
+  "media_outlier_flags",
 ] as const;
 
 const READABLE_TABLES = [
@@ -57,6 +59,8 @@ const READABLE_TABLES = [
   "video_text_analyses",
   "video_text_segments",
   "ocr_usage",
+  // R6（20261013000000_r6_report.sql）。書き込み（insert と update の列指定、delete なし）は r6-views.test.ts で確かめる
+  "report_notes",
 ] as const;
 
 function fakeIgUserId(): string {

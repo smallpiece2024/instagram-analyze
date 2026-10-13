@@ -1,17 +1,21 @@
 /**
- * `check-alerts --scope hourly|daily`: トークンの期限と `stories` の連続失敗・見送りを調べ、該当があれば終了コード 1
- * （R2 設計 5.2 章。F-SYS-14、NF-REL-03）。GitHub Actions では `run-*` のあとに動かし、失敗メールで知らせる。
+ * `check-alerts --scope hourly|daily`: トークンの期限、`stories` の連続失敗・見送り、（daily なら）非フォロワーリーチ比率の低下と
+ * フォロワーの急減を調べ、該当があれば終了コード 1（R2 設計 5.2 章、R6 設計 4 章。F-SYS-14、F-RPT-11、NF-REL-03）。
+ * GitHub Actions では `run-*` のあとに動かし、失敗メールで知らせる。
  *
  * - 判定は `jobs/alerts.ts` の純関数。ここは DB の読み出しとログだけ
- * - 読むのは `accounts`（active）、`private.credentials` の状態と期限（Vault には触れない）、`job_runs` の `stories` の直近 3 件
- * - ログ: 該当は全件 `WARN alert=…`、最後に必ず `INFO alerts=<n>`（履歴が足りなければ `reason=no_history`）。
+ * - 読むのは `accounts`（active）、`private.credentials` の状態と期限（Vault には触れない）、`job_runs` の `stories` の直近 3 件。
+ *   daily ではさらに今月の Vision の利用、`account_daily_wide` の比率の窓、`media` の直近の投稿数、`profile_daily` の直近 2 件
+ * - ログ: 該当は全件 `WARN alert=…`、最後に必ず `INFO alerts=<n>`（履歴が足りなければ `reason=no_history` と
+ *   `no_history=<kinds>`、投稿がなく見送れば `no_posts=non_follower_reach_drop`）。
  *   DB の失敗は `ERROR error_code=<SQLSTATE か TLS のコード> class=db` で終了コード 1（alert と区別できる）
- * - アカウントは `account=1/N` の連番。ID やユーザー名は出さない
+ * - アカウントは `account=1/N` の連番。ID やユーザー名は出さない。比率、pt、人数、合計値は debug ログにも出さない（S1）
  * - `WORKER_SIMULATE_ALERT=true` なら `alert=simulated` を出して終了コード 1（通知の経路の確認用）
  */
 import { parseArgs } from "node:util";
 import { loadCheckAlertsConfig, type CheckAlertsConfig } from "../config.js";
 import { listActiveAccounts, readCredentialStatus } from "../db/accounts.js";
+import { countRecentPosts, readFollowerPair, readNonFollowerReachWindows } from "../db/alert-signals.js";
 import { closeDb, connectDb, normalizeDbError, type Db } from "../db/client.js";
 import { listRecentRuns } from "../db/job-runs.js";
 import { monthlyOcrUsage } from "../db/video-text.js";
@@ -64,12 +68,30 @@ export function alertFields(alert: Alert): LogFields {
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, runs: alert.runs };
     case "ocr_monthly_cap":
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, units: alert.units, videos: alert.videos };
+    // 以下の 2 つは鍵を alert、account、days だけにする。率、pt、人数は出さない（S1）
+    case "non_follower_reach_drop":
+      return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, days: `${alert.recentDays}/${alert.baseDays}` };
+    case "follower_drop":
+      return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}` };
   }
 }
 
+/** daily だけ読む低下の通知の入力（R6 設計 4.3 節）。読めなかった（記録がない）ものは省略して判定しない */
+type DailySignals = Pick<AlertAccount, "nonFollowerReach" | "followers">;
+
+async function loadDailySignals(db: Db, accountId: string): Promise<DailySignals> {
+  const windows = await readNonFollowerReachWindows(db, accountId);
+  const recentPosts = windows ? await countRecentPosts(db, accountId, windows.latest) : undefined;
+  const followers = await readFollowerPair(db, accountId);
+  return {
+    ...(windows && recentPosts !== undefined ? { nonFollowerReach: { recent: windows.recent, base: windows.base, recentPosts } } : {}),
+    ...(followers ? { followers } : {}),
+  };
+}
+
 /**
- * アカウントごとに credential の状態、`stories` の直近の実行、（`daily` なら）今月の Vision の利用を読む。
- * 接続は 2 本なので順に読む
+ * アカウントごとに credential の状態、`stories` の直近の実行、（`daily` なら）今月の Vision の利用、非フォロワーリーチ比率の窓と
+ * 直近の投稿数、フォロワー数の直近 2 件を読む。接続は 2 本なので順に読む
  */
 export async function loadAlertAccounts(db: Db, accounts: AccountRow[], scope: AlertScope = "hourly", now: Date = new Date()): Promise<AlertAccount[]> {
   const out: AlertAccount[] = [];
@@ -77,12 +99,14 @@ export async function loadAlertAccounts(db: Db, accounts: AccountRow[], scope: A
     const credential = await readCredentialStatus(db, account.id);
     const runs = await listRecentRuns(db, account.id, "stories", STORIES_SKIPPED_RUNS);
     const ocrMonthly = scope === "daily" ? await monthlyOcrUsage(db, account.id, now) : undefined;
+    const signals = scope === "daily" ? await loadDailySignals(db, account.id) : {};
     out.push({
       ordinal: index + 1,
       status: account.status,
       credential: credential ? { status: credential.status, dataAccessExpiresAt: credential.data_access_expires_at } : null,
       recentStoriesRuns: runs.map((run) => ({ status: run.status })),
       ...(ocrMonthly ? { ocrMonthly } : {}),
+      ...signals,
     });
   }
   return out;
@@ -108,10 +132,19 @@ export async function runCheckAlerts(scope: AlertScope, deps: CheckAlertsDeps): 
     deps.config.simulateAlert,
   );
   for (const alert of result.alerts) deps.log.warn(alertFields(alert));
-  // reason は該当なしのときだけ（no_accounts: 対象のアカウントがない。no_history: 判定に足りる履歴がない）
+  // reason は該当なしのときだけ（no_accounts: 対象のアカウントがない。no_history: 判定に足りる履歴がない）。
+  // no_history=<kinds> と no_posts=<kind> は見送った判定があれば出す（固定の語で、データではない。T19）
   const reason =
     result.alerts.length > 0 ? undefined : accounts.length === 0 ? "no_accounts" : result.noHistory ? "no_history" : undefined;
-  deps.log.info({ command: COMMAND, scope, accounts: accounts.length, alerts: result.alerts.length, reason });
+  deps.log.info({
+    command: COMMAND,
+    scope,
+    accounts: accounts.length,
+    alerts: result.alerts.length,
+    reason,
+    no_history: result.noHistoryKinds.length > 0 ? result.noHistoryKinds.join(",") : undefined,
+    no_posts: result.noPosts ? "non_follower_reach_drop" : undefined,
+  });
   return result.alerts.length === 0;
 }
 

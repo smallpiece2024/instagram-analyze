@@ -9,14 +9,24 @@
  */
 import type { NextRequest } from "next/server";
 import { checkAccess } from "@/lib/auth";
-import { csvFileName, MEDIA_CSV_COLUMNS, toCsv } from "@/lib/csv";
+import { type CsvColumn, csvFileName, MEDIA_CSV_COLUMNS, toCsv } from "@/lib/csv";
 import { markDynamic } from "@/lib/dynamic";
 import { DEFAULT_SORT, parseOrder, parseSort, type ParamValue } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
-import { listMediaCsvRows, MEDIA_SORT_KEYS } from "@/lib/queries/media";
+import { listMediaCsvRows, MEDIA_SORT_KEYS, type MediaCsvRowWithFlags } from "@/lib/queries/media";
 
 /** 失敗の固定の文言（route.ts は HTTP メソッドと設定以外を export しない） */
 const CSV_FAILED_TEXT = "CSV を作れませんでした";
+
+/**
+ * 投稿の CSV の列。既存の列の順は変えず、末尾に伸びた／課題の印（`share_flag`）と比較対象の件数（`peer_n`）を足す
+ * （R6 設計 6.3 節、Q16、S10）。値は `toCsv` の逃がし（text の数式の無害化、null は空欄）をそのまま通る
+ */
+const CSV_COLUMNS: readonly CsvColumn<MediaCsvRowWithFlags>[] = [
+  ...MEDIA_CSV_COLUMNS,
+  { header: "share_flag", kind: "text", value: (row) => row.share_flag },
+  { header: "peer_n", kind: "number", value: (row) => row.peer_n },
+];
 
 function textResponse(status: number, body: string): Response {
   return new Response(body, {
@@ -58,7 +68,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       return textResponse(500, CSV_FAILED_TEXT);
     }
 
-    return new Response(toCsv(MEDIA_CSV_COLUMNS, rows.data), {
+    return new Response(toCsv(CSV_COLUMNS, rows.data), {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",

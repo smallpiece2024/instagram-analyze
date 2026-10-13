@@ -15,7 +15,8 @@ import type { NextConfig } from "next";
 /**
  * 共有のキャッシュにも履歴のキャッシュにも残さないページの経路。
  * R3・R4: 署名付き URL を含むページ（投稿一覧、投稿詳細、リール分析）。
- * R5: タグ分析、タグの編集、ストーリーズ、オーディエンス、投稿時刻（R5 設計 4 章の S12）
+ * R5: タグ分析、タグの編集、ストーリーズ、オーディエンス、投稿時刻（R5 設計 4 章の S12）。
+ * R6: レポート（本人の記入とサムネイルを含む。R6 設計 6 章の U12）
  */
 const NO_STORE_PAGES = [
   "/media",
@@ -26,6 +27,7 @@ const NO_STORE_PAGES = [
   "/stories",
   "/audience",
   "/timing",
+  "/report",
 ] as const;
 
 const nextConfig: NextConfig = {
