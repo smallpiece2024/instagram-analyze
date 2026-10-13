@@ -14,6 +14,7 @@ import type { QueryResult } from "@/lib/db-errors";
 import type { MediaKind } from "@/lib/metrics";
 import { signThumbnailUrls, THUMBNAIL_BUCKET } from "@/lib/storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { ShareFlag } from "./media";
 import { runQuery } from "./run";
 
 /* ------------------------------------------------------------------
@@ -105,6 +106,46 @@ export async function signMediaThumbnail(path: string | null): Promise<string | 
     return null;
   }
 }
+
+/* ------------------------------------------------------------------
+ * 伸びた／課題の印（R6 設計 3.4 節、6.3 節）
+ * ------------------------------------------------------------------ */
+
+/**
+ * `public.media_outlier_flags` の 1 行。比較対象は同じ種類の直前の投稿（特殊な投稿とシェア率 null を除く）で、
+ * 四分位はそのシェア率（0〜1）。`peer_n` は 8 件未満でもそのまま持つ（しきい値の再計算は画面でしない。D2）
+ */
+export interface OutlierFlag {
+  media_id: string;
+  share_rate: number | null;
+  /** 秒。画面で日に直す（切り捨て） */
+  elapsed_latest: number | null;
+  peer_n: number;
+  peer_q1: number | null;
+  peer_median: number | null;
+  peer_q3: number | null;
+  /** null は「判定しない」（比較対象が 8 件未満、またはシェア率 null） */
+  share_flag: ShareFlag | null;
+}
+
+/**
+ * この投稿の印と比較対象の四分位。ビューに行がない（ストーリーズ、対象のアカウントのものでない、存在しない）なら null。
+ * `account_id` でも絞る（D15）
+ */
+export const getOutlierFlag = cache(async (accountId: string, id: string): Promise<QueryResult<OutlierFlag | null>> =>
+  runQuery(async (db) => {
+    const rows = await db<OutlierFlag[]>`
+      select
+        media_id, share_rate::float8 as share_rate, elapsed_latest::float8 as elapsed_latest,
+        peer_n::int as peer_n, peer_q1::float8 as peer_q1, peer_median::float8 as peer_median, peer_q3::float8 as peer_q3,
+        share_flag
+      from public.media_outlier_flags
+      where account_id = ${accountId} and media_id = ${id}
+    `;
+    const row = rows[0];
+    return row === undefined ? null : { ...row };
+  }),
+);
 
 /* ------------------------------------------------------------------
  * 経過時間の区分ごとの値（リーチ数の伸び方）

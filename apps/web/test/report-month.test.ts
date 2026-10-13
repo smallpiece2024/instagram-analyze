@@ -3,6 +3,7 @@
  * `?month=` の検査、既定の月、選べる月の列挙。DB は読まない
  */
 import { describe, expect, it } from "vitest";
+import { clampPeriod } from "../src/lib/period";
 import {
   defaultReportMonth,
   parseReportMonth,
@@ -153,5 +154,41 @@ describe("ページの月の決定（resolveReportMonth）", () => {
   it("うるう年の 2 月は 29 日まで", () => {
     expect(reportMonthPeriod("2028-02")).toEqual({ from: "2028-02-01", to: "2028-02-29" });
     expect(yearMonthOf("2028-02-29")).toBe("2028-02");
+  });
+});
+
+describe("方針の回帰: 今月を選んでも to の切り詰め以外は同じ（clampPeriod。R6 設計 7.1 節）", () => {
+  it("今月は to だけ latest に切り詰め、from は暦月の初日のまま。前月とデータの始まりの月は切り詰めない", () => {
+    const current = resolveReportMonth("2026-10", RANGE);
+    if (!current) throw new Error("今月が解決できない");
+    expect(current.period).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    // ページと同じ呼び方（dataStart は渡さない。from は切り詰めない）
+    expect(clampPeriod(current.period, null, RANGE.latest)).toEqual({ period: { from: "2026-10-01", to: "2026-10-11" }, truncated: true });
+
+    const prev = resolveReportMonth("2026-09", RANGE);
+    if (!prev) throw new Error("前月が解決できない");
+    expect(clampPeriod(prev.period, null, RANGE.latest)).toEqual({ period: { from: "2026-09-01", to: "2026-09-30" }, truncated: false });
+
+    // データの始まりが 3 月 15 日でも、3 月は 1 日から（月の構成を変えない）
+    const first = resolveReportMonth("2026-03", RANGE);
+    if (!first) throw new Error("最初の月が解決できない");
+    expect(clampPeriod(first.period, null, RANGE.latest)).toEqual({ period: { from: "2026-03-01", to: "2026-03-31" }, truncated: false });
+  });
+
+  it("latest が月初 1 日の今月は 1 日だけの期間になり、null（空の期間）にはならない", () => {
+    expect(clampPeriod({ from: "2026-10-01", to: "2026-10-31" }, null, "2026-10-01")).toEqual({
+      period: { from: "2026-10-01", to: "2026-10-01" },
+      truncated: true,
+    });
+  });
+
+  it("選べる月の数と既定の月は、今月を選んでも変わらない（resolveReportMonth の selectable）", () => {
+    const current = resolveReportMonth("2026-10", RANGE);
+    const prev = resolveReportMonth("2026-09", RANGE);
+    const none = resolveReportMonth(undefined, RANGE);
+    expect(current?.selectable).toEqual(SELECTABLE);
+    expect(prev?.selectable).toEqual(SELECTABLE);
+    expect(none?.selectable).toEqual(SELECTABLE);
+    expect(current?.fellBack).toBe(false);
   });
 });

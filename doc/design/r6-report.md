@@ -1,6 +1,6 @@
 # R6 月次レポート、伸びた投稿の検出、低下の通知の設計
 
-- 版: 0.3（2026-10-13）。確認事項 Q1〜Q17 は**すべて推奨どおりに決定**（2026-10-13、ユーザー。Q12 は解消済み）
+- 版: 0.4（2026-10-13）。確認事項 Q1〜Q17 はすべて推奨どおりに決定（2026-10-13、ユーザー。Q12 は解消済み）。段階 1〜3 の実装を終え、設計からの変更を記録した
 
 ## 版と変更履歴
 
@@ -9,6 +9,7 @@
 | 0.1 | 2026-10-12 | 起草（`nextjs-developer`。親が 2026-10-12 に確かめた事実票をもとにする） |
 | 0.2 | 2026-10-12 | レビュー 4 本（DB、セキュリティ、品質、画面）と親の判断を反映した。**3 章（検出）**: D1（特殊フラグの null は `is not true` で比較対象に入れる）、D2（`share_flag` に `none`）、D3（軽い基を `materialized` にして lateral）、D4／T1／T23（シェア率が 0 に張り付く性質を明記。係数 1.0 の案は消した）、D5（fence は 1 回だけ計算）、D6（`params` の 1 か所）、D15（結合は `media_id` と `account_id`）、T2／Q17（指標の固定を Q に）、T3（タプル比較）、T18（`gone_at` の数）、U13（詳細の行は四分位だけ）。**4 章（通知）**: S1（ログは連番と日数だけ。率と pt を持たない）、T4（整数の交差乗算、`previous = 0`）、T5（約 14 日）、T6／Q9（直近 7 日に投稿がなければ判定しない）、T7（境目の列挙、null は前日なし、fixture の置き場）、T19（`no_history=<kinds>`）、D12（SQL の案、`limit 2`、bigint の文字列）、Q12（解消）。**5 章（DB）**: D7／S8（`translate` と `[[:cntrl:]]`。CR は拒む）、D8（`report_month`、`extract(day)`）、D9（制約の名前、`updated_at` の性質）、D10（`service_role`）、D11（退避）、S7（`grant insert` は列指定）。**6 章（画面）**: U1（`DAY_BOUNDARY_NOTE` だけ）、U2（フォームは 9 節のカードの中。1 節は `form` 属性）、U3（戻り値に本文）、U4（`useActionState`、`revalidatePath`）、U5／S4／S5／S13（`lib/form-input.ts`、R5 の `authorize()` の順、理由別の固定文言）、U6／S12（ページは proxy、Action は固定の経路）、U7／U14（`OverviewKpis` を直接 import。「前期」は前月）、U8／U15（`LineChart` に 2 系列、`WIDTHS` を写す）、U9／T15（5 節の列を固定）、U10（`SpecialTags` に `shareFlag`）、U16／T16（`HBars` と棒の下の表、`used/total`）、U17（`ChoiceChips`）、U18／T8／S6（`NotCollected`、記入欄なし、Action は拒む）、U19（カードごとの `Suspense`）、U20／U23（ラベル、`aria-live`、`formatJst`）、U21（定義の置き場）、U22（前方一致）、S2（ZWJ を許す）、S9（`overflow-wrap`、リンク化しない）、S10／Q16（CSV は `lib/csv.ts`）、T9（`followerTile`、月末の値、Q14）、T10（3 件の分け方）、T14（検査の順）、T17／Q15（巻き添え）、T20（既定は `latest` を含む月の前月）。**7 章（テスト）**: D13（a〜i）、T12（fixture）、T13（判定対象と印の件数）、T21、T24、S11（架空の id）。**8 章（段階）**: S3／D14（数値は `.local/`、文書には決定と件数）、T11／U11（`lib/report-month.ts` と `lib/report.ts`）、U12（`next.config.ts`）、T22（CSV のファイル、部品の移動は 2b）。親が確かめた事実で 0.1 の「未確認」を解消した（残りは 2 つ。冒頭） |
 | 0.3 | 2026-10-13 | ユーザーが Q1〜Q17 をすべて推奨どおりに決めた（Q12 は解消済み）。Q5 は (a)（1.5 × IQR のまま）、Q9 は 10 pt かつ直近 7 日に投稿がなければ判定しない。段階 0 の本番の数は Q の判断材料ではなくなったので、受け入れ（7.3）の記録と一緒に段階 5 で数える（8 章） |
+| 0.4 | 2026-10-13 | 段階 1〜3 の実装で設計から変えた点を記録した。**DB（段階 1）**: `comment on column` を `share_flag` と `peer_n` に足した。性能は `analyze` の後に計測する（3.2 節に結果を追記。投入直後で統計が古いと一覧＋結合が 300 件で 5.8 秒）。手元の照合順序は ICU で U+2028・ZWJ は通り CR・タブ・NEL は拒む（本番は段階 4 で `scripts/r6-production-counts.sql` の 0 番で確かめる）。fixture に `postMetrics`、`KIND_COLUMNS` を足した。**ワーカー（段階 2a）**: `readNonFollowerReachWindows` は `latest` も返す。SQL は `left join` にして使えた日が 0 日でも `no_history` を出す（inner join だと 0 行で黙って判定しない）。`no_history=<kinds>` と `no_posts=` は該当があっても出す（`reason=no_history` は該当なしのときだけ）。`no_history` と `no_posts` が重なれば `no_history`。交差乗算は `× 100 ≥ … × PT` に一般化。既存の結合テスト 3 件の期待値に `no_history=stories` を足した。**画面の共通（段階 2b）**: 既定の月は選べる月の中に収める（データが今月から始まると前月が範囲の外になり、隠し項目の `month` が Action で拒まれるため）。`ACCOUNT_METRIC_DEFINITIONS` に `followers_end` を足した（既存の `followers` の説明は「最新の記録」で月末の値に合わないため）。`OverviewKpis` は純関数 `followerKpi` を切り出してテストする。`saved(message?)`。`resolveReportMonth` に `fellBack`。**レポート（段階 3A）**: 6 節の下位はシェア率の低い順に表示（選び方は T10 のまま）。`WIDTHS` は 1140／340（全幅のカード）。5〜7 節の「—」は理由なし。1〜9 節を Client の `ReportNotesProvider`（Context）で包み、カードは Server Component のまま `children` で渡す（1 節と 9 節が同じ `useActionState` を見るため）。送信中の印は R5 の `SubmitButton` と同じ markup を直書き（`PendingMark` は Link 専用）。8 節のストーリーズは 1 段目比だけ。ファネルの 1 段目が 0 なら棒を描かない。`clampPeriod` は `to` だけ切り詰める。記入欄の読み出しに失敗したらフォームを出さない（空で上書きしないため）。2 節の `OverviewKpis` は `Card` の中（見た目は段階 5 で確認）。認可などで落ちても `values` を返す。月のチップは既定の月も `?month=` を付ける。**印（段階 3B）**: CSV の 2 列は `route.ts` で `MEDIA_CSV_COLUMNS` の末尾に足す（`lib/csv.ts` と `csv.test.ts` は変えない）。`ShareFlag` 型は `lib/queries/media.ts` に 1 か所。比較対象 0 件の四分位は `no_baseline_data` の「—」。ビューに行がない投稿（起きない）は行を出さない。**段階 0**: 本番の数は段階 5 で `scripts/r6-production-counts.sql` を使って数える。**段階 5 のレビュー（2026-10-13）**: セキュリティ（高・中なし。低 1: 正規表現とテストの不可視文字をエスケープ表記に。確認のみ 4）、SQL（高なし。中 1: `[[:cntrl:]]` の判定が照合順序で変わり、本番が libc だと U+2028／U+2029 が拒まれる → Action の正規化で `\n` にそろえた（6.2 節）。低 5 は見送り: `filter (...)::float8` の括弧の統一、設計 4.3 節の SQL を実装に合わせる（反映済み）、結合側を `materialized` の CTE に閉じ込める案、`countRecentPosts` の索引、窓の 2 回の集約。確認のみ 6: 特殊な投稿自身は判定する（3.6 節の意図どおり）、`accounts` のロックは収集の時間を避ける、など）、品質（別記） |
 
 - 要件: `doc/requirements/requirements-definition.md` 4.7 章（F-RPT-01、F-RPT-02、F-RPT-10、F-RPT-11）、5.5 章（時刻）、7 章（指標の定義。7.1 のシェア率、非フォロワーリーチ比率、7.3 のフォロワー純増、7.4 の目安値）、8.7 章（AI-01: 伸びた投稿の検出は統計で行う）、9 章（画面一覧）と 9.1 章（月次レポートの 9 節）、10 章（R6 の完了条件「前月分の月次レポートを画面に表示できる。伸びた投稿の検出が動く」）
 - 既存: R1 の表（`profile_daily`、`media_insight_snapshots`）、R2 の `web_app` ロールと `check-alerts`（`apps/worker/src/commands/check-alerts.ts`、`jobs/alerts.ts`）、R3 のビュー（`20261005000000_r3_analysis_views.sql` の `media_horizon_metrics`、`media_list_metrics`、`account_daily_wide`）、R5 の表とビュー（`20261009000000_r5_analysis.sql` の `tag_axes`、`tag_values`、`media_tags`、`story_list_metrics`）、Web の `lib/queries/period-summary.ts`、`lib/period.ts`、`app/_overview/OverviewKpis.tsx`、`lib/auth.ts`（`checkAccess(pathname)`）、`lib/request-guard.ts`（`isSameOriginPost`）、`app/tags/edit/_edit/input.ts`（R5 の入力の検査と状態）、`components/TypeTag.tsx`（`SpecialTags`）、`components/charts/HBars.tsx`、`lib/metric-definitions.ts`（`DAY_BOUNDARY_NOTE`）、R5 設計 6.2 節（Server Action の形）
@@ -161,7 +162,7 @@ cross join lateral (
 - `media_list_metrics` を基にしない理由（D3）: `media_horizon_metrics` を 2 回結合する重いビューを外側 N 行 × 内側で評価し、`/media` 一覧ではさらに同じ基を 2 度計算することになる。必要な列だけの軽い基を `materialized` にして 1 回だけ読む
 - `percentile_cont` は float8 を返し、`share_rate` は numeric。比較は Postgres の暗黙の変換で通るが、**判定は `peer_upper`／`peer_lower` の列と同じ値で行う**（D5）。「ちょうど」のテストは fixture の値を 2 進で正確な値（1/8、1/4、3/8 …）にし、ビューが返す `peer_upper` と比べる
 - `is_special` は `is true` で null を偽にする（D1）。`not s.is_boosted and …` と書くと null → 偽で本番の全投稿が比較対象から消え、印が 1 件も付かない
-- **性能は未計測**。段階 1 で 300 件の fixture を入れて `explain (analyze, buffers)` を取り、次を見る（D3）: (1) `set role web_app` で測る、(2) 基が `CTE Scan`／`Materialize` として 1 回だけ現れる、(3) 内側の lateral の `loops` が N で、1 回あたり ms 未満、(4) 最新スナップショットが `Index Scan Backward using media_insight_snapshots_media_id_fetched_at_key`、(5) `/media` 一覧の実クエリ（`left join` を足したもの）でも測り、300 件で 300 ms 未満、(6) `limit 20` の `rows` の見積もりと実際の差。計画の形は記録する（数値は件数と時間だけ）
+- **性能（段階 1 で計測。2026-10-13）**: 300 件の fixture、`web_app` の接続、`analyze` の後で、ビュー単体 18 ms、`/media` 一覧は結合なし 4 ms → 結合あり 22 ms。基の CTE は 1 回、lateral の loops は 300（1 回 0.05 ms）、最新スナップショットは索引の逆順走査、内側の `limit 20` の見積もりは 1 行（実際 19 行）。**投入直後で統計が古いと**、一覧＋結合が Nested Loop になってビューの lateral を外側の行ごとに再実行し 5.8 秒かかった（`analyze` で解消。本番は autovacuum が効くが、大量投入の直後に `/media` が遅ければ `analyze public.media, public.media_insight_snapshots` を行う）。計測で見た点（D3）: (1) `set role web_app` で測る、(2) 基が `CTE Scan`／`Materialize` として 1 回だけ現れる、(3) 内側の lateral の `loops` が N で、1 回あたり ms 未満、(4) 最新スナップショットが `Index Scan Backward using media_insight_snapshots_media_id_fetched_at_key`、(5) `/media` 一覧の実クエリ（`left join` を足したもの）でも測り、300 件で 300 ms 未満、(6) `limit 20` の `rows` の見積もりと実際の差。計画の形は記録する（数値は件数と時間だけ）
 
 ### 3.3 印の出し先
 
@@ -303,18 +304,21 @@ with latest as (
   select max(metric_date) as d from public.account_daily_wide where account_id = $1 and reach is not null
 )
 select
-  (count(*) filter (where w.metric_date > l.d - 7))::int                 as recent_days,
-  (sum(w.reach_non_follower) filter (where w.metric_date > l.d - 7))::bigint as recent_num,
-  (sum(w.reach) filter (where w.metric_date > l.d - 7))::bigint          as recent_den,
-  (count(*) filter (where w.metric_date <= l.d - 7))::int                as base_days,
+  (count(w.metric_date) filter (where w.metric_date > l.d - 7))::int           as recent_days,
+  (sum(w.reach_non_follower) filter (where w.metric_date > l.d - 7))::bigint  as recent_num,
+  (sum(w.reach) filter (where w.metric_date > l.d - 7))::bigint               as recent_den,
+  (count(w.metric_date) filter (where w.metric_date <= l.d - 7))::int         as base_days,
   (sum(w.reach_non_follower) filter (where w.metric_date <= l.d - 7))::bigint as base_num,
-  (sum(w.reach) filter (where w.metric_date <= l.d - 7))::bigint         as base_den,
+  (sum(w.reach) filter (where w.metric_date <= l.d - 7))::bigint              as base_den,
   l.d::text as latest
 from latest l
-join public.account_daily_wide w
+left join public.account_daily_wide w
   on w.account_id = $1 and w.metric_date between l.d - 34 and l.d
-where w.reach is not null and w.reach_non_follower is not null
+  and w.reach is not null and w.reach_non_follower is not null
+where l.d is not null
 group by l.d;
+-- left join と count(w.metric_date) にする理由（段階 2a）: 基点はあるが使えた日（内訳のある日）が 0 日のとき、inner join だと 0 行になり
+-- 「黙って判定しない」になる。left join なら合計 null・日数 0 の 1 行が返り、no_history を出せる。count(*) だと 0 日を 1 と数えるので列で数える
 
 -- countRecentPosts
 select count(*)::int as posts
@@ -490,7 +494,7 @@ grant select on table public.media_outlier_flags to web_app;   -- security_invok
 3. 対象のアカウント: `getTargetAccount()`
 4. 入力の形（S4）: `allValuesAreStrings(formData)`（余分な項目に `File` があっても拒む）。`month`、`summary`、`next_plan` は `singleString` で取る（ない、同じ名前が 2 つ、文字列でないなら拒む）
 5. 月（S6 (2)(3)）: ページと同じ `lib/report-month.ts` の検査（正規表現 → 選べる範囲 → `monthOf`）。選べる月は `getDailyRange()` から列挙し、空なら拒む（日次指標がないアカウントには書けない）。隠し項目の `month` にはページが検査済みの月を入れる
-6. 本文（S2）: `normalize("NFC")` → `\r\n` と `\r` を `\n` に → 末尾の空白と改行を除く → `[...s].length` が 0〜2,000 → `/[^\P{C}\n‍]/u` に当たれば拒む（**C カテゴリ（制御・書式・サロゲート・私用・未割当）を、改行と ZWJ（U+200D）以外すべて拒む**。ZWJ を許すのは家族・職業・旗の絵文字が ZWJ でつながるため。U+2028／U+2029 は C カテゴリでないので通る）。空は許す（空にして保存＝消す）
+6. 本文（S2）: `normalize("NFC")` → `\r\n`、`\r`、U+2028、U+2029 を `\n` に → 末尾の空白と改行を除く → `[...s].length` が 0〜2,000 → `/[^\P{C}\n‍]/u` に当たれば拒む（**C カテゴリ（制御・書式・サロゲート・私用・未割当）を、改行と ZWJ（U+200D）以外すべて拒む**。ZWJ を許すのは家族・職業・旗の絵文字が ZWJ でつながるため。U+2028／U+2029 は C カテゴリでないが、本番の照合順序が libc だと DB の `[[:cntrl:]]` に当たり手元（ICU）と判定が変わるので、正規化で `\r\n`・`\r` と同じく `\n` にそろえる。段階 5 の SQL レビューの中 1）。空は許す（空にして保存＝消す）
 7. 書き込み: `insert into public.report_notes (account_id, report_month, summary, next_plan) values (…) on conflict (account_id, report_month) do update set summary = excluded.summary, next_plan = excluded.next_plan`（`report_month` は `YYYY-MM-01`）
 
 **文言（S13。R5 の `messageForFailure` と同じ形。値を含めない）**:
@@ -542,7 +546,7 @@ grant select on table public.media_outlier_flags to web_app;   -- security_invok
 - `actions.ts` の export が `saveReportNotes` だけ
 - 入力の形（S4）: 余分な項目に `File`、`summary` が 2 つ、`month` がない
 - 月: 形、範囲の外、未来の月、`0000-01`、選べる月が空（`getDailyRange` null）で拒む（S6 (3)）
-- 本文（S2）: 2,000 と 2,001 コードポイント、`\r\n` と `\r` の正規化、末尾の改行の除去、NFC で長さが変わるもの、空で保存できる。**ZWJ でつないだ絵文字（家族、職業、旗）は通る**。U+202E（RLO）、U+200B（ZWSP）、U+0000、タブは拒む。U+2028／U+2029 は通る
+- 本文（S2）: 2,000 と 2,001 コードポイント、`\r\n` と `\r` の正規化、末尾の改行の除去、NFC で長さが変わるもの、空で保存できる。**ZWJ でつないだ絵文字（家族、職業、旗）は通る**。U+202E（RLO）、U+200B（ZWSP）、U+0000、タブは拒む。U+2028／U+2029 は `\n` に正規化される
 - 文言（S13）: 理由別の 4 つと成功の 1 つ。DB のエラー（どの SQLSTATE でも）は「保存できませんでした」。DB のエラー文を返さない。ログは SQLSTATE だけで本文と `values` を出さない
 - 戻り値（U3）: 失敗時に `values` に送られた本文（正規化前）が入る。成功時は `values` なし
 - `revalidatePath` が `/report` だけで呼ばれる（成功時のみ）

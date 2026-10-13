@@ -18,7 +18,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { topPercent } from "@/app/media/[id]/_detail/text";
 import { closeAllDb } from "@/lib/db";
-import { getMedia, getMediaHorizons, getPeerHorizonStats, getPeerStats } from "@/lib/queries/media-detail";
+import { getMedia, getMediaHorizons, getOutlierFlag, getPeerHorizonStats, getPeerStats } from "@/lib/queries/media-detail";
 import { tagEditHref } from "@/app/media/[id]/_detail/MediaTags";
 import { getMediaTagSummary } from "@/lib/queries/tag-edit";
 import {
@@ -28,6 +28,7 @@ import {
   insertFakeAccount,
   insertMedia,
   insertMediaTag,
+  insertOutlierPeerSet,
   insertTagAxis,
   insertTagValue,
   setWebEnv,
@@ -320,5 +321,92 @@ describe.skipIf(!TEST_DATABASE_URL)("queries/tag-edit の getMediaTagSummary（�
     expect(mid.ok && mid.data.tags).toEqual([]);
     const other = await getMediaTagSummary(accountA, ids.b1);
     expect(other.ok && other.data).toEqual({ tags: [], position: 0 });
+  });
+});
+
+// ---------------------------------------------------------------
+// R6: 伸びた／課題の印（R6 設計 3.4 節、6.3 節 U13。担当 3B）
+// ---------------------------------------------------------------
+
+/**
+ * `getOutlierFlag` の結合テスト。架空のアカウント A と B を作り、`afterAll` で消す。
+ *   A のフィード: 比較対象 8 件（シェア 0〜7 ／ リーチ 64）+ 外れ値（シェア 16 ／ 64 = 1/4）
+ *     → 四分位は 1.75/64、3.5/64、5.25/64。上限 = Q3 + 1.5 × IQR = 10.5/64 < 1/4 なので high
+ *   A のカルーセル: 比較対象 7 件（シェア 0）+ 外れ値 → 8 件未満なので share_flag は null、peer_n は 7 のまま
+ *   A のストーリーズ: ビューにない → null
+ *   B のフィード: 比較対象 8 件 + 外れ値 → A の id で読むと null
+ */
+describe.skipIf(!TEST_DATABASE_URL)("queries/media-detail の getOutlierFlag（結合）", () => {
+  const url = TEST_DATABASE_URL ?? "";
+  // ほかの describe と ID が重ならないよう 400 番台を使う
+  let seq = 400;
+  const nextId = () => fakeMediaId(seq++);
+  const D = 86400;
+  let sql: postgres.Sql;
+  let accountA = "";
+  let accountB = "";
+  let feed: { peerIds: string[]; outlierId: string } = { peerIds: [], outlierId: "" };
+  let carousel: { peerIds: string[]; outlierId: string } = { peerIds: [], outlierId: "" };
+  let other: { peerIds: string[]; outlierId: string } = { peerIds: [], outlierId: "" };
+  let storyId = "";
+  let restoreEnv: () => void = () => {};
+
+  beforeAll(async () => {
+    restoreEnv = setWebEnv(url);
+    sql = postgres(url, { max: 1, onnotice: () => {} });
+    accountA = await insertFakeAccount(sql, "fake_detail_flag_a");
+    accountB = await insertFakeAccount(sql, "fake_detail_flag_b");
+    feed = await insertOutlierPeerSet(sql, { accountId: accountA, kind: "feed", peerCount: 8, nextId, peerShares: (i) => i });
+    carousel = await insertOutlierPeerSet(sql, { accountId: accountA, kind: "carousel", peerCount: 7, nextId });
+    storyId = nextId();
+    await insertMedia(sql, { id: storyId, accountId: accountA, postedAt: new Date(), productType: "STORY" });
+    other = await insertOutlierPeerSet(sql, { accountId: accountB, kind: "feed", peerCount: 8, nextId });
+  });
+
+  afterAll(async () => {
+    for (const id of [accountA, accountB]) {
+      if (id !== "") await sql`delete from public.accounts where id = ${id}`;
+    }
+    await closeAllDb();
+    await sql.end({ timeout: 5 });
+    restoreEnv();
+  });
+
+  it("比較対象 8 件: 四分位（シェア率）、peer_n、share_rate、elapsed_latest を数で返し、share_flag は high", async () => {
+    const r = await getOutlierFlag(accountA, feed.outlierId);
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.data === null) throw new Error("行がない");
+    expect(r.data.media_id).toBe(feed.outlierId);
+    expect(r.data.peer_n).toBe(8);
+    expect(r.data.peer_q1).toBeCloseTo(1.75 / 64, 10);
+    expect(r.data.peer_median).toBeCloseTo(3.5 / 64, 10);
+    expect(r.data.peer_q3).toBeCloseTo(5.25 / 64, 10);
+    expect(r.data.share_rate).toBeCloseTo(0.25, 10);
+    expect(r.data.elapsed_latest).toBe(7 * D);
+    expect(r.data.share_flag).toBe("high");
+  });
+
+  it("比較対象 7 件: share_flag は null（判定しない）で、peer_n = 7 と四分位はそのまま返す", async () => {
+    const r = await getOutlierFlag(accountA, carousel.outlierId);
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.data === null) throw new Error("行がない");
+    expect(r.data.peer_n).toBe(7);
+    expect(r.data.share_flag).toBeNull();
+    expect(r.data.peer_q1).toBe(0);
+    expect(r.data.peer_median).toBe(0);
+    expect(r.data.peer_q3).toBe(0);
+  });
+
+  it("比較対象 0 件（最古の投稿）: peer_n = 0、四分位は null、share_flag は null", async () => {
+    const r = await getOutlierFlag(accountA, feed.peerIds[0] ?? "");
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.data === null) throw new Error("行がない");
+    expect(r.data).toMatchObject({ peer_n: 0, peer_q1: null, peer_median: null, peer_q3: null, share_flag: null });
+  });
+
+  it("ストーリーズ、ほかのアカウントの投稿、存在しない ID は null", async () => {
+    expect(await getOutlierFlag(accountA, storyId)).toEqual({ ok: true, data: null });
+    expect(await getOutlierFlag(accountA, other.outlierId)).toEqual({ ok: true, data: null });
+    expect(await getOutlierFlag(accountA, "0")).toEqual({ ok: true, data: null });
   });
 });

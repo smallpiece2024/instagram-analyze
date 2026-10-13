@@ -37,6 +37,7 @@ export function MediaCards({ items }: { items: readonly MediaListRowWithThumbnai
                   isTrialReel={m.is_trial_reel}
                   isBoosted={m.is_boosted}
                   gone={m.gone_at !== null}
+                  shareFlag={m.share_flag}
                 />
                 <span className="num">{formatJst(m.posted_at)}</span>
                 <span>{formatElapsedDays(m.elapsed_hours)}</span>

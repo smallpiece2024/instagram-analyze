@@ -457,7 +457,7 @@ describe.skipIf(!TEST_DATABASE_URL)("r6_report（結合）", () => {
     });
 
     it("日本語、ZWJ でつないだ絵文字、U+2028 が通る", async () => {
-      const text = "総評。家族の絵文字 👨‍👩‍👧 と行区切り の文字";
+      const text = "総評。家族の絵文字 👨\u200D👩\u200D👧 と行区切り\u2028の文字";
       expect(await sqlstate(() => insertReportNote(sql, { accountId: a, reportMonth: "2026-04-01", summary: text, nextPlan: text }))).toBeUndefined();
       const [row] = await sql<{ summary: string }[]>`select summary from public.report_notes where account_id = ${a} and report_month = '2026-04-01'`;
       expect(row?.summary).toBe(text);
