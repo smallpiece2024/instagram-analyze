@@ -11,7 +11,7 @@ import { HBars, type HBarsProps } from "@/components/charts/HBars";
 import { HStack, type HStackProps } from "@/components/charts/HStack";
 import { Pie, type PieProps } from "@/components/charts/Pie";
 import { Strip, stripDomain, stripStats, type StripProps } from "@/components/charts/Strip";
-import { dimRuns, heatColor, niceDomain, niceMax, segments, yDomain } from "@/components/charts/scale";
+import { dimRuns, dotsFit, heatColor, niceDomain, niceMax, segments, yDomain } from "@/components/charts/scale";
 import { pagerItems } from "@/components/Pager";
 import { SpecialTags, type SpecialFlags } from "@/components/TypeTag";
 import { BaselineBand, bandDomain } from "@/app/compare/_compare/BaselineBand";
@@ -738,5 +738,33 @@ describe("OverviewKpis の followerKpi（followerTile）", () => {
     const l = followerKpi({ ...fc, latest: null }, "latest");
     expect(l.value).toBe("—");
     expect(l.denom).toBeUndefined();
+  });
+});
+
+describe("LineChart（点は X の間隔が 16px 以上のときだけ描く。狭いと点が線を隠すため）", () => {
+  it("dotsFit: 16px 以上で true、未満と NaN は false", () => {
+    expect(dotsFit(22)).toBe(true);
+    expect(dotsFit(16)).toBe(true);
+    expect(dotsFit(15.9)).toBe(false);
+    expect(dotsFit(NaN)).toBe(false);
+  });
+
+  it("760px で 32 日は半径 4 の点、340px で 32 日は点を描かずヒントの透明な点だけ、340px で 9 日は点（概要のフォロワー数）", () => {
+    const days = (n: number) => Array.from({ length: n }, (_, i) => `${i + 1}`);
+    const vals = (n: number) => Array.from({ length: n }, (_, i) => 100 + i);
+    const wide = line({ labels: days(32), width: 760, align: true, series: [{ label: "s", values: vals(32), dots: true }] });
+    expectClean(wide);
+    expect(wide.match(/class="chart-dot"/g)?.length).toBe(32);
+    expect(wide).toMatch(/class="chart-dot"[^>]* r="4"/);
+    expect(wide).not.toContain('data-part="tip"');
+    expect(wide).toContain("<title>s 32: 131</title>");
+    const narrow = line({ labels: days(32), width: 340, align: true, series: [{ label: "s", values: vals(32), dots: true }] });
+    expectClean(narrow);
+    expect(narrow).not.toContain('class="chart-dot"');
+    expect(narrow.match(/data-part="tip"/g)?.length).toBe(32);
+    expect(narrow).toContain("<title>s 32: 131</title>");
+    const week = line({ labels: days(9), width: 340, align: true, series: [{ label: "s", values: vals(9), dots: true }] });
+    expectClean(week);
+    expect(week.match(/class="chart-dot"/g)?.length).toBe(9);
   });
 });

@@ -145,6 +145,8 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
                 label: "フォロワー数",
                 values: followerValues,
                 color: "var(--chart-1)",
+                // 日ごとの点。ヒントは「フォロワー数 10/13: 1,234」（2026-10-15 のユーザーの依頼）
+                dots: true,
                 endLabel: lastFollower === undefined ? undefined : formatCount(lastFollower),
               },
             ]}

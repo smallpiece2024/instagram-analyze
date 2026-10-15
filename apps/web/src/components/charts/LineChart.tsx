@@ -1,5 +1,5 @@
 import { formatAxis, formatValue, type ValueFormat } from "@/lib/format";
-import { coord, dimRuns, MARKER_HIT, finiteValues, labelStep, niceDomain, segments, ticks, yDomain } from "./scale";
+import { coord, dimRuns, DOT_RADIUS, dotsFit, MARKER_HIT, finiteValues, labelStep, niceDomain, segments, ticks, yDomain } from "./scale";
 
 /** 件数が少ない区分を薄く描くときの不透明度（`BandRow` と同じ） */
 const DIM_OPACITY = ".45";
@@ -10,7 +10,7 @@ export interface LineSeries {
   /** 線の色（`var(--chart-1)` など）。`dashed` の系列で省略すると `--chart-ref` の破線 */
   color?: string;
   dashed?: boolean;
-  /** 点（8px）を描く */
+  /** 点を描く（半径 4px）。日数が多く X の間隔が `DOT_MIN_SLOT` より狭いときは、点が線を隠すので描かず、ヒントの透明な点だけ置く */
   dots?: boolean;
   /** 線の右端に書くラベル（直接ラベル） */
   endLabel?: string;
@@ -96,6 +96,8 @@ export function LineChart({
     : (i: number) => m.l + (n > 1 ? (iw * i) / (n - 1) : iw / 2);
   const y = (v: number) => m.t + ih - (ih * (v - dom.min)) / (dom.max - dom.min);
   const step = labelStep(n, iw, align ? 44 : 56);
+  // 点を描けるか。日数が多く X の間隔が狭いときは、点が線を隠すので描かない（ヒントの透明な点だけ）
+  const fit = dotsFit(align ? iw / Math.max(1, n) : n > 1 ? iw / (n - 1) : iw);
   const tickValues = ticks(dom.min, dom.max, tickCount);
   // X 軸のラベルの段。2 段のときは 1 段目を上に、2 段目を下に置く。
   // 色は style で付ける（`.chart-axis text` の CSS の fill は、SVG の fill 属性より強い）
@@ -205,6 +207,7 @@ export function LineChart({
         const lineStyle = se.color ? { stroke: se.color } : undefined;
         const present = pts.filter((p): p is { i: number; v: number } => p !== null);
         const last = present[present.length - 1];
+        const showDots = Boolean(se.dots) && fit;
         const tipOf = (p: { i: number; v: number }) =>
           se.pointTips?.[p.i] ?? `${se.label} ${labels[p.i] ?? ""}: ${formatValue(p.v, format)}`;
         return (
@@ -226,22 +229,22 @@ export function LineChart({
                 </path>
               ) : null;
             })}
-            {se.dots &&
+            {showDots &&
               present.map((p) => (
                 <circle
                   key={p.i}
                   className="chart-dot"
                   cx={coord(x(p.i))}
                   cy={coord(y(p.v))}
-                  r="4"
+                  r={DOT_RADIUS}
                   fill={se.color}
                   opacity={dim.has(p.i) ? DIM_OPACITY : undefined}
                 >
                   <title>{tipOf(p)}</title>
                 </circle>
               ))}
-            {!se.dots &&
-              se.pointTips &&
+            {!showDots &&
+              (se.dots || se.pointTips) &&
               present.map((p) => (
                 <circle key={p.i} data-part="tip" cx={coord(x(p.i))} cy={coord(y(p.v))} r="5" fill="transparent">
                   <title>{tipOf(p)}</title>
