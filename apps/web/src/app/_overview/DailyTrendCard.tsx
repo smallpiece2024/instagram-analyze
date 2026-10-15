@@ -2,9 +2,9 @@ import { Card } from "@/components/Card";
 import { LineChart } from "@/components/charts/LineChart";
 import { VBars } from "@/components/charts/VBars";
 import { formatCount, formatDateShort, formatJst, mediaTitle } from "@/lib/format";
-import { clampPeriod, eachDay, type Period, type Ymd } from "@/lib/period";
+import { clampPeriod, compareYmd, eachDay, periodLength, type Period, type Ymd } from "@/lib/period";
 import { getMetricChangeDates, getPostMarkers } from "@/lib/queries/overview";
-import { getDailySeries, getFollowerSeries } from "@/lib/queries/period-summary";
+import { getDailySeries, getFollowerChange, getFollowerSeries } from "@/lib/queries/period-summary";
 import { LoadError } from "./states";
 
 export interface DailyTrendCardProps {
@@ -28,12 +28,26 @@ const WIDTHS = [
 
 /**
  * リーチ数の日次の棒と、フォロワー数の折れ線（3.2 節）。X 軸は太平洋時間の日付で、フォロワー数（日本時間の日付）は
- * 同じ日付の位置に置く（6 章）。投稿の印は投稿日時を太平洋時間の日付に直した位置
+ * 同じ日付の位置に置く（6 章）。投稿の印は投稿日時を太平洋時間の日付に直した位置。
+ * 軸の終わりは、期間の終わり（リーチ数のある最新の日）とフォロワー数の最新の記録の日の遅い方。日次指標は閉じた日しか
+ * 取れず 2 日遅れるので、右端はリーチ数の棒が空になり、折れ線だけ最新の記録まで伸びる（折れ線の右端の数と
+ * フォロワー数のタイルが同じ記録になる。2026-10-15 のユーザーの決定）
  */
 export async function DailyTrendCard({ accountId, period, dataStart, dailyFetchedAt, className }: DailyTrendCardProps) {
+  // 最新の記録は `OverviewKpis` のフォロワー数のタイルと同じ読み出し（同じ引数なので `cache` で 1 回になる）
+  const change = await getFollowerChange(accountId, period.from, period.to);
+  if (!change.ok) {
+    return (
+      <Card title={TITLE} className={className}>
+        <LoadError reason={change.reason} />
+      </Card>
+    );
+  }
+  const latestOn = change.data.latest?.captured_on ?? null;
+  const to = latestOn !== null && compareYmd(latestOn, period.to) > 0 ? latestOn : period.to;
   // 日次指標の始まりより前の日は「欠け」ではないので軸に入れない（ある分だけ描く）
-  const clamped = clampPeriod(period, dataStart, period.to);
-  const axis = clamped?.period ?? period;
+  const clamped = clampPeriod({ from: period.from, to }, dataStart, to);
+  const axis = clamped?.period ?? { from: period.from, to };
   const [daily, followers, markers, changes] = await Promise.all([
     getDailySeries(accountId, axis.from, axis.to),
     getFollowerSeries(accountId, axis.from, axis.to),
@@ -81,7 +95,8 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
     .filter((i): i is number => i !== undefined)
     .map((index) => ({ index, label: "指標変更" }));
 
-  const shortened = clamped?.truncated ? `${axis.from} から ${dates.length} 日分` : null;
+  // 「N 日分」は日次指標の日数（右端の未反映の日は数えない）
+  const shortened = clamped?.truncated ? `${axis.from} から ${periodLength({ from: axis.from, to: period.to })} 日分` : null;
 
   return (
     <Card
@@ -89,8 +104,8 @@ export async function DailyTrendCard({ accountId, period, dataStart, dailyFetche
       className={className}
       foot={
         <>
-          <span style={{ color: "var(--chart-marker)" }}>▲</span> は投稿のあった日・日次指標: {axis.to}
-          まで・取得 {formatJst(dailyFetchedAt)}
+          <span style={{ color: "var(--chart-marker)" }}>▲</span> は投稿のあった日・リーチ数の反映は 2 日遅れます・日次指標:{" "}
+          {period.to} まで・取得 {formatJst(dailyFetchedAt)}
           {shortened && `・${shortened}`}
         </>
       }
