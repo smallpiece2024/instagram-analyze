@@ -74,6 +74,21 @@ export function labelStep(count: number, innerWidth: number, minGap: number): nu
   return Math.max(1, Math.ceil(count / Math.max(2, Math.floor(innerWidth / minGap))));
 }
 
+/** 折れ線の点の半径（px）。縁（`.chart-dot` の 1.5px）込みで直径 9.5px */
+export const DOT_RADIUS = 4;
+
+/**
+ * 点を描くのに要る X の間隔（px）。点の直径 9.5px に、点と点の間に線が見える分（約 4 割）を足した値。これより狭いと
+ * 点の縁が線を隠して数珠に見えるので、点を描かずヒントの透明な点だけ置く。
+ * 760px（概要の PC）: 9 日 79px、32 日 22px は描く。92 日 7.7px は描かない。340px（スマートフォン）: 9 日 32px は描く。32 日 9px は描かない
+ */
+export const DOT_MIN_SLOT = 16;
+
+/** 点を描けるか（X の間隔が `DOT_MIN_SLOT` 以上） */
+export function dotsFit(slot: number): boolean {
+  return Number.isFinite(slot) && slot >= DOT_MIN_SLOT;
+}
+
 /** null で区切った連続区間（折れ線は欠けた日をまたいで線を結ばない） */
 export function segments<T>(items: readonly (T | null)[]): { start: number; items: T[] }[] {
   const out: { start: number; items: T[] }[] = [];
