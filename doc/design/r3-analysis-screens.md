@@ -819,7 +819,7 @@ where account_id = $1 and kind = $2 and media_id <> $3
 ### 5.1 トークン
 
 - `doc/design-system.md` の `:root` を `apps/web/src/app/globals.css` にそのまま移す（PC 幅の `--card-pad: 22px` の media query も）。
-- ただし先頭の Google Fonts の `@import` は使わず、`next/font/google` の `Noto_Sans_JP`（400、500、700）に置き換える（ビルド時に取り込み、外部へのリクエストを出さない）。`layout.tsx` の Geist と Geist_Mono を外し、フォントの CSS 変数を `--font-body` と `--font-num` の先頭に入れる。日本語のフォントのサブセットの指定（`subsets`、`preload`）は実装時に `node_modules/next/dist/docs/01-app/01-getting-started/13-fonts.md` で確かめる（今回は読んでいない）。
+- ただし先頭の Google Fonts の `@import` は使わない。書体は端末のフォントにし、Yahoo!ニュースと同じ `Helvetica Neue, Arial, Hiragino Kaku Gothic ProN, Meiryo, sans-serif` を `--font-body` と `--font-num` に入れる（2026-10-21 に変更。それまでは `next/font/google` の `Noto_Sans_JP` を使っていたが、Google Fonts の応答をビルド時に解釈できず Vercel の本番ビルドが失敗したことがあり、字形もきれいでないため。Web フォントは読み込まない）。
 - Tailwind CSS 4 との関係: トークンは `:root` の普通の CSS 変数として置き、`@theme` には入れない。Tailwind の `--color-*` の名前空間にトークン（`--color-bg`、`--color-text` など）を入れるとユーティリティ（`bg-bg`、`text-text`）が生まれて名前が紛らわしくなるため。既存の Tailwind の既定の色（`neutral-500` など）は使うのをやめる。
 - 部品の見た目は、R2.5 の `doc/design-lab/v3/lab.css` のクラス（`topbar`、`nav`、`page-head`、`card`、`kpis`、`kpi`、`grid`／`col-*`、`table`、`tag`、`chip`、`callout`、`status`、`progress`、`media-card`、`only-d`／`only-m`、`hide-m` など）を `globals.css`（または `src/styles/` の数本の CSS）に移して使う。Tailwind のユーティリティは余白や配置の小さな調整にだけ使う。`lab.css` は今回読んでいないので、移すときに案 01 以外の案の切り替え（`--card-tilt` など使わない変数）を落とす。
 - 移した後、R1 の画面に残る Tailwind の色のクラスは置き換える。

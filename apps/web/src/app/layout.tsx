@@ -1,21 +1,8 @@
 import type { Metadata } from "next";
-import { Noto_Sans_JP } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
 import { checkAccess, currentClaims } from "@/lib/auth";
 import { signOutAction } from "./login/actions";
 import "./globals.css";
-
-/**
- * 書体（R3 設計 5.1 節）。ビルド時に取り込み、ブラウザから Google へのリクエストを出さない。
- * Noto Sans JP の `subsets` に日本語はない（latin、latin-ext、cyrillic、vietnamese だけ）。
- * 日本語の字形は unicode-range で分けたファイルを必要なときに読むので、先読み（preload）は latin だけにする
- */
-const notoSansJp = Noto_Sans_JP({
-  weight: ["400", "500", "700"],
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-noto-sans-jp",
-});
 
 export const metadata: Metadata = {
   title: "Instagram 分析ツール",
@@ -35,7 +22,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const signedIn = claims !== undefined;
   const allowed = signedIn && (await checkAccess("/")) === "pass";
   return (
-    <html lang="ja" className={`${notoSansJp.variable} h-full`}>
+    <html lang="ja" className="h-full">
       <body className="flex min-h-full flex-col">
         <AppShell
           brand={BRAND}
