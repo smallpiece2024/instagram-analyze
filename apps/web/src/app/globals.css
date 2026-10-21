@@ -3,7 +3,7 @@
 /* ==============================================================
    デザインシステム（R2.5 の案 01「スタンダード・朱」。doc/design-system.md、R3 設計 5.1 節）
    - トークンは :root の普通の CSS 変数。Tailwind の @theme には入れない（bg-bg などの紛らわしいユーティリティを作らない）
-   - 書体は next/font/google の Noto Sans JP（layout.tsx の --font-noto-sans-jp）。Google Fonts の @import は使わない
+   - 書体は端末のフォント（Yahoo!ニュースと同じ指定）。Web フォントは読み込まない（R3 設計 5.1 節）
    - 部品のクラスは doc/design-lab/v3/lab.css と parts.css から移した。案 01 で使わない切り替え（傾き、模様）は規則から落とした
    - 要素の既定は @layer base、部品は @layer components に置く。層の外に書くと Tailwind のユーティリティより強くなり、
      R1 の画面のユーティリティ（text-blue-700 など）を上書きしてしまうため
@@ -44,9 +44,9 @@
   --chart-ref: #5b6778;
   --chart-marker: #c5cdd7;
   --heat: #2a78d6;
-  --font-body: var(--font-noto-sans-jp), "Noto Sans JP", system-ui, sans-serif;
+  --font-body: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   --font-heading: var(--font-body);
-  --font-num: var(--font-noto-sans-jp), "Noto Sans JP", system-ui, sans-serif;
+  --font-num: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   --font-size-base: 14px;
   --font-size-sm: 12.5px;
   --font-size-xs: 11px;
