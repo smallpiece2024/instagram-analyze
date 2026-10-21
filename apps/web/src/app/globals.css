@@ -44,9 +44,9 @@
   --chart-ref: #5b6778;
   --chart-marker: #c5cdd7;
   --heat: #2a78d6;
-  --font-body: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  --font-body: "ヒラギノ角ゴ Pro W3", "Hiragino Kaku Gothic Pro", "メイリオ", Meiryo, Osaka, "ＭＳ Ｐゴシック", "MS PGothic", sans-serif;
   --font-heading: var(--font-body);
-  --font-num: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  --font-num: var(--font-body);
   --font-size-base: 14px;
   --font-size-sm: 12.5px;
   --font-size-xs: 11px;
