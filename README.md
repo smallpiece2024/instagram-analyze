@@ -257,6 +257,8 @@ npx supabase logout                                # 作業が終わったら
 
 設定: Root Directory `apps/web`、Node.js 24.x、「Include source files outside of the Root Directory」をオン、Settings → Build and Deployment の Ignored Build Step に `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`（プレビューを作らない）。
 
+beads の `bd dolt push` は、既定では印のブランチ `__dolt_remote_info__`（`DOLT_REMOTE.md` 1 本）を GitHub に force push する。Vercel はこれをプレビューとしてビルドしようとし、`apps/web` がないので Root Directory の確認で失敗する（Ignored Build Step はその後に動くので効かない。2026-10-31）。環境変数 `DOLT_REMOTE_INFO_BRANCH` を「設定して空」にすると Dolt はこのブランチを作らないので、`.claude/settings.json` の `env` に入れてある。自分の端末から `bd dolt push` を打つときは、その端末にも同じ変数を入れる（Windows のユーザー環境変数は空にできないが、Dolt は値の空白を取り除くので半角スペース 1 つでよい）。
+
 環境変数は Environments を Production だけにして入れる。区分（Vercel の Config／Secret。Secret は保存後に値を読み返せない）は表のとおり。入れたあとは再デプロイしないと効かない。
 
 | 段 | 変数（Production） |

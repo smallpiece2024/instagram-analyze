@@ -47,7 +47,7 @@ Supabase 公式スキル（`supabase`、`supabase-postgres-best-practices`）は
 - **課題**: 作業を始める前に `bd ready` を見て、対象を `bd update <id> --claim` する。無ければ `bd create` で作ってから始める。途中で分かった後回しの作業も `bd create` で残す。終わったら `bd close <id> --reason="..."`。日付を待つものは `bd defer <id> --until=...`、ユーザーの判断待ちは説明にそう書く。
 - **何を書くか**: 課題には「何を、なぜ、どこまでで完了か」を書く。経緯と決定の詳細は今までどおり `doc/progress.md` と設計書に書き、課題からは章番号で指す。課題は `.beads/issues.jsonl` として公開リポジトリに載るので、アカウントの ID、ユーザー名、メディア ID、秘密情報を書かない。
 - **記憶**: `bd remember` は使わない。利用者の好みは Claude Code の自動メモリ、プロジェクトの事実は `doc/` に置く。
-- **git は自律的に行う**（Beads の区画の「Conservative」の既定は使わない）: 作業はブランチで行い、区切りごとに `git add` と `git commit`（日本語のメッセージ）をする。まとまったら main へ `--no-ff` でマージして main を push する。push の前に `bd dolt push` で課題の DB も GitHub（`refs/dolt/data`）に送る。
+- **git は自律的に行う**（Beads の区画の「Conservative」の既定は使わない）: 作業はブランチで行い、区切りごとに `git add` と `git commit`（日本語のメッセージ）をする。まとまったら main へ `--no-ff` でマージして main を push する。push の前に `bd dolt push` で課題の DB も GitHub（`refs/dolt/data`）に送る。`bd dolt push` が印のブランチ `__dolt_remote_info__` を作って Vercel のプレビューを失敗させないよう、環境変数 `DOLT_REMOTE_INFO_BRANCH` を空で設定している（`.claude/settings.json` の `env`。理由は README の Vercel の節）。ユーザーが自分の端末から打つときは、その端末にも同じ変数を入れる。
 - **文脈が消えても残るように**: `/clear`、`/compact`、新しいセッションでは SessionStart のフック（`.claude/settings.json`）が `bd prime` を流す。続きは `bd ready` と `bd list --status=in_progress` で拾う。作業の途中で区切るときは、課題に `bd note <id> "..."` で今の状態と次の 1 手を書いてからコミットする。
 
 

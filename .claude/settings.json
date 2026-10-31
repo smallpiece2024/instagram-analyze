@@ -11,6 +11,9 @@
       }
     }
   },
+  "env": {
+    "DOLT_REMOTE_INFO_BRANCH": ""
+  },
   "hooks": {
     "SessionStart": [
       {
