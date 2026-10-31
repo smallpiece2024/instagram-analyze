@@ -1,14 +1,27 @@
 {
+  "enabledPlugins": {
+    "postgres-best-practices@supabase-agent-skills": true,
+    "supabase@supabase-agent-skills": true
+  },
   "extraKnownMarketplaces": {
     "supabase-agent-skills": {
       "source": {
-        "source": "github",
-        "repo": "supabase/agent-skills"
+        "repo": "supabase/agent-skills",
+        "source": "github"
       }
     }
   },
-  "enabledPlugins": {
-    "supabase@supabase-agent-skills": true,
-    "postgres-best-practices@supabase-agent-skills": true
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime --hook-json",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
   }
 }
