@@ -1,6 +1,6 @@
 # R6 月次レポート、伸びた投稿の検出、低下の通知の設計
 
-- 版: 0.5（2026-10-13）。確認事項 Q1〜Q17 はすべて推奨どおりに決定（2026-10-13、ユーザー。Q12 は解消済み）。実装と本番への反映、受け入れまで完了
+- 版: 0.6（2026-11-02）。**4 章の低下の通知（F-RPT-11）は 2026-11-02 に取り下げ、実装から外した**（ユーザーは運用だけを担い、投稿の成績の通知は不要。課題 ia-f9q）。3 章と 5〜6 章（レポート、伸びた投稿の印）はそのまま。0.5（2026-10-13）で実装と本番への反映、受け入れまで完了
 
 ## 版と変更履歴
 
@@ -11,6 +11,7 @@
 | 0.3 | 2026-10-13 | ユーザーが Q1〜Q17 をすべて推奨どおりに決めた（Q12 は解消済み）。Q5 は (a)（1.5 × IQR のまま）、Q9 は 10 pt かつ直近 7 日に投稿がなければ判定しない。段階 0 の本番の数は Q の判断材料ではなくなったので、受け入れ（7.3）の記録と一緒に段階 5 で数える（8 章） |
 | 0.4 | 2026-10-13 | 段階 1〜3 の実装で設計から変えた点を記録した。**DB（段階 1）**: `comment on column` を `share_flag` と `peer_n` に足した。性能は `analyze` の後に計測する（3.2 節に結果を追記。投入直後で統計が古いと一覧＋結合が 300 件で 5.8 秒）。手元の照合順序は ICU で U+2028・ZWJ は通り CR・タブ・NEL は拒む（本番は段階 4 で `scripts/r6-production-counts.sql` の 0 番で確かめる）。fixture に `postMetrics`、`KIND_COLUMNS` を足した。**ワーカー（段階 2a）**: `readNonFollowerReachWindows` は `latest` も返す。SQL は `left join` にして使えた日が 0 日でも `no_history` を出す（inner join だと 0 行で黙って判定しない）。`no_history=<kinds>` と `no_posts=` は該当があっても出す（`reason=no_history` は該当なしのときだけ）。`no_history` と `no_posts` が重なれば `no_history`。交差乗算は `× 100 ≥ … × PT` に一般化。既存の結合テスト 3 件の期待値に `no_history=stories` を足した。**画面の共通（段階 2b）**: 既定の月は選べる月の中に収める（データが今月から始まると前月が範囲の外になり、隠し項目の `month` が Action で拒まれるため）。`ACCOUNT_METRIC_DEFINITIONS` に `followers_end` を足した（既存の `followers` の説明は「最新の記録」で月末の値に合わないため）。`OverviewKpis` は純関数 `followerKpi` を切り出してテストする。`saved(message?)`。`resolveReportMonth` に `fellBack`。**レポート（段階 3A）**: 6 節の下位はシェア率の低い順に表示（選び方は T10 のまま）。`WIDTHS` は 1140／340（全幅のカード）。5〜7 節の「—」は理由なし。1〜9 節を Client の `ReportNotesProvider`（Context）で包み、カードは Server Component のまま `children` で渡す（1 節と 9 節が同じ `useActionState` を見るため）。送信中の印は R5 の `SubmitButton` と同じ markup を直書き（`PendingMark` は Link 専用）。8 節のストーリーズは 1 段目比だけ。ファネルの 1 段目が 0 なら棒を描かない。`clampPeriod` は `to` だけ切り詰める。記入欄の読み出しに失敗したらフォームを出さない（空で上書きしないため）。2 節の `OverviewKpis` は `Card` の中（見た目は段階 5 で確認）。認可などで落ちても `values` を返す。月のチップは既定の月も `?month=` を付ける。**印（段階 3B）**: CSV の 2 列は `route.ts` で `MEDIA_CSV_COLUMNS` の末尾に足す（`lib/csv.ts` と `csv.test.ts` は変えない）。`ShareFlag` 型は `lib/queries/media.ts` に 1 か所。比較対象 0 件の四分位は `no_baseline_data` の「—」。ビューに行がない投稿（起きない）は行を出さない。**段階 0**: 本番の数は段階 5 で `scripts/r6-production-counts.sql` を使って数える。**段階 5 のレビュー（2026-10-13）**: セキュリティ（高・中なし。低 1: 正規表現とテストの不可視文字をエスケープ表記に。確認のみ 4）、SQL（高なし。中 1: `[[:cntrl:]]` の判定が照合順序で変わり、本番が libc だと U+2028／U+2029 が拒まれる → Action の正規化で `\n` にそろえた（6.2 節）。低 5 は見送り: `filter (...)::float8` の括弧の統一、設計 4.3 節の SQL を実装に合わせる（反映済み）、結合側を `materialized` の CTE に閉じ込める案、`countRecentPosts` の索引、窓の 2 回の集約。確認のみ 6: 特殊な投稿自身は判定する（3.6 節の意図どおり）、`accounts` のロックは収集の時間を避ける、など）、品質（別記） |
 | 0.5 | 2026-10-13 | 段階 4（ユーザーの `db push` → main のマージ → Vercel）と受け入れ（7.3 節）を終え、R6 を完了にした。本番の判定の内訳: フィード 6 件は判定対象 0（直前の同種が 8 件未満）、リール 19 件は判定対象 11・印 0（全件にシェアがあり Q3 > 0。分布の外に出た投稿がない）。印なしは規則どおりで、動作は手元の fixture の結合テストで確認済み。レポートの受け入れ（既定の前月、9 節、記入欄の保存、2,001 文字の失敗で本文が残る）はユーザーが本番で確認。翌朝の daily の `check-alerts` の確認は進捗記録 11 章の次回やること |
+| 0.6 | 2026-11-02 | 4 章（低下の通知。F-RPT-11）を取り下げた。ユーザーは運用だけを担い、投稿の成績の通知は要らない（10-30 から 4 日続けて毎朝の失敗メールになり、運用の異常と見分けにくかった）。`jobs/alerts.ts` と `commands/check-alerts.ts` から `non_follower_reach_drop`、`follower_drop`、`noPosts`／`no_posts=` を外し、`db/alert-signals.ts` とその結合テスト・fixture を削除。`no_history=<kinds>` は `stories` だけになった。4 章の本文は検討と実装の記録として残す。課題 ia-f9q |
 
 - 要件: `doc/requirements/requirements-definition.md` 4.7 章（F-RPT-01、F-RPT-02、F-RPT-10、F-RPT-11）、5.5 章（時刻）、7 章（指標の定義。7.1 のシェア率、非フォロワーリーチ比率、7.3 のフォロワー純増、7.4 の目安値）、8.7 章（AI-01: 伸びた投稿の検出は統計で行う）、9 章（画面一覧）と 9.1 章（月次レポートの 9 節）、10 章（R6 の完了条件「前月分の月次レポートを画面に表示できる。伸びた投稿の検出が動く」）
 - 既存: R1 の表（`profile_daily`、`media_insight_snapshots`）、R2 の `web_app` ロールと `check-alerts`（`apps/worker/src/commands/check-alerts.ts`、`jobs/alerts.ts`）、R3 のビュー（`20261005000000_r3_analysis_views.sql` の `media_horizon_metrics`、`media_list_metrics`、`account_daily_wide`）、R5 の表とビュー（`20261009000000_r5_analysis.sql` の `tag_axes`、`tag_values`、`media_tags`、`story_list_metrics`）、Web の `lib/queries/period-summary.ts`、`lib/period.ts`、`app/_overview/OverviewKpis.tsx`、`lib/auth.ts`（`checkAccess(pathname)`）、`lib/request-guard.ts`（`isSameOriginPost`）、`app/tags/edit/_edit/input.ts`（R5 の入力の検査と状態）、`components/TypeTag.tsx`（`SpecialTags`）、`components/charts/HBars.tsx`、`lib/metric-definitions.ts`（`DAY_BOUNDARY_NOTE`）、R5 設計 6.2 節（Server Action の形）
@@ -27,7 +28,7 @@
 | 区分 | 内容 | 要件 |
 |---|---|---|
 | DB | 伸びた投稿の判定のビュー `media_outlier_flags`（同じ種類の直前 20 投稿のシェア率の分布と比べる。順序集合の集約と lateral で、ワーカーのジョブは足さない）。レポートの記入欄の表 `report_notes`（`web_app` から書く） | F-RPT-10、F-RPT-02 |
-| ワーカー | `check-alerts --scope daily` に `non_follower_reach_drop`（非フォロワーリーチ比率の低下）と `follower_drop`（フォロワーの急減）を足す。届く経路は既存の GitHub の失敗メール | F-RPT-11 |
+| ワーカー | `check-alerts --scope daily` に `non_follower_reach_drop`（非フォロワーリーチ比率の低下）と `follower_drop`（フォロワーの急減）を足す。届く経路は既存の GitHub の失敗メール。**2026-11-02 に取り下げ（0.6）** | F-RPT-11 |
 | 画面 | レポート `/report`（既定は前月。`?month=YYYY-MM`）。9.1 章の 9 節を既存の部品で組む。1 節（総評）と 9 節（翌月の施策）は利用者が書き、Server Action で保存する。投稿一覧と投稿詳細に「伸びた」「課題」の印を出す。ナビに「レポート」を足す | F-RPT-01、F-RPT-02、F-RPT-10 |
 
 ### 1.2 R6 でやらないこと
@@ -212,6 +213,8 @@ R6 は**画面の印とレポートの 6 節まで**（Q3）。メールは送�
 ---
 
 ## 4. 低下の通知（F-RPT-11）
+
+**この章は 2026-11-02 に取り下げ、実装から外した**（ユーザーの決定。運用だけを担い、投稿の成績の通知は要らない。課題 ia-f9q）。以下は 0.5 までの検討と実装の記録。`check-alerts` に今残る判定は `token`、`stories_failed`、`stories_skipped`、`ocr_monthly_cap`（R2 設計 5.2 章、R4.1 設計 3.3 節）。
 
 ### 4.1 判定の式
 

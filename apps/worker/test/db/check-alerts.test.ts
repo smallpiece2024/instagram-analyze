@@ -32,8 +32,8 @@ const CREDENTIAL: CredentialInfo = {
   status: "valid",
 };
 
-// R6 で INFO の行に見送った判定の種類 `no_history=<kinds>` が付く（該当の有無によらず。R6 設計 4.4 節 T19）。
-// 下の期待値の `no_history=stories` はそのため
+// R6 で INFO の行に見送った判定の種類 `no_history=<kinds>` が付いた（該当の有無によらず。R6 設計 4.4 節 T19）。R6 の通知 2 つは
+// 2026-11-02 に外したが、この項目は残している（今は `stories` だけ）。下の期待値の `no_history=stories` はそのため
 describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
   const url = TEST_DATABASE_URL ?? "";
   let db: Db;
