@@ -62,7 +62,7 @@ const COMMANDS: Record<string, Command> = {
     run: () => dailyDue(),
   },
   "check-alerts": {
-    description: "トークンの期限と stories の連続失敗・見送りを調べ、該当があれば終了コード 1（--scope hourly|daily）",
+    description: "トークンの期限、stories の連続失敗・見送り、Vision の月の上限を調べ、該当があれば終了コード 1（--scope hourly|daily）",
     run: (args) => checkAlerts(args),
   },
   schedule: {
