@@ -1,6 +1,7 @@
 # R7 複数アカウントの設計
 
-- 版: 0.2（2026-10-17）。レビュー 4 本（画面、ワーカー、セキュリティ、SQL）と親の判断を反映した。確認事項 Q1〜Q12 はユーザーの決定待ち
+- **状態: 実施しない**（2026-11-02、ユーザーの決定）。複数アカウント対応はこのリポジトリでは行わない。この文書は検討の記録として残す。確認事項 Q1〜Q12 への回答と実装の手順は不要
+- 版: 0.3（2026-11-02）。本文は 0.2（2026-10-17。レビュー 4 本と親の判断を反映）のまま
 
 ## 版と変更履歴
 
@@ -8,6 +9,7 @@
 |---|---|---|
 | 0.1 | 2026-10-17 | 起草（親）。2026-10-16〜17 の検討（複数アカウント化は別リポジトリにせず今のソースを改造する、専用の BI は作らず警告は後回し、今のアカウントは変えない）と、親が 2026-10-17 に確かめた事実票（付録 A）をもとにする |
 | 0.2 | 2026-10-17 | レビュー 4 本（`nextjs-developer`、`node-worker-developer`、`security-engineer`、`postgres-sql-reviewer`。各 10 分以内、設計書と関係ファイルだけ、Web なし）と親の判断を反映。**高 2**: 切り替えは本人（`checkAccess` が `pass`）にだけ描く（N1／S1）、`timeout-minutes` の見積もりを daily の回と準備を含めて書き直し、この設計が支えるアカウント数を明記（W1）。**中**: 書き込みのフォームに表示時のアカウント ID を持たせて照合する（S2）、接続はトークンの確認を全候補で先に済ませてから登録する（S3／N2）、`runJob` の `batchStartedAt` は省略可で既定は `startedAt`（W2）、月の本数の上限の Variable を `collect.yml` に通す（W3）、`stories` の動画解析は予算外と明記（W4）、予算の上限は「8 分＋最後の 1 本」（W5）、配列は `::text[]` と `unnest with ordinality`（D1／N9）、環境変数から外したアカウントを止める手順と合計のアカウント数（D2）、既存テストの修正を明記（N3）、空の項目は捨てる（N4）、`/connect` にも戻れる（N5）、Action の検査の順を A6 にそろえ `getTargetAccount()` を呼ばない（N6）、テストの漏れ 5 点（N7）。**低**: Cookie は小文字の uuid の厳密な検査で SQL に渡さない（S4）、一覧は 10 件まで（S5）、`redirect` は try の外（S6）、認可画面で既存のページも選ぶ（S7）、`revalidatePath` の根拠（N8）、`NavLinks` から再 export しない（N10）、`defaultValue`（N11）、候補の重複除去（N12）、「うち、このアカウント」は常に出す（D5／N13）、`summarize` の項目（W6）、`scope` の判定を純粋関数に残す（W7）、`loadAlertAccounts` の `now` を外す（W8）、テストの数値と進む時計（W9／W10）、`order=` は手元の確認用（W11）、`JobContext` の規則（W12）、`.env.example` は段階 1 だけが触る（W13）、`media_id` と `account_id` の前提（D3）、索引の説明（D4）、文書更新の漏れ（D6）、`monthlyOcrUsage` を 1 つの実装に（D7）、先頭が `disconnected` でも既定（D10）。確認のみ: `daily-due` は全アカウントの最新を見る（W15。親が確認）、`React.cache` の中の `cookies()` は成り立つ（N14）、`__Host-` で別ホストから値を置けない（S8）、F-SYS-16 の守りは保たれる（S10）、Q11 は妥当（D8）、マイグレーションなしは成り立つ（D9） |
+| 0.3 | 2026-11-02 | 実施しないことを冒頭に記した（ユーザーの決定。`doc/progress.md` 13 章）。本文は 0.2 のまま |
 
 - 要件: `doc/requirements/requirements-definition.md` 2.1 章（対象アカウント）、3 章（R7）、4.3 章 F-SYS-16、4.8 章（F-ACC-01〜05。0.6 版で追加）、9 章（画面一覧）、10 章（R7 の完了条件）
 - 既存: R1 の表（`accounts`、全表の `account_id`）、ワーカーの枠組み（`apps/worker/src/jobs/framework.ts` の `runJobsForActiveAccounts`、`runJob`、`JobContext.startedAt`）、`jobs/groups.ts`、`jobs/video-analysis.ts`、`jobs/video-text.ts`、`db/video-text.ts`（`monthlyOcrUsage`）、`jobs/alerts.ts`、`commands/check-alerts.ts`、`commands/daily-due.ts`、Web の `lib/queries/account.ts`（`getTargetAccount`）、`lib/env.ts`（`readEnv`）、`lib/meta-connect.ts`（`handleCallback`、`selectCandidates`）、`lib/queries/register-credential.ts`、`app/layout.tsx`、`components/AppShell.tsx`、`components/NavLinks.tsx`、`app/report/actions.ts`、`app/tags/edit/actions.ts`（Server Action の形）、`lib/request-guard.ts`、`lib/supabase/cookie-options.ts`、`app/jobs/_components/ocr-usage-card.tsx`、`lib/queries/ocr-usage.ts`、`.github/workflows/collect.yml`
