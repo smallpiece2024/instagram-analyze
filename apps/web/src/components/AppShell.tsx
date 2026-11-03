@@ -4,6 +4,12 @@ import Link from "next/link";
 import { NavLinks } from "./NavLinks";
 import brandMark from "./brand-mark.png";
 
+/**
+ * フッターのクレジットのリンク先。Small Piece の決まりの形 `?utm_source=<サービス名>&utm_medium=referral`。
+ * サービス名はリポジトリ名。設置場所は 1 か所なので `utm_content` は付けない
+ */
+const CREDIT_URL = "https://smallpiece.jp/?utm_source=instagram-analyze&utm_medium=referral";
+
 export interface AppShellProps {
   /** ブランドの表示（アカウント名。分からなければツール名） */
   brand: string;
@@ -38,7 +44,7 @@ export function AppShell({ brand, showNav, actions, children }: AppShellProps) {
       {children}
       <footer className="foot">
         Powered by{" "}
-        <a href="https://smallpiece.jp/" target="_blank" rel="noopener noreferrer">
+        <a href={CREDIT_URL} target="_blank" rel="noopener noreferrer">
           Small Piece
         </a>
       </footer>
