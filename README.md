@@ -5,6 +5,19 @@
 - 要件定義: [doc/requirements/requirements-definition.md](doc/requirements/requirements-definition.md)
 - 事前調査: [doc/preliminary/](doc/preliminary/)
 
+## サービス情報
+
+| 項目 | 内容 |
+|---|---|
+| サービス名 | instagram-analyze |
+| 段階 | 公開中 |
+| GitHub リポジトリ | https://github.com/smallpiece2024/instagram-analyze |
+| URL | 非公開（本番の URL はリポジトリに書かない） |
+| インフラ | Supabase、Vercel、GitHub Actions、Healthchecks、UptimeRobot、Meta Graph API |
+| 説明 | 自分の Instagram プロアカウントのデータを Meta 公式 API から継続的に取得して蓄積し、どんな投稿がなぜ伸びたのかを分析するツール |
+| 公開日 | 2026-10-03 |
+| UptimeRobot monitor ID | 804540644 |
+
 ## 構成
 
 | ディレクトリ | 内容 |
