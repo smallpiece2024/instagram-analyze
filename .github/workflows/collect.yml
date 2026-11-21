@@ -198,6 +198,9 @@ jobs:
           WORKER_SIMULATE_ALERT: ${{ env.SIMULATE }}
           # 月の上限の通知（daily の回だけ判定。R4.1 設計 3.3 節）。hourly のステップと同じ変数
           WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT: ${{ vars.WORKER_VIDEO_TEXT_MONTHLY_UNIT_LIMIT }}
+          # 容量の上限（MB。daily の回だけ 8 割で警告。課題 ia-6ui）。GitHub の変数。未設定なら既定（8192、102400 = Pro に含まれる 8 GB と 100 GB）
+          WORKER_DB_SIZE_LIMIT_MB: ${{ vars.WORKER_DB_SIZE_LIMIT_MB }}
+          WORKER_STORAGE_SIZE_LIMIT_MB: ${{ vars.WORKER_STORAGE_SIZE_LIMIT_MB }}
 
       # 走ったことだけを知らせる（成否は GitHub のメールが担う。R2 設計 5.3 章、5.5 章）
       - name: ping

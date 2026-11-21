@@ -38,6 +38,8 @@ const VIEWS = [
   "ocr_monthly_usage",
   // R6（20261013000000_r6_report.sql）
   "media_outlier_flags",
+  // 上限の警告（20261121000000_capacity_alerts.sql）
+  "collect_run_durations",
 ] as const;
 
 const READABLE_TABLES = [
@@ -61,6 +63,8 @@ const READABLE_TABLES = [
   "ocr_usage",
   // R6（20261013000000_r6_report.sql）。書き込み（insert と update の列指定、delete なし）は r6-views.test.ts で確かめる
   "report_notes",
+  // 上限の警告（20261121000000_capacity_alerts.sql）。読むだけ（書くのは pg_cron の postgres）
+  "capacity_daily",
 ] as const;
 
 function fakeIgUserId(): string {

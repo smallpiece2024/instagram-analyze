@@ -12,9 +12,15 @@
  * | `stories_failed` | 両方（daily の回も hourly を含む） | `stories` の直近 2 回（`running` を除く）がどちらも `failed`（`partial`／`skipped` は数えない） |
  * | `stories_skipped` | 両方 | `stories` の直近 3 回がすべて `skipped` |
  * | `ocr_monthly_cap` | daily のみ | 今月（UTC）の Vision のユニットか本数が上限以上（`>=`。R4.1 設計 3.3 節） |
+ * | `run_duration` | 両方 | 最新の回（収集 1 回）の所要が 15 分を超える（`>`。900 秒ちょうどは警告しない。値がなければ判定しない。課題 ia-6ui） |
+ * | `db_size` | daily のみ | DB の大きさが上限の 8 割以上（`>=`。上限は `WORKER_DB_SIZE_LIMIT_MB`） |
+ * | `storage_size` | daily のみ | Storage の大きさが上限の 8 割以上（`>=`。上限は `WORKER_STORAGE_SIZE_LIMIT_MB`） |
  * | 履歴なし | 両方 | `stories` の記録が 2 回に満たない → 判定しない（`noHistory`、`noHistoryKinds`） |
  *
- * アカウントは `ordinal/total` の連番で表し、ID やユーザー名は持ち込まない（公開リポジトリの GitHub Actions のログに出るため）
+ * アカウントは `ordinal/total` の連番で表し、ID やユーザー名は持ち込まない（公開リポジトリの GitHub Actions のログに出るため）。
+ * 下の 3 つ（`run_duration`、`db_size`、`storage_size`）は全アカウントの合計なので、アカウントを持たず、アカウントが 0 件でも判定する。
+ * 所要のしきい値が 15 分なのは、`collect.yml` のジョブの制限時間（30 分）を超えた回は GitHub に打ち切られて
+ * `check-alerts` が動かないため（制限時間の半分で知らせる）
  */
 import { DATA_ACCESS_WARN_DAYS, daysLeft } from "./token-check.js";
 
@@ -42,6 +48,12 @@ export interface AlertInput {
   accounts: AlertAccount[];
   /** `ocr_monthly_cap` の上限（`WorkerConfig` の 2 つ）。省略時は判定しない */
   ocrLimits?: { unitLimit: number; maxVideos: number };
+  /** 最新の回（収集 1 回）の所要（秒）。回がない、または読んでいなければ省略（判定しない） */
+  latestRunSeconds?: number;
+  /** 今の容量（バイト）。読んでいなければ省略（判定しない。`daily` だけ読む） */
+  capacity?: { dbBytes: number; storageBytes: number };
+  /** 容量の上限（MB = 1024 × 1024 バイト。`CheckAlertsConfig` の 2 つ）。省略時は判定しない */
+  capacityLimits?: { dbLimitMb: number; storageLimitMb: number };
 }
 
 export type Alert =
@@ -49,7 +61,9 @@ export type Alert =
   | { kind: "token"; ordinal: number; total: number; daysLeft: number | undefined; status: string }
   | { kind: "stories_failed"; ordinal: number; total: number; runs: number }
   | { kind: "stories_skipped"; ordinal: number; total: number; runs: number }
-  | { kind: "ocr_monthly_cap"; ordinal: number; total: number; units: number; videos: number };
+  | { kind: "ocr_monthly_cap"; ordinal: number; total: number; units: number; videos: number }
+  | { kind: "run_duration"; seconds: number; limitSeconds: number }
+  | { kind: "db_size" | "storage_size"; usedMb: number; limitMb: number; percent: number };
 
 /** 履歴が足りず見送った判定の種類（固定の語。ログの `no_history=<kinds>`） */
 export type NoHistoryKind = "stories";
@@ -68,6 +82,12 @@ export const STORIES_FAILED_RUNS = 2;
 export const STORIES_SKIPPED_RUNS = 3;
 /** credential がないときの `status=` の表示 */
 export const NO_CREDENTIAL_STATUS = "none";
+/** `run_duration` のしきい値（秒）。`collect.yml` の `timeout-minutes: 30` の半分。これを超えたら警告 */
+export const RUN_DURATION_WARN_SECONDS = 900;
+/** `db_size` と `storage_size` のしきい値（上限に対する割合）。これ以上なら警告 */
+export const CAPACITY_WARN_RATIO = 0.8;
+
+const BYTES_PER_MB = 1024 * 1024;
 
 /** `noHistoryKinds` の並び（判定の順） */
 const NO_HISTORY_KIND_ORDER: readonly NoHistoryKind[] = ["stories"];
@@ -111,6 +131,19 @@ function evaluateStories(account: AlertAccount, total: number): { alert: Alert |
   return { alert: undefined, noHistory: false };
 }
 
+/** 最新の回の所要が 15 分を超えたら（`>`）`run_duration`。`seconds` は切り上げ（900.4 秒は 901 と出す） */
+function evaluateRunDuration(seconds: number | undefined): Alert | undefined {
+  if (seconds === undefined || !(seconds > RUN_DURATION_WARN_SECONDS)) return undefined;
+  return { kind: "run_duration", seconds: Math.ceil(seconds), limitSeconds: RUN_DURATION_WARN_SECONDS };
+}
+
+/** 使用量が上限の 8 割以上（`>=`）なら警告。`usedMb` と `percent` は切り捨て */
+function evaluateCapacity(kind: "db_size" | "storage_size", usedBytes: number, limitMb: number): Alert | undefined {
+  const limitBytes = limitMb * BYTES_PER_MB;
+  if (!(limitBytes > 0) || usedBytes < limitBytes * CAPACITY_WARN_RATIO) return undefined;
+  return { kind, usedMb: Math.floor(usedBytes / BYTES_PER_MB), limitMb, percent: Math.floor((usedBytes * 100) / limitBytes) };
+}
+
 /**
  * 判定の本体。`now` は残り日数の基準（UTC、切り捨て）。`simulate` が true なら先頭に `simulated` を足す
  * （本物の判定も続けて行う）。入力は変更しない
@@ -131,6 +164,15 @@ export function evaluateAlerts(input: AlertInput, now: Date, scope: AlertScope, 
     const stories = evaluateStories(account, total);
     if (stories.alert) alerts.push(stories.alert);
     if (stories.noHistory) noHistoryKinds.add("stories");
+  }
+  // 全アカウントの合計の判定（アカウントが 0 件でも行う）
+  const duration = evaluateRunDuration(input.latestRunSeconds);
+  if (duration) alerts.push(duration);
+  if (scope === "daily" && input.capacity && input.capacityLimits) {
+    const dbSize = evaluateCapacity("db_size", input.capacity.dbBytes, input.capacityLimits.dbLimitMb);
+    if (dbSize) alerts.push(dbSize);
+    const storageSize = evaluateCapacity("storage_size", input.capacity.storageBytes, input.capacityLimits.storageLimitMb);
+    if (storageSize) alerts.push(storageSize);
   }
   return {
     alerts,
