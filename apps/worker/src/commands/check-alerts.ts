@@ -1,12 +1,15 @@
 /**
- * `check-alerts --scope hourly|daily`: トークンの期限、`stories` の連続失敗・見送り、（daily なら）Vision の月の上限を調べ、
- * 該当があれば終了コード 1（R2 設計 5.2 章、R4.1 設計 3.3 節。F-SYS-14、NF-REL-03）。
+ * `check-alerts --scope hourly|daily`: トークンの期限、`stories` の連続失敗・見送り、（daily なら）Vision の月の上限、
+ * 収集 1 回の所要、（daily なら）DB と Storage の容量を調べ、該当があれば終了コード 1
+ * （R2 設計 5.2 章、R4.1 設計 3.3 節、課題 ia-6ui。F-SYS-14、NF-REL-03）。
  * GitHub Actions では `run-*` のあとに動かし、失敗メールで知らせる。
  * R6 で足した投稿の成績の通知 2 つ（非フォロワーリーチ比率の低下、フォロワーの急減）は 2026-11-02 に外した（課題 ia-f9q）。
  *
  * - 判定は `jobs/alerts.ts` の純関数。ここは DB の読み出しとログだけ
  * - 読むのは `accounts`（active）、`private.credentials` の状態と期限（Vault には触れない）、`job_runs` の `stories` の直近 3 件。
  *   daily ではさらに今月の Vision の利用
+ * - 上限の警告（課題 ia-6ui）: 最新の回の所要（`collect_run_durations`）は毎回、容量（`private.capacity_snapshot()`）は daily だけ読む。
+ *   どちらも全アカウントの合計で、`account=` は付かない。アカウントが 0 件でも読む
  * - ログ: 該当は全件 `WARN alert=…`、最後に必ず `INFO alerts=<n>`（履歴が足りなければ `reason=no_history` と `no_history=<kinds>`）。
  *   DB の失敗は `ERROR error_code=<SQLSTATE か TLS のコード> class=db` で終了コード 1（alert と区別できる）
  * - アカウントは `account=1/N` の連番。ID やユーザー名は出さない
@@ -15,6 +18,7 @@
 import { parseArgs } from "node:util";
 import { loadCheckAlertsConfig, type CheckAlertsConfig } from "../config.js";
 import { listActiveAccounts, readCredentialStatus } from "../db/accounts.js";
+import { latestRunDurationSeconds, readCapacity, type Capacity } from "../db/capacity.js";
 import { closeDb, connectDb, normalizeDbError, type Db } from "../db/client.js";
 import { listRecentRuns } from "../db/job-runs.js";
 import { monthlyOcrUsage } from "../db/video-text.js";
@@ -31,7 +35,10 @@ export const SCOPE_ARG_ERROR = "引数が不正（--scope hourly|daily が必須
 const NO_ERROR_CODE = "none";
 
 export interface CheckAlertsDeps {
-  config: Pick<CheckAlertsConfig, "simulateAlert" | "videoTextMonthlyUnitLimit" | "videoTextMonthlyMaxVideos">;
+  config: Pick<
+    CheckAlertsConfig,
+    "simulateAlert" | "videoTextMonthlyUnitLimit" | "videoTextMonthlyMaxVideos" | "dbSizeLimitMb" | "storageSizeLimitMb"
+  >;
   db: Db;
   log: Logger;
   secrets: SecretRegistry;
@@ -39,6 +46,10 @@ export interface CheckAlertsDeps {
   now?: () => Date;
   /** テスト用。対象のアカウント。省略時は `listActiveAccounts`。結合テストは架空のアカウントに固定する */
   listAccounts?: (db: Db) => Promise<AccountRow[]>;
+  /** テスト用。最新の回の所要（秒）。省略時は `latestRunDurationSeconds`。結合テストは手元の実データに左右されないよう固定する */
+  readLatestRunSeconds?: (db: Db) => Promise<number | undefined>;
+  /** テスト用。今の容量。省略時は `readCapacity`。`daily` のときだけ呼ぶ */
+  readCapacity?: (db: Db) => Promise<Pick<Capacity, "dbBytes" | "storageBytes">>;
 }
 
 export type ParsedScope = { ok: true; scope: AlertScope } | { ok: false; error: string };
@@ -67,6 +78,12 @@ export function alertFields(alert: Alert): LogFields {
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, runs: alert.runs };
     case "ocr_monthly_cap":
       return { alert: alert.kind, account: `${alert.ordinal}/${alert.total}`, units: alert.units, videos: alert.videos };
+    // 下の 3 つは全アカウントの合計なので account= を付けない
+    case "run_duration":
+      return { alert: alert.kind, seconds: alert.seconds, limit_seconds: alert.limitSeconds };
+    case "db_size":
+    case "storage_size":
+      return { alert: alert.kind, used_mb: alert.usedMb, limit_mb: alert.limitMb, percent: alert.percent };
   }
 }
 
@@ -94,9 +111,14 @@ export async function loadAlertAccounts(db: Db, accounts: AccountRow[], scope: A
 export async function runCheckAlerts(scope: AlertScope, deps: CheckAlertsDeps): Promise<boolean> {
   const now = deps.now ?? (() => new Date());
   let accounts: AlertAccount[];
+  let latestRunSeconds: number | undefined;
+  let capacity: Pick<Capacity, "dbBytes" | "storageBytes"> | undefined;
   try {
     const rows = await (deps.listAccounts ?? listActiveAccounts)(deps.db);
     accounts = await loadAlertAccounts(deps.db, rows, scope, now());
+    // 所要は毎回、容量は daily だけ（アカウントが 0 件でも読む）
+    latestRunSeconds = await (deps.readLatestRunSeconds ?? latestRunDurationSeconds)(deps.db);
+    if (scope === "daily") capacity = await (deps.readCapacity ?? readCapacity)(deps.db);
   } catch (error) {
     const failure = describeError(error, deps.secrets);
     deps.log.error({ command: COMMAND, scope, error_code: failure.code ?? NO_ERROR_CODE, class: failure.errorClass });
@@ -104,7 +126,13 @@ export async function runCheckAlerts(scope: AlertScope, deps: CheckAlertsDeps): 
     return false;
   }
   const result = evaluateAlerts(
-    { accounts, ocrLimits: { unitLimit: deps.config.videoTextMonthlyUnitLimit, maxVideos: deps.config.videoTextMonthlyMaxVideos } },
+    {
+      accounts,
+      ocrLimits: { unitLimit: deps.config.videoTextMonthlyUnitLimit, maxVideos: deps.config.videoTextMonthlyMaxVideos },
+      ...(latestRunSeconds !== undefined ? { latestRunSeconds } : {}),
+      ...(capacity ? { capacity: { dbBytes: capacity.dbBytes, storageBytes: capacity.storageBytes } } : {}),
+      capacityLimits: { dbLimitMb: deps.config.dbSizeLimitMb, storageLimitMb: deps.config.storageSizeLimitMb },
+    },
     now(),
     scope,
     deps.config.simulateAlert,

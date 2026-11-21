@@ -70,7 +70,10 @@ describe.skipIf(!TEST_DATABASE_URL)("commands/check-alerts（結合）", () => {
     secrets.addUrlParts(url);
     secrets.add(FAKE_TOKEN);
     deps = {
-      config: { simulateAlert: false, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 },
+      config: { simulateAlert: false, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30, dbSizeLimitMb: 8192, storageSizeLimitMb: 102400 },
+      // 上限の警告（課題 ia-6ui）は手元の実データ（所要、容量）に左右されないよう固定する。本物の読み出しは test/db/capacity.test.ts
+      readLatestRunSeconds: async () => undefined,
+      readCapacity: async () => ({ dbBytes: 0, storageBytes: 0 }),
       db,
       log: createLogger("debug", secrets, (line) => lines.push(line), () => NOW),
       secrets,

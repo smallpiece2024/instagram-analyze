@@ -117,7 +117,7 @@ export interface VerifyConfig extends MetaConfig {
 
 /**
  * `check-alerts` の設定（R2 設計 5.2 章）。DB を読むだけなので、Meta と Storage の変数は要らない
- * （GitHub Actions ではこのステップに `DATABASE_URL`、`DATABASE_SSL_CA`、`WORKER_SIMULATE_ALERT` だけを渡す）
+ * （GitHub Actions ではこのステップに `DATABASE_URL`、`DATABASE_SSL_CA`、`WORKER_SIMULATE_ALERT` と、上限の変数だけを渡す）
  */
 export interface CheckAlertsConfig {
   databaseUrl: string;
@@ -129,7 +129,16 @@ export interface CheckAlertsConfig {
   videoTextMonthlyUnitLimit: number;
   /** `ocr_monthly_cap` の判定に使う月の本数の上限（`WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS`） */
   videoTextMonthlyMaxVideos: number;
+  /** `db_size` の判定に使う DB の上限（MB。`WORKER_DB_SIZE_LIMIT_MB`。既定は Supabase の Pro に含まれるディスクの 8 GB。課題 ia-6ui） */
+  dbSizeLimitMb: number;
+  /** `storage_size` の判定に使う Storage の上限（MB。`WORKER_STORAGE_SIZE_LIMIT_MB`。既定は Pro に含まれる 100 GB） */
+  storageSizeLimitMb: number;
 }
+
+/** DB の上限の既定（MB）。Supabase の Pro の 1 プロジェクトに含まれるディスク 8 GB（2026-11-21 確認） */
+export const DEFAULT_DB_SIZE_LIMIT_MB = 8192;
+/** Storage の上限の既定（MB）。Supabase の Pro に含まれる 100 GB（2026-11-21 確認） */
+export const DEFAULT_STORAGE_SIZE_LIMIT_MB = 102400;
 
 type Env = Record<string, string | undefined>;
 
@@ -391,6 +400,9 @@ export function loadCheckAlertsConfig(env: Env = process.env): CheckAlertsConfig
       VIDEO_TEXT_MONTHLY_UNIT_LIMIT_MAX,
     ),
     videoTextMonthlyMaxVideos: integerInRange(env, "WORKER_VIDEO_TEXT_MONTHLY_MAX_VIDEOS", DEFAULT_VIDEO_TEXT_MONTHLY_MAX_VIDEOS, 0, 1000),
+    // 空文字は未設定と同じ（`optional` が空を undefined にする）。GitHub の変数が未設定なら既定になる
+    dbSizeLimitMb: integerInRange(env, "WORKER_DB_SIZE_LIMIT_MB", DEFAULT_DB_SIZE_LIMIT_MB, 1, 1_000_000),
+    storageSizeLimitMb: integerInRange(env, "WORKER_STORAGE_SIZE_LIMIT_MB", DEFAULT_STORAGE_SIZE_LIMIT_MB, 1, 10_000_000),
   };
 }
 

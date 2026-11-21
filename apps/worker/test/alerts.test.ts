@@ -3,8 +3,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  CAPACITY_WARN_RATIO,
   evaluateAlerts,
   NO_CREDENTIAL_STATUS,
+  RUN_DURATION_WARN_SECONDS,
   STORIES_FAILED_RUNS,
   STORIES_SKIPPED_RUNS,
   type AlertAccount,
@@ -235,5 +237,91 @@ describe("evaluateAlerts: ocr_monthly_cap（R4.1 設計 3.3 節）", () => {
     expect(evaluateAlerts(input(account({ ocrMonthly: { units: 5000, videos: 50 } })), NOW, "daily", false).alerts).toEqual([]);
     const paused = account({ status: "paused", ocrMonthly: { units: 5000, videos: 50 } });
     expect(evaluateAlerts({ ...input(paused), ocrLimits: limits }, NOW, "daily", false).alerts).toEqual([]);
+  });
+});
+
+describe("evaluateAlerts: 上限の警告（課題 ia-6ui）", () => {
+  const MB = 1024 * 1024;
+  const capacityLimits = { dbLimitMb: 8192, storageLimitMb: 102400 };
+
+  it("定数", () => {
+    expect(RUN_DURATION_WARN_SECONDS).toBe(900);
+    expect(CAPACITY_WARN_RATIO).toBe(0.8);
+  });
+
+  describe("run_duration（両方の scope）", () => {
+    it("900 秒ちょうどは警告しない、901 秒は警告。hourly でも daily でも", () => {
+      for (const scope of ["hourly", "daily"] as const) {
+        expect(evaluateAlerts({ ...input(account()), latestRunSeconds: 900 }, NOW, scope, false).alerts).toEqual([]);
+        expect(evaluateAlerts({ ...input(account()), latestRunSeconds: 901 }, NOW, scope, false).alerts).toEqual([
+          { kind: "run_duration", seconds: 901, limitSeconds: 900 },
+        ]);
+      }
+    });
+
+    it("端数は切り上げて出す（900.4 秒は超えているので 901）。12 秒は警告しない", () => {
+      expect(evaluateAlerts({ ...input(account()), latestRunSeconds: 900.4 }, NOW, "hourly", false).alerts).toEqual([
+        { kind: "run_duration", seconds: 901, limitSeconds: 900 },
+      ]);
+      expect(evaluateAlerts({ ...input(account()), latestRunSeconds: 12.3 }, NOW, "hourly", false).alerts).toEqual([]);
+    });
+
+    it("値がなければ判定しない。アカウントが 0 件でも判定する（account を持たない）", () => {
+      expect(evaluateAlerts(input(account()), NOW, "hourly", false).alerts).toEqual([]);
+      expect(evaluateAlerts({ accounts: [], latestRunSeconds: 1800 }, NOW, "hourly", false)).toEqual({
+        alerts: [{ kind: "run_duration", seconds: 1800, limitSeconds: 900 }],
+        noHistory: false,
+        noHistoryKinds: [],
+      });
+    });
+  });
+
+  describe("db_size と storage_size（daily のみ）", () => {
+    it("8 割ちょうどは警告、1 バイト足りなければ警告しない。percent と used_mb は切り捨て", () => {
+      const dbAt = 8192 * MB * 0.8;
+      const storageAt = 102400 * MB * 0.8;
+      expect(
+        evaluateAlerts({ accounts: [], capacity: { dbBytes: dbAt, storageBytes: storageAt }, capacityLimits }, NOW, "daily", false).alerts,
+      ).toEqual([
+        { kind: "db_size", usedMb: 6553, limitMb: 8192, percent: 80 },
+        { kind: "storage_size", usedMb: 81920, limitMb: 102400, percent: 80 },
+      ]);
+      expect(
+        evaluateAlerts({ accounts: [], capacity: { dbBytes: dbAt - 1, storageBytes: storageAt - 1 }, capacityLimits }, NOW, "daily", false).alerts,
+      ).toEqual([]);
+    });
+
+    it("片方だけ超えればその 1 件。上限を超えた値は 100 以上の percent", () => {
+      expect(
+        evaluateAlerts({ accounts: [], capacity: { dbBytes: 9000 * MB, storageBytes: 2 * MB }, capacityLimits }, NOW, "daily", false).alerts,
+      ).toEqual([{ kind: "db_size", usedMb: 9000, limitMb: 8192, percent: 109 }]);
+      // 2026-11-21 の実測（52 MB、1.7 MB）は該当しない
+      expect(
+        evaluateAlerts({ accounts: [], capacity: { dbBytes: 52 * MB, storageBytes: 1.7 * MB }, capacityLimits }, NOW, "daily", false).alerts,
+      ).toEqual([]);
+    });
+
+    it("hourly では判定しない。容量か上限の省略でも判定しない", () => {
+      const full = { dbBytes: 8192 * MB, storageBytes: 102400 * MB };
+      expect(evaluateAlerts({ accounts: [], capacity: full, capacityLimits }, NOW, "hourly", false).alerts).toEqual([]);
+      expect(evaluateAlerts({ accounts: [], capacityLimits }, NOW, "daily", false).alerts).toEqual([]);
+      expect(evaluateAlerts({ accounts: [], capacity: full }, NOW, "daily", false).alerts).toEqual([]);
+      expect(evaluateAlerts({ accounts: [], capacity: full, capacityLimits }, NOW, "daily", false).alerts).toHaveLength(2);
+    });
+  });
+
+  it("並びはアカウントの判定のあとに run_duration、db_size、storage_size", () => {
+    const result = evaluateAlerts(
+      {
+        ...input(account({ credential: null })),
+        latestRunSeconds: 1000,
+        capacity: { dbBytes: 8192 * MB, storageBytes: 102400 * MB },
+        capacityLimits,
+      },
+      NOW,
+      "daily",
+      true,
+    );
+    expect(result.alerts.map((alert) => alert.kind)).toEqual(["simulated", "token", "run_duration", "db_size", "storage_size"]);
   });
 });

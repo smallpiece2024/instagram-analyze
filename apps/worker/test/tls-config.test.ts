@@ -86,8 +86,31 @@ describe("loadCheckAlertsConfig", () => {
       simulateAlert: false,
       videoTextMonthlyUnitLimit: 1000,
       videoTextMonthlyMaxVideos: 30,
+      dbSizeLimitMb: 8192,
+      storageSizeLimitMb: 102400,
     });
     expectConfigError(() => loadCheckAlertsConfig({}), "DATABASE_URL");
+  });
+
+  it("容量の上限（MB）: 省略と空文字は既定（8192、102400）。範囲外と整数でない値は ConfigError（値を含まない）", () => {
+    const url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+    // GitHub の変数が未設定だと空文字で渡る
+    const empty = loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "", WORKER_STORAGE_SIZE_LIMIT_MB: " " });
+    expect(empty.dbSizeLimitMb).toBe(8192);
+    expect(empty.storageSizeLimitMb).toBe(102400);
+    const set = loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "1", WORKER_STORAGE_SIZE_LIMIT_MB: "10000000" });
+    expect(set.dbSizeLimitMb).toBe(1);
+    expect(set.storageSizeLimitMb).toBe(10_000_000);
+    expect(loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "1000000" }).dbSizeLimitMb).toBe(1_000_000);
+    expectConfigError(() => loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "0" }), "WORKER_DB_SIZE_LIMIT_MB");
+    expectConfigError(() => loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "1000001" }), "WORKER_DB_SIZE_LIMIT_MB", "1000001");
+    expectConfigError(() => loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_DB_SIZE_LIMIT_MB: "8.5gb" }), "WORKER_DB_SIZE_LIMIT_MB", "8.5gb");
+    expectConfigError(() => loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_STORAGE_SIZE_LIMIT_MB: "0" }), "WORKER_STORAGE_SIZE_LIMIT_MB");
+    expectConfigError(
+      () => loadCheckAlertsConfig({ DATABASE_URL: url, WORKER_STORAGE_SIZE_LIMIT_MB: "10000001" }),
+      "WORKER_STORAGE_SIZE_LIMIT_MB",
+      "10000001",
+    );
   });
 
   it("WORKER_SIMULATE_ALERT は true／false（省略は false）。それ以外は ConfigError（値を含まない）", () => {

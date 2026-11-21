@@ -226,7 +226,7 @@ npm run worker:verify-api
 
 ## クラウド稼働（R2）
 
-設計と理由は `doc/design/r2-cloud.md`。構成は Supabase Cloud（Free）＋ Vercel（Hobby）＋ GitHub Actions（公開リポジトリ）。ローカル環境は開発用に残すが、切り替え後はローカルの常駐（`npm run worker:up`）を使わない（二重収集になる）。プロジェクトの ref、本番の URL、鍵はリポジトリに書かない。
+設計と理由は `doc/design/r2-cloud.md`。構成は Supabase Cloud（設計時は Free。2026-11-21 時点の契約は Pro）＋ Vercel（Hobby）＋ GitHub Actions（公開リポジトリ）。ローカル環境は開発用に残すが、切り替え後はローカルの常駐（`npm run worker:up`）を使わない（二重収集になる）。プロジェクトの ref、本番の URL、鍵はリポジトリに書かない。
 
 ### 1. Supabase Cloud の設定（ダッシュボード）
 
@@ -301,6 +301,7 @@ Secrets は Environment **`Production`** に置く（`collect.yml` の `collect`
 | Variable | `DATABASE_SSL_CA` | CA 証明書の PEM（複数行のまま貼る。崩れたら `\n` のリテラルでもよい） |
 | Variable | `COLLECT_ENABLED` | **切り替えが終わるまで `false`**。`true` で収集が動く。ローカルへ戻すときも `false` |
 | Variable | `WORKER_SIMULATE_ALERT` | 普段は未設定。通知の経路の確認で一時的に `true` |
+| Variable | `WORKER_DB_SIZE_LIMIT_MB`、`WORKER_STORAGE_SIZE_LIMIT_MB` | 普段は未設定。容量の警告の上限（MB）。既定は 8192 と 102400（Supabase の Pro プランに含まれるディスク 8 GB と Storage 100 GB）。契約やディスクの大きさを変えたら合わせる |
 
 Variables はステップを展開すると平文で見えるので、公開されてよい値だけを置く。`COLLECT_KEEPALIVE` は使わなくなった（GitHub の schedule をやめたため）。登録済みなら削除する。失敗メールは起動した人（下のトークンの持ち主）に届く。GitHub の通知設定で「失敗したときだけ」にしておく。
 
@@ -380,6 +381,7 @@ Vault（トークン）と `private.credentials` は移さない（鍵がプロ�
 
 - トークンのデータアクセス期限が 14 日を切ると daily の `check-alerts` が毎日メールを出す。本番の `/connect` で接続し直す。
 - 月 1 回、Supabase の Usage（DB、Storage、egress）と Vercel の Usage を見る。
+- 上限の警告（`check-alerts`）: 収集 1 回の所要が 15 分を超えると `alert=run_duration`（毎回判定。GitHub Actions のジョブの制限時間は 30 分）。DB（`pg_database_size`）か Storage が上限の 8 割以上になると daily の回に `alert=db_size`／`alert=storage_size`。どれも GitHub の失敗メールで届く。現在値と日ごとの推移は本番の `/jobs` の「上限」に出る（容量はクラウドの Supabase の pg_cron `capacity-daily` が毎日 00:07 JST に `capacity_daily` へ記録する）。
 - 起動用のトークン（5.1）の期限の前に、GitHub で同じ設定のトークンを作り直し（または Regenerate し）、クラウドの Supabase の Vault で既存の `collect-dispatch-token` の値を編集して差し替える（同じ名前で追加しない）。期限が切れると起動が止まり、Healthchecks のメールで分かる。
 - 起動が止まったときは、クラウドの Supabase の SQL エディタで `select status, return_message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'collect-dispatch') order by start_time desc limit 5;` を見る（失敗は `status=…` 付きで 30 日残る）。
 - JST 05:17 の回の起動が失敗すると、その日の daily は抜ける。気づいたら GitHub の Actions で `collect` を `run_daily` 付きで手動実行する。

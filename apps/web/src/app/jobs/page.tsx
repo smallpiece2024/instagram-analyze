@@ -3,7 +3,7 @@
  *
  * - 対象のアカウントは `getTargetAccount`（4.1 節）。決まらなければ固定文言と `/connect` へのリンクだけ
  * - クエリ `job` は `parseJob`（ジョブ名の許可リスト）、`status` は `parseJobStatus`（5 値）、`page` は `parsePageNumber`。外れたら既定
- * - カードは `<Suspense>` で包み、それぞれがデータを取る。1 枚の失敗はそのカードの中に出す（4.5 節）
+ * - カードは `<Suspense>` で包み、それぞれがデータを取る。1 枚の失敗はそのカードの中に出す（4.5 節）。最後は「上限」（課題 ia-6ui）
  * - 見本の「今すぐ収集」ボタンは置かない（1.2 節）
  */
 import Link from "next/link";
@@ -13,6 +13,7 @@ import { PageHead } from "@/components/PageHead";
 import { parseJob, parseJobStatus, parsePageNumber } from "@/lib/params";
 import { getTargetAccount, TARGET_ACCOUNT_NOT_SET } from "@/lib/queries/account";
 import { ConnectionStatusList } from "./_components/connection-status";
+import { LimitsCard } from "./_components/limits-card";
 import { OcrUsageCard } from "./_components/ocr-usage-card";
 import { RunsCard } from "./_components/runs-card";
 import { ScheduleCard } from "./_components/schedule-card";
@@ -72,6 +73,9 @@ export default async function JobsPage(props: PageProps<"/jobs">) {
         </Suspense>
         <Suspense fallback={<Loading className="col-12" />}>
           <OcrUsageCard accountId={accountId} className="col-12" />
+        </Suspense>
+        <Suspense fallback={<Loading className="col-12" />}>
+          <LimitsCard accountId={accountId} className="col-12" />
         </Suspense>
       </div>
     </main>

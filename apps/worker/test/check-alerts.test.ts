@@ -13,6 +13,15 @@ const NOW = new Date("2026-10-01T05:30:00Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FAKE_DB_URL = "postgresql://postgres.abcdefghijklmnop:pw-secret@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres";
 
+const MB = 1024 * 1024;
+const CONFIG: CheckAlertsDeps["config"] = {
+  simulateAlert: false,
+  videoTextMonthlyUnitLimit: 1000,
+  videoTextMonthlyMaxVideos: 30,
+  dbSizeLimitMb: 8192,
+  storageSizeLimitMb: 102400,
+};
+
 /** postgres.js の PostgresError と同じ形（name と SQLSTATE の code）の偽物 */
 function fakePostgresError(code: string, message: string): Error {
   return Object.assign(new Error(message), { name: "PostgresError", code });
@@ -27,12 +36,15 @@ function fakeDeps(overrides: Partial<CheckAlertsDeps> = {}): { deps: CheckAlerts
   const db = {} as unknown as Db;
   return {
     deps: {
-      config: { simulateAlert: false, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 },
+      config: CONFIG,
       db,
       log,
       secrets,
       now: () => NOW,
       listAccounts: async () => [],
+      // 所要と容量は DB を読まずに固定する（回がない。容量は 2026-11-21 の実測に近い値で、該当しない）
+      readLatestRunSeconds: async () => undefined,
+      readCapacity: async () => ({ dbBytes: 52 * MB, storageBytes: 2 * MB }),
       ...overrides,
     },
     lines,
@@ -63,6 +75,9 @@ describe("alertFields", () => {
       { kind: "stories_failed", ordinal: 1, total: 2, runs: 2 },
       { kind: "stories_skipped", ordinal: 2, total: 2, runs: 3 },
       { kind: "ocr_monthly_cap", ordinal: 1, total: 2, units: 1000, videos: 3 },
+      { kind: "run_duration", seconds: 901, limitSeconds: 900 },
+      { kind: "db_size", usedMb: 6554, limitMb: 8192, percent: 80 },
+      { kind: "storage_size", usedMb: 90000, limitMb: 102400, percent: 87 },
     ];
     expect(alerts.map(alertFields)).toEqual([
       { alert: "simulated" },
@@ -71,6 +86,10 @@ describe("alertFields", () => {
       { alert: "stories_failed", account: "1/2", runs: 2 },
       { alert: "stories_skipped", account: "2/2", runs: 3 },
       { alert: "ocr_monthly_cap", account: "1/2", units: 1000, videos: 3 },
+      // 全アカウントの合計の 3 つには account が付かない
+      { alert: "run_duration", seconds: 901, limit_seconds: 900 },
+      { alert: "db_size", used_mb: 6554, limit_mb: 8192, percent: 80 },
+      { alert: "storage_size", used_mb: 90000, limit_mb: 102400, percent: 87 },
     ]);
   });
 
@@ -101,7 +120,7 @@ describe("runCheckAlerts（DB に触れない経路）", () => {
   });
 
   it("simulate なら WARN alert=simulated を出して false", async () => {
-    const { deps, lines } = fakeDeps({ config: { simulateAlert: true, videoTextMonthlyUnitLimit: 1000, videoTextMonthlyMaxVideos: 30 } });
+    const { deps, lines } = fakeDeps({ config: { ...CONFIG, simulateAlert: true } });
     await expect(runCheckAlerts("daily", deps)).resolves.toBe(false);
     expect(lines).toEqual([
       "2026-10-01T05:30:00.000Z WARN  alert=simulated",
@@ -135,6 +154,72 @@ describe("runCheckAlerts（DB に触れない経路）", () => {
     const text = lines.join("\n");
     expect(text).not.toContain("pooler.supabase.com");
     expect(text).not.toContain("altnames");
+  });
+});
+
+describe("runCheckAlerts: 上限の警告（課題 ia-6ui。読み出しを差し替えてログを確かめる）", () => {
+  it("所要は hourly でも daily でも読み、容量は daily だけ読む（アカウントが 0 件でも）", async () => {
+    for (const [scope, expected] of [["hourly", ["duration"]], ["daily", ["duration", "capacity"]]] as const) {
+      const reads: string[] = [];
+      const { deps } = fakeDeps({
+        readLatestRunSeconds: async () => {
+          reads.push("duration");
+          return 12;
+        },
+        readCapacity: async () => {
+          reads.push("capacity");
+          return { dbBytes: 52 * MB, storageBytes: 2 * MB };
+        },
+      });
+      await expect(runCheckAlerts(scope, deps)).resolves.toBe(true);
+      expect(reads).toEqual(expected);
+    }
+  });
+
+  it("所要が 15 分を超えたら WARN alert=run_duration で false。account= は付かず、reason=no_accounts も出ない", async () => {
+    const { deps, lines } = fakeDeps({ readLatestRunSeconds: async () => 1234.5 });
+    await expect(runCheckAlerts("hourly", deps)).resolves.toBe(false);
+    expect(lines).toEqual([
+      "2026-10-01T05:30:00.000Z WARN  alert=run_duration seconds=1235 limit_seconds=900",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=0 alerts=1",
+    ]);
+  });
+
+  it("900 秒ちょうどは警告しない（既存の reason=no_accounts のまま）", async () => {
+    const { deps, lines } = fakeDeps({ readLatestRunSeconds: async () => 900 });
+    await expect(runCheckAlerts("hourly", deps)).resolves.toBe(true);
+    expect(lines).toEqual(["2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=hourly accounts=0 alerts=0 reason=no_accounts"]);
+  });
+
+  it("daily で容量が 8 割以上なら WARN alert=db_size と alert=storage_size。hourly では出ない", async () => {
+    const readCapacity = async (): Promise<{ dbBytes: number; storageBytes: number }> => ({ dbBytes: 7000 * MB, storageBytes: 102400 * MB });
+    const daily = fakeDeps({ readCapacity });
+    await expect(runCheckAlerts("daily", daily.deps)).resolves.toBe(false);
+    expect(daily.lines).toEqual([
+      "2026-10-01T05:30:00.000Z WARN  alert=db_size used_mb=7000 limit_mb=8192 percent=85",
+      "2026-10-01T05:30:00.000Z WARN  alert=storage_size used_mb=102400 limit_mb=102400 percent=100",
+      "2026-10-01T05:30:00.000Z INFO  command=check-alerts scope=daily accounts=0 alerts=2",
+    ]);
+    const hourly = fakeDeps({ readCapacity });
+    await expect(runCheckAlerts("hourly", hourly.deps)).resolves.toBe(true);
+  });
+
+  it("上限は設定の値を使う（小さくすれば実測に近い値でも該当する）", async () => {
+    const { deps, lines } = fakeDeps({ config: { ...CONFIG, dbSizeLimitMb: 60 } });
+    await expect(runCheckAlerts("daily", deps)).resolves.toBe(false);
+    expect(lines[0]).toBe("2026-10-01T05:30:00.000Z WARN  alert=db_size used_mb=52 limit_mb=60 percent=86");
+  });
+
+  it("所要や容量の読み出しの失敗は ERROR class=db で false（alert と区別できる）", async () => {
+    const failing = async (): Promise<never> => {
+      throw fakePostgresError("42501", "permission denied for function capacity_snapshot");
+    };
+    const duration = fakeDeps({ readLatestRunSeconds: failing });
+    await expect(runCheckAlerts("hourly", duration.deps)).resolves.toBe(false);
+    expect(duration.lines[0]).toBe("2026-10-01T05:30:00.000Z ERROR command=check-alerts scope=hourly error_code=42501 class=db");
+    const capacity = fakeDeps({ readCapacity: failing });
+    await expect(runCheckAlerts("daily", capacity.deps)).resolves.toBe(false);
+    expect(capacity.lines[0]).toBe("2026-10-01T05:30:00.000Z ERROR command=check-alerts scope=daily error_code=42501 class=db");
   });
 });
 
