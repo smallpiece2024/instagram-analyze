@@ -425,3 +425,10 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 - **本番への反映（2026-11-21）**: 親が `npx supabase db push` で本番に適用（対象は 1 本だけと `--dry-run` で確かめてから）。`capacity_daily` に当日の行（DB 約 52 MB、Storage 約 1.7 MB、56 個）、pg_cron に `capacity-daily`、`collect_run_durations` は直近 35 日で 840 回（最新の回は 16 秒）、`web_app` は表を読めて関数は実行できない、を読み取りの SQL で確かめた。そのあと main に `--no-ff` でマージして push（4799b9b）。Vercel の本番のデプロイは成功。`collect` を `run_daily` 付きで手動起動（06:32 UTC）して success、`check-alerts --scope daily` は `alerts=0` で WARN と ERROR なし（容量と所要を読めている）。課題 ia-6ui と、月 1 回の手動の計測 ia-dv9 を閉じた
 - **本番への接続の設定（2026-11-21、ユーザーの指示）**: この PC の Supabase CLI のログインが別のアカウント（ほかのプロジェクト用）に戻ることがあり、ログインし直しを何度も頼むことになった。ユーザーが本番のプロジェクトだけに効くアクセストークンを作り、Git 管理外の `.claude/settings.local.json` の `env`（`SUPABASE_ACCESS_TOKEN`）に入れた。同じファイルの許可のルールに `npx supabase db push` を足した（auto mode が本番への適用を止めるため）。以後、この作業ディレクトリでは親が本番の読み取り（`npx supabase db query --linked`）とマイグレーションの適用を行える
 - **残り**: 本番の `/jobs` の「上限」のカードの見た目の確認（ユーザー）。次の 00:07 JST に pg_cron が 2 行目を入れること（翌日以降の `/jobs` の「N 日前との差」で分かる）
+
+## 16. 依存パッケージの脆弱性への対応（課題 ia-qrm）
+
+- **きっかけ（2026-11-21）**: main の push のたびに GitHub が脆弱性の通知を報告していた（31 件 → 同日 40 件）。ユーザーの指示で中身を確かめた。大半は本番で動く `next` 16.3.7 のもの（critical 2 種: `use cache` の関数を経由した未認証のリモートコード実行、画像最適化 API を経由した未認証のリモートコード実行。high: Server Actions によるサービス停止、画像最適化の SSRF。11-03 から開いていた）。ほかは開発用の `vite`、`minimatch`、実行時の `source-map-js`、`npm audit` では `zod`
+- **影響の見立て（コードを読んだ範囲。攻撃の成否は試していない）**: `use cache` は使っていない。`/_next/image` は proxy の認証の内側で未ログインでは届かない。未ログインで届くのは `/login` とその Server Action
+- **対応（親が実施）**: `next` と `eslint-config-next` を 16.4.6 に固定し、`npm audit fix`（互換の範囲。24 個を更新、1 個を追加）で残りを上げた。`npm audit` は 0 件。16.4 の資料（`node_modules/next/dist/docs/` の版ごとの変更の表）では、取り除かれた `experimental.appNewScrollHandler` と名前の変わった `unstable_navigation`／`unstable_prefetch` をこのコードは使っていない
+- **確認**: lint、型検査（Web、ワーカー）、Web 1,034 件、ワーカー 867 件（どちらも結合テスト込み）、`next build`（16.4.6）が通過。手元で `next start` を起動し、`/login` が 200、未ログインの `/jobs` と `/_next/image` が `/login` へ 303 になることを確かめた。ログイン後の各画面の表示は手元では見ていない（本番でユーザーが確かめる）
