@@ -432,3 +432,4 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm ru
 - **影響の見立て（コードを読んだ範囲。攻撃の成否は試していない）**: `use cache` は使っていない。`/_next/image` は proxy の認証の内側で未ログインでは届かない。未ログインで届くのは `/login` とその Server Action
 - **対応（親が実施）**: `next` と `eslint-config-next` を 16.4.6 に固定し、`npm audit fix`（互換の範囲。24 個を更新、1 個を追加）で残りを上げた。`npm audit` は 0 件。16.4 の資料（`node_modules/next/dist/docs/` の版ごとの変更の表）では、取り除かれた `experimental.appNewScrollHandler` と名前の変わった `unstable_navigation`／`unstable_prefetch` をこのコードは使っていない
 - **確認**: lint、型検査（Web、ワーカー）、Web 1,034 件、ワーカー 867 件（どちらも結合テスト込み）、`next build`（16.4.6）が通過。手元で `next start` を起動し、`/login` が 200、未ログインの `/jobs` と `/_next/image` が `/login` へ 303 になることを確かめた。ログイン後の各画面の表示は手元では見ていない（本番でユーザーが確かめる）
+- **本番への反映（2026-11-21）**: main に `--no-ff` でマージして push（d76e2b6）。Vercel の本番のデプロイは成功。GitHub の Dependabot の未対応の通知は 40 件 → 0 件。手動の `collect`（06:47 UTC、hourly）が success（41 秒）。課題 ia-qrm を閉じた
